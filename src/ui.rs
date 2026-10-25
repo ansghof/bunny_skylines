@@ -3,12 +3,14 @@
 use bevy::prelude::*;
 
 use crate::colony::{Colony, Messages};
+use crate::danger::AlarmButton;
+use crate::daynight::DayClock;
 use crate::map::{Grid, ViewLayer};
 use crate::rabbit::Rabbit;
 use crate::speed;
 use crate::tools::{Tool, ToolKind};
 
-const HELP: &str = "G Graben · E Eingang · N Schlafkammer · V Vorratskammer · X Auftrag entfernen · R Tiefe\n\
+const HELP: &str = "G Graben · E Eingang · N Schlafkammer · V Vorratskammer · P Wachposten · X Entfernen · R Tiefe · F Alarm\n\
 Linke Maustaste ziehen: Bereich markieren · Mittlere Maustaste oder WASD: Karte verschieben · Mausrad: Zoom";
 
 pub struct UiPlugin;
@@ -54,6 +56,8 @@ fn spawn_ui(mut commands: Commands) {
 
 fn update_status(
     time: Res<Time<Virtual>>,
+    clock: Res<DayClock>,
+    alarm: Res<AlarmButton>,
     view: Res<ViewLayer>,
     tool: Res<Tool>,
     grid: Res<Grid>,
@@ -61,6 +65,11 @@ fn update_status(
     rabbits: Query<&Rabbit>,
     mut text: Single<&mut Text, With<StatusText>>,
 ) {
+    let alarm = if alarm.cooldown > 0.0 {
+        format!("noch {:.0} s", alarm.cooldown)
+    } else {
+        "bereit".into()
+    };
     let total = rabbits.iter().count();
     let young = rabbits.iter().filter(|r| !r.is_adult()).count();
     let depth = if tool.kind == ToolKind::Dig {
@@ -69,9 +78,11 @@ fn update_status(
         String::new()
     };
     text.0 = format!(
-        "Ansicht: {} [Tab]    Tempo: {} [Leertaste, 1–3]\n\
-         Werkzeug: {}{depth}\n\
+        "Tag {} · {}    Ansicht: {} [Tab]    Tempo: {} [Leertaste, 1–3]\n\
+         Werkzeug: {}{depth}    Alarm [F]: {alarm}\n\
          Kaninchen: {total} (davon {young} Junge)    Schlafplätze: {}    Vorrat: {:.0} / {:.0}",
+        clock.day,
+        clock.phase().label(),
         view.0.label(),
         speed::label(&time),
         tool.kind.label(),

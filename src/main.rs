@@ -1,8 +1,11 @@
 mod behavior;
 mod camera;
 mod colony;
+mod danger;
+mod daynight;
 mod map;
 mod pathfinding;
+mod predator;
 mod rabbit;
 mod rig;
 mod speed;
@@ -31,6 +34,9 @@ fn main() {
             rig::RigPlugin,
             rabbit::RabbitPlugin,
             behavior::BehaviorPlugin,
+            daynight::DayNightPlugin,
+            predator::PredatorPlugin,
+            danger::DangerPlugin,
             ui::UiPlugin,
         ))
         .run();

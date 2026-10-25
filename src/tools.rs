@@ -21,6 +21,7 @@ pub enum ToolKind {
     Dig,
     Entrance,
     Chamber(Chamber),
+    Post,
     Remove,
 }
 
@@ -30,15 +31,20 @@ impl ToolKind {
             ToolKind::Dig => "Graben",
             ToolKind::Entrance => "Eingang",
             ToolKind::Chamber(chamber) => chamber.label(),
-            ToolKind::Remove => "Auftrag entfernen",
+            ToolKind::Post => "Wachposten",
+            ToolKind::Remove => "Entfernen",
         }
+    }
+
+    fn is_single(self) -> bool {
+        matches!(self, ToolKind::Entrance | ToolKind::Post)
     }
 
     /// Die Ansicht, in der das Werkzeug benutzt wird; `None` = beide.
     fn layer(self) -> Option<Layer> {
         match self {
             ToolKind::Dig | ToolKind::Chamber(_) => Some(Layer::Underground),
-            ToolKind::Entrance => Some(Layer::Surface),
+            ToolKind::Entrance | ToolKind::Post => Some(Layer::Surface),
             ToolKind::Remove => None,
         }
     }
@@ -61,6 +67,7 @@ fn select_tool(keys: Res<ButtonInput<KeyCode>>, mut tool: ResMut<Tool>, mut view
         (KeyCode::KeyE, ToolKind::Entrance),
         (KeyCode::KeyN, ToolKind::Chamber(Chamber::Sleeping)),
         (KeyCode::KeyV, ToolKind::Chamber(Chamber::Storage)),
+        (KeyCode::KeyP, ToolKind::Post),
         (KeyCode::KeyX, ToolKind::Remove),
     ]
     .into_iter()
@@ -100,9 +107,15 @@ fn apply_drag(
     }
 
     let end = TilePos::from_world_clamped(cursor);
-    if tool.kind == ToolKind::Entrance {
-        // Eingänge immer einzeln, ein ganzer Bereich voller Löcher ergibt keinen Sinn.
-        plan_entrance(&mut grid, end);
+    // Eingänge und Posten immer einzeln, ein ganzer Bereich davon ergibt keinen Sinn.
+    if tool.kind.is_single() {
+        let tile = grid.surface_mut(end);
+        if !tile.entrance {
+            match tool.kind {
+                ToolKind::Entrance => tile.entrance_planned = true,
+                _ => tile.post = true,
+            }
+        }
         return;
     }
     for p in tiles_between(start, end) {
@@ -123,17 +136,12 @@ fn apply_drag(
                 let tile = grid.under_mut(p);
                 tile.planned = None;
                 tile.chamber = None;
-                grid.surface_mut(p).entrance_planned = false;
+                let surface = grid.surface_mut(p);
+                surface.entrance_planned = false;
+                surface.post = false;
             }
-            ToolKind::Entrance => unreachable!(),
+            ToolKind::Entrance | ToolKind::Post => unreachable!(),
         }
-    }
-}
-
-fn plan_entrance(grid: &mut Grid, p: TilePos) {
-    let tile = grid.surface_mut(p);
-    if !tile.entrance {
-        tile.entrance_planned = true;
     }
 }
 
@@ -157,7 +165,7 @@ fn draw_preview(
 
     let end = TilePos::from_world_clamped(cursor);
     let start = match drag.start {
-        Some(start) if buttons.pressed(MouseButton::Left) && tool.kind != ToolKind::Entrance => start,
+        Some(start) if buttons.pressed(MouseButton::Left) && !tool.kind.is_single() => start,
         _ => end,
     };
     let min = start.center().min(end.center()) - TILE_SIZE / 2.0;

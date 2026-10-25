@@ -151,6 +151,8 @@ pub struct SurfaceTile {
     pub grass: f32,
     pub entrance: bool,
     pub entrance_planned: bool,
+    /// Wachposten: Von hier hält ein Kaninchen Ausschau.
+    pub post: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -327,6 +329,9 @@ fn surface_color(grid: &Grid, p: TilePos) -> Color {
     let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass).map(|c| c * checker);
     if tile.entrance_planned {
         rgb = mix(rgb, [0.95, 0.62, 0.25], 0.55);
+    }
+    if tile.post {
+        rgb = mix(rgb, [0.60, 0.48, 0.30], 0.7);
     }
     // Gänge darunter scheinen leicht durch.
     if grid.under(p).dug.is_some() {

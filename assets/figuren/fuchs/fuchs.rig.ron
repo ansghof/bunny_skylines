@@ -1,0 +1,17 @@
+// Bauplan des Fuchses. Aufbau und Bedeutung der Felder wie bei kaninchen.rig.ron.
+(
+    pixel_massstab: 0.3,
+    teile: [
+        (name: "bein_hinten_fern", bild: "bein_fern.png", position: (-46, 76),  drehpunkt: (0.5, 0.95), ebene: 0, faerben: false),
+        (name: "bein_vorne_fern",  bild: "bein_fern.png", position: (70, 76),   drehpunkt: (0.5, 0.95), ebene: 0, faerben: false),
+        (name: "schwanz",          bild: "schwanz.png",   position: (-86, 96),  drehpunkt: (0.97, 0.5), drehung: 10, ebene: 1, faerben: false),
+        (name: "koerper",          bild: "koerper.png",   position: (0, 86),    drehpunkt: (0.5, 0.5),  ebene: 2, faerben: false),
+        (name: "bein_hinten_nah",  bild: "bein_nah.png",  position: (-58, 74),  drehpunkt: (0.5, 0.95), ebene: 3, faerben: false),
+        (name: "bein_vorne_nah",   bild: "bein_nah.png",  position: (58, 74),   drehpunkt: (0.5, 0.95), ebene: 3, faerben: false),
+        (name: "ohr_fern",         bild: "ohr_fern.png",  position: (110, 140), drehpunkt: (0.5, 0.06), drehung: -8, ebene: 3, faerben: false),
+        (name: "ohr_nah",          bild: "ohr_nah.png",   position: (92, 138),  drehpunkt: (0.5, 0.06), ebene: 3, faerben: false),
+        (name: "kopf",             bild: "kopf.png",      position: (100, 112), drehpunkt: (0.34, 0.5), ebene: 4, faerben: false),
+        (name: "auge",             bild: "auge_offen.png", position: (116, 120), drehpunkt: (0.5, 0.5), ebene: 5, faerben: false,
+            varianten: {"zu": "auge_zu.png"}),
+    ],
+)

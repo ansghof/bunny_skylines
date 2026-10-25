@@ -4,16 +4,17 @@ use std::f32::consts::{PI, TAU};
 
 use bevy::prelude::*;
 
-use crate::behavior::{Activity, Carrying, Path};
+use crate::behavior::{Activity, Carrying, Fear, Path};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Grid, Layer, TilePos, ViewLayer};
-use crate::rig::{Part, RigDefinition, RigRoot, spawn_rig};
+use crate::rig::{Part, RigRoot, RigSource, pose_part};
 
 /// Spielsekunden, bis ein Junges erwachsen ist.
 pub const ADULT_AGE: f32 = 150.0;
 const PREGNANCY_SECONDS: f32 = 40.0;
 const BIRTH_COOLDOWN_SECONDS: f32 = 90.0;
 const HOPS_PER_SECOND: f32 = 2.6;
+const FLEE_HOPS_PER_SECOND: f32 = 3.8;
 /// Wie hoch ein Hopser geht, in Spieleinheiten.
 const HOP_HEIGHT: f32 = 8.0;
 
@@ -39,19 +40,10 @@ pub struct RabbitPlugin;
 
 impl Plugin for RabbitPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (load_rig, spawn_founders))
-            .add_systems(
-                Update,
-                (
-                    reload_rigs,
-                    attach_rigs,
-                    grow_up,
-                    start_pregnancies,
-                    give_birth,
-                    tick_birth_cooldown,
-                    animate,
-                ),
-            );
+        app.add_systems(Startup, spawn_founders).add_systems(
+            Update,
+            (grow_up, start_pregnancies, give_birth, tick_birth_cooldown, tick_stomping, animate),
+        );
     }
 }
 
@@ -83,14 +75,15 @@ pub struct OnLayer(pub Layer);
 #[derive(Component)]
 pub struct Offset(pub Vec2);
 
+/// Stampft gerade auf den Boden, noch so viele Sekunden.
+#[derive(Component)]
+pub struct Stomping(pub f32);
+
 #[derive(Component)]
 struct Pregnant(f32);
 
 #[derive(Component)]
 struct BirthCooldown(f32);
-
-#[derive(Component)]
-struct HasRig;
 
 #[derive(Component)]
 struct Anim {
@@ -102,10 +95,8 @@ struct Anim {
     last_x: f32,
 }
 
-#[derive(Resource)]
-struct RabbitRig(Handle<RigDefinition>);
-
-pub fn rabbit_bundle(
+fn rabbit_bundle(
+    asset_server: &AssetServer,
     name: String,
     female: bool,
     age: f32,
@@ -115,14 +106,15 @@ pub fn rabbit_bundle(
     rng: &mut Rng,
 ) -> impl Bundle {
     (
-        Rabbit { name, female, age },
-        Fur(fur),
-        Hunger(rng.range(0.1, 0.3)),
-        OnLayer(layer),
-        Offset(Vec2::new(rng.range(-14.0, 14.0), rng.range(-14.0, 14.0))),
-        Activity::Idle(rng.range(0.5, 2.0)),
-        Path::default(),
-        Carrying::default(),
+        (
+            Rabbit { name, female, age },
+            Fur(fur),
+            Hunger(rng.range(0.1, 0.3)),
+            Fear::default(),
+            OnLayer(layer),
+            Offset(Vec2::new(rng.range(-14.0, 14.0), rng.range(-14.0, 14.0))),
+        ),
+        (Activity::Idle(rng.range(0.5, 2.0)), Path::default(), Carrying::default()),
         Anim {
             hop_phase: 0.0,
             blink_timer: rng.range(1.0, 4.0),
@@ -130,65 +122,41 @@ pub fn rabbit_bundle(
             facing_left: false,
             last_x: position.x,
         },
+        RigSource {
+            rig: asset_server.load(RIG_PATH),
+            folder: RIG_FOLDER,
+        },
         Transform::from_translation(position.extend(z_for(position))),
         Visibility::default(),
     )
 }
 
-/// Weiter unten stehende Kaninchen werden vor weiter oben stehenden gezeichnet.
+/// Weiter unten stehende Figuren werden vor weiter oben stehenden gezeichnet.
 pub fn z_for(position: Vec2) -> f32 {
     10.0 - position.y * 0.001
 }
 
-fn load_rig(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.insert_resource(RabbitRig(asset_server.load(RIG_PATH)));
-}
-
-fn spawn_founders(mut commands: Commands, mut rng: ResMut<Rng>, mut messages: ResMut<Messages>) {
+fn spawn_founders(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut rng: ResMut<Rng>,
+    mut messages: ResMut<Messages>,
+) {
     let near_entrance = TilePos::new(19, 15).center();
     for (name, female, fur, dx) in [("Schneeflocke", true, FUR_COLORS[0], -20.0), ("Lukas", false, FUR_COLORS[1], 20.0)] {
         let position = near_entrance + Vec2::new(dx, 0.0);
-        commands.spawn(rabbit_bundle(name.into(), female, ADULT_AGE, fur, Layer::Surface, position, &mut rng));
+        commands.spawn(rabbit_bundle(
+            &asset_server,
+            name.into(),
+            female,
+            ADULT_AGE,
+            fur,
+            Layer::Surface,
+            position,
+            &mut rng,
+        ));
     }
     messages.push("Schneeflocke und Lukas gründen die Familie Buddelberg.");
-}
-
-fn attach_rigs(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    rig: Res<RabbitRig>,
-    rigs: Res<Assets<RigDefinition>>,
-    rabbits: Query<Entity, (With<Rabbit>, Without<HasRig>)>,
-) {
-    let Some(definition) = rigs.get(&rig.0) else {
-        return;
-    };
-    for rabbit in &rabbits {
-        spawn_rig(&mut commands, &asset_server, definition, RIG_FOLDER, rabbit);
-        commands.entity(rabbit).insert(HasRig);
-    }
-}
-
-/// Wird die Rig-Datei gespeichert, bauen alle Kaninchen ihre Teile neu auf.
-fn reload_rigs(
-    mut commands: Commands,
-    mut events: MessageReader<AssetEvent<RigDefinition>>,
-    rig: Res<RabbitRig>,
-    roots: Query<Entity, With<RigRoot>>,
-    rabbits: Query<Entity, With<HasRig>>,
-) {
-    let modified = events
-        .read()
-        .any(|event| matches!(event, AssetEvent::Modified { id } if *id == rig.0.id()));
-    if !modified {
-        return;
-    }
-    for root in &roots {
-        commands.entity(root).despawn();
-    }
-    for rabbit in &rabbits {
-        commands.entity(rabbit).remove::<HasRig>();
-    }
 }
 
 fn grow_up(time: Res<Time>, mut rabbits: Query<&mut Rabbit>, mut messages: ResMut<Messages>) {
@@ -240,10 +208,13 @@ fn start_pregnancies(
 fn give_birth(
     mut commands: Commands,
     time: Res<Time>,
+    asset_server: Res<AssetServer>,
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
     mut mothers: Query<(Entity, &Rabbit, &Fur, &OnLayer, &Transform, &mut Pregnant)>,
+    everyone: Query<&Rabbit>,
 ) {
+    let mut taken: Vec<String> = everyone.iter().map(|r| r.name.clone()).collect();
     for (entity, mother, fur, layer, transform, mut pregnant) in &mut mothers {
         pregnant.0 -= time.delta_secs();
         if pregnant.0 > 0.0 {
@@ -257,7 +228,8 @@ fn give_birth(
         let count = 2 + rng.below(3);
         let mut names = Vec::new();
         for _ in 0..count {
-            let name = BABY_NAMES[rng.below(BABY_NAMES.len())].to_string();
+            let name = unused_name(&taken, &mut rng);
+            taken.push(name.clone());
             let fur = if rng.chance(0.4) {
                 fur.0
             } else {
@@ -265,11 +237,37 @@ fn give_birth(
             };
             let female = rng.chance(0.5);
             let position = transform.translation.truncate();
-            commands.spawn(rabbit_bundle(name.clone(), female, 0.0, fur, layer.0, position, &mut rng));
+            commands.spawn(rabbit_bundle(
+                &asset_server,
+                name.clone(),
+                female,
+                0.0,
+                fur,
+                layer.0,
+                position,
+                &mut rng,
+            ));
             names.push(name);
         }
         messages.push(format!("{} hat {count} Junge bekommen: {}.", mother.name, names.join(", ")));
     }
+}
+
+/// Ein Name, den noch kein Kaninchen trägt; sind alle vergeben, mit Zahl dahinter („Moos 2“).
+fn unused_name(taken: &[String], rng: &mut Rng) -> String {
+    let free: Vec<&str> = BABY_NAMES
+        .iter()
+        .copied()
+        .filter(|name| !taken.iter().any(|t| t == name))
+        .collect();
+    if !free.is_empty() {
+        return free[rng.below(free.len())].to_string();
+    }
+    let base = BABY_NAMES[rng.below(BABY_NAMES.len())];
+    (2..)
+        .map(|n| format!("{base} {n}"))
+        .find(|name| !taken.contains(name))
+        .unwrap()
 }
 
 fn tick_birth_cooldown(mut commands: Commands, time: Res<Time>, mut rabbits: Query<(Entity, &mut BirthCooldown)>) {
@@ -281,25 +279,32 @@ fn tick_birth_cooldown(mut commands: Commands, time: Res<Time>, mut rabbits: Que
     }
 }
 
+fn tick_stomping(mut commands: Commands, time: Res<Time>, mut rabbits: Query<(Entity, &mut Stomping)>) {
+    for (entity, mut stomping) in &mut rabbits {
+        stomping.0 -= time.delta_secs();
+        if stomping.0 <= 0.0 {
+            commands.entity(entity).remove::<Stomping>();
+        }
+    }
+}
+
 fn animate(
     time: Res<Time>,
     view: Res<ViewLayer>,
-    rig: Res<RabbitRig>,
-    rigs: Res<Assets<RigDefinition>>,
-    mut rabbits: Query<(&Rabbit, &Activity, &OnLayer, &Fur, &Transform, &mut Anim, &Children)>,
-    mut roots: Query<(&mut Transform, &Children), (With<RigRoot>, Without<Rabbit>, Without<Part>)>,
+    mut rabbits: Query<(&Rabbit, &Activity, &OnLayer, &Fur, &Transform, &mut Anim, Has<Stomping>, &Children)>,
+    mut roots: Query<(&RigRoot, &mut Transform, &Children), (Without<Rabbit>, Without<Part>)>,
     mut parts: Query<(&Part, &mut Transform, &mut Sprite), (Without<RigRoot>, Without<Rabbit>)>,
 ) {
-    let Some(definition) = rigs.get(&rig.0) else {
-        return;
-    };
     let dt = time.delta_secs();
 
-    for (rabbit, activity, layer, fur, transform, mut anim, children) in &mut rabbits {
+    for (rabbit, activity, layer, fur, transform, mut anim, stomping, children) in &mut rabbits {
         let t = time.elapsed_secs() + anim.seed * 10.0;
-        let moving = matches!(activity, Activity::Walking(_));
+        let fleeing = matches!(activity, Activity::Fleeing);
+        let moving = fleeing || matches!(activity, Activity::Walking(_));
         let eating = matches!(activity, Activity::Eating { .. } | Activity::Gathering { .. });
         let digging = matches!(activity, Activity::Digging { .. });
+        let guarding = matches!(activity, Activity::Guarding { .. });
+        let sleeping = matches!(activity, Activity::Sleeping);
 
         let dx = transform.translation.x - anim.last_x;
         if dx.abs() > 0.01 {
@@ -308,15 +313,17 @@ fn animate(
         anim.last_x = transform.translation.x;
 
         if moving {
-            anim.hop_phase = (anim.hop_phase + dt * HOPS_PER_SECOND).fract();
+            let rate = if fleeing { FLEE_HOPS_PER_SECOND } else { HOPS_PER_SECOND };
+            anim.hop_phase = (anim.hop_phase + dt * rate).fract();
         } else {
             anim.hop_phase = 0.0;
         }
         let lift = (anim.hop_phase * PI).sin();
         // Stauchen beim Aufkommen, Strecken in der Luft, sonst leichtes Atmen.
-        let (stretch_x, stretch_y) = if !moving {
-            let breath = (t * 2.2).sin() * 0.015;
-            (1.0, 1.0 + breath)
+        let (stretch_x, stretch_y) = if sleeping {
+            (1.04, 0.9 + (t * 1.2).sin() * 0.02)
+        } else if !moving {
+            (1.0, 1.0 + (t * 2.2).sin() * 0.015)
         } else if lift < 0.25 {
             (1.07, 0.93)
         } else {
@@ -327,69 +334,64 @@ fn animate(
         if anim.blink_timer < -0.12 {
             anim.blink_timer = 2.0 + anim.seed * 3.0;
         }
-        let eyes_closed = anim.blink_timer < 0.0;
+        let eyes_closed = sleeping || anim.blink_timer < 0.0;
 
         // Junge sind kleiner und wachsen bis zum Erwachsenenalter heran.
         let growth = 0.55 + 0.45 * (rabbit.age / ADULT_AGE).min(1.0);
         let facing = if anim.facing_left { -1.0 } else { 1.0 };
         let alpha = if layer.0 == view.0 { 1.0 } else { 0.3 };
+        let lean = if digging {
+            -0.15
+        } else if guarding {
+            0.12
+        } else {
+            0.0
+        };
 
         for child in children.iter() {
-            let Ok((mut root_transform, root_children)) = roots.get_mut(child) else {
+            let Ok((root, mut root_transform, root_children)) = roots.get_mut(child) else {
                 continue;
             };
-            let scale = definition.pixel_scale * growth;
+            let scale = root.pixel_scale * growth;
             root_transform.translation = Vec3::new(0.0, lift * HOP_HEIGHT * growth, 0.0);
             root_transform.scale = Vec3::new(facing * scale * stretch_x, scale * stretch_y, 1.0);
-            root_transform.rotation = Quat::from_rotation_z(if digging { -0.15 } else { 0.0 });
+            root_transform.rotation = Quat::from_rotation_z(lean);
 
             for part_entity in root_children.iter() {
                 let Ok((part, mut part_transform, mut sprite)) = parts.get_mut(part_entity) else {
                     continue;
                 };
-                let mut pose = part.base;
-                let mut angle = 0.0_f32;
                 let head_part = matches!(part.name.as_str(), "kopf" | "auge" | "ohr_links" | "ohr_rechts");
-                match part.name.as_str() {
-                    "ohr_links" | "ohr_rechts" => {
-                        angle = if moving {
-                            // Ohren schwingen dem Hopser hinterher.
-                            (anim.hop_phase * TAU - 0.8).sin() * 12.0
-                        } else if digging {
-                            -10.0
-                        } else {
-                            (t * 0.9).sin() * 3.0
-                        };
-                    }
-                    "bein_hinten" => {
-                        angle = if moving {
-                            -(anim.hop_phase * TAU).sin() * 18.0
-                        } else if digging {
-                            (t * 18.0).sin() * 25.0
-                        } else {
-                            0.0
-                        };
-                    }
-                    _ => {}
-                }
-                if eating && head_part {
-                    pose.translation.y += -6.0 + (t * 9.0).sin() * 3.0;
-                }
-                pose.rotation *= Quat::from_rotation_z(angle.to_radians());
-                *part_transform = pose;
-
-                let image = if part.name == "auge" && eyes_closed {
-                    part.variants.get("zu").unwrap_or(&part.image)
-                } else {
-                    &part.image
+                let angle = match part.name.as_str() {
+                    "ohr_links" | "ohr_rechts" if sleeping => -35.0,
+                    // Ohren schwingen dem Hopser hinterher.
+                    "ohr_links" | "ohr_rechts" if moving => (anim.hop_phase * TAU - 0.8).sin() * 12.0,
+                    "ohr_links" | "ohr_rechts" if digging => -10.0,
+                    // Wachen drehen die Ohren lauschend hin und her.
+                    "ohr_links" | "ohr_rechts" if guarding => (t * 2.5).sin() * 8.0,
+                    "ohr_links" | "ohr_rechts" => (t * 0.9).sin() * 3.0,
+                    "bein_hinten" if stomping => (t * 30.0).sin().abs() * -28.0,
+                    "bein_hinten" if moving => -(anim.hop_phase * TAU).sin() * 18.0,
+                    "bein_hinten" if digging => (t * 18.0).sin() * 25.0,
+                    _ => 0.0,
                 };
-                if sprite.image != *image {
-                    sprite.image = image.clone();
-                }
-                let color = if part.tint { fur.0 } else { Color::WHITE }.with_alpha(alpha);
-                if sprite.color != color {
-                    sprite.color = color;
-                }
+                let offset = if eating && head_part {
+                    Vec2::new(0.0, -6.0 + (t * 9.0).sin() * 3.0)
+                } else if sleeping && head_part {
+                    Vec2::new(0.0, -10.0)
+                } else {
+                    Vec2::ZERO
+                };
+                let variant = (part.name == "auge" && eyes_closed).then_some("zu");
+                pose_part(
+                    part,
+                    &mut part_transform,
+                    &mut sprite,
+                    offset,
+                    angle,
+                    variant,
+                    fur.0.with_alpha(alpha),
+                );
             }
         }
     }

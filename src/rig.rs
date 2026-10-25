@@ -13,7 +13,54 @@ pub struct RigPlugin;
 
 impl Plugin for RigPlugin {
     fn build(&self, app: &mut App) {
-        app.init_asset::<RigDefinition>().init_asset_loader::<RigLoader>();
+        app.init_asset::<RigDefinition>()
+            .init_asset_loader::<RigLoader>()
+            .add_systems(Update, (reload_rigs, attach_rigs).chain());
+    }
+}
+
+/// Welche Rig-Datei eine Figur benutzt. Die Teile werden aufgebaut, sobald die Datei geladen ist.
+#[derive(Component)]
+pub struct RigSource {
+    pub rig: Handle<RigDefinition>,
+    /// Ordner der Bilder, relativ zu `assets/`.
+    pub folder: &'static str,
+}
+
+#[derive(Component)]
+struct HasRig;
+
+fn attach_rigs(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    rigs: Res<Assets<RigDefinition>>,
+    owners: Query<(Entity, &RigSource), Without<HasRig>>,
+) {
+    for (owner, source) in &owners {
+        if let Some(definition) = rigs.get(&source.rig) {
+            spawn_rig(&mut commands, &asset_server, definition, source.folder, owner);
+            commands.entity(owner).insert(HasRig);
+        }
+    }
+}
+
+/// Wird eine Rig-Datei gespeichert, bauen alle Figuren mit dieser Datei ihre Teile neu auf.
+fn reload_rigs(
+    mut commands: Commands,
+    mut events: MessageReader<AssetEvent<RigDefinition>>,
+    roots: Query<(Entity, &ChildOf), With<RigRoot>>,
+    owners: Query<&RigSource>,
+) {
+    for event in events.read() {
+        let AssetEvent::Modified { id } = event else {
+            continue;
+        };
+        for (root, parent) in &roots {
+            if owners.get(parent.0).is_ok_and(|source| source.rig.id() == *id) {
+                commands.entity(root).despawn();
+                commands.entity(parent.0).remove::<HasRig>();
+            }
+        }
     }
 }
 
@@ -73,7 +120,9 @@ impl AssetLoader for RigLoader {
 
 /// Wurzel aller Teile einer Figur; Hüpfen, Stauchen und Blickrichtung wirken hier.
 #[derive(Component)]
-pub struct RigRoot;
+pub struct RigRoot {
+    pub pixel_scale: f32,
+}
 
 /// Ein Teil einer Figur mit seiner Grundstellung aus der Rig-Datei.
 #[derive(Component)]
@@ -86,16 +135,10 @@ pub struct Part {
 }
 
 /// Baut die Teile einer Figur als Kinder von `owner` auf. Bildpfade sind relativ zu `folder`.
-pub fn spawn_rig(
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    rig: &RigDefinition,
-    folder: &str,
-    owner: Entity,
-) -> Entity {
+fn spawn_rig(commands: &mut Commands, asset_server: &AssetServer, rig: &RigDefinition, folder: &str, owner: Entity) {
     let root = commands
         .spawn((
-            RigRoot,
+            RigRoot { pixel_scale: rig.pixel_scale },
             Transform::from_scale(Vec3::splat(rig.pixel_scale)),
             Visibility::default(),
             ChildOf(owner),
@@ -128,5 +171,31 @@ pub fn spawn_rig(
             ChildOf(root),
         ));
     }
-    root
+}
+
+/// Grundstellung eines Teils plus Animation, mit Farbe und Transparenz.
+/// Wählt bei `variant` das Bild dieser Variante, sonst das Grundbild.
+pub fn pose_part(
+    part: &Part,
+    transform: &mut Transform,
+    sprite: &mut Sprite,
+    offset: Vec2,
+    angle_degrees: f32,
+    variant: Option<&str>,
+    tint: Color,
+) {
+    let mut pose = part.base;
+    pose.translation += offset.extend(0.0);
+    pose.rotation *= Quat::from_rotation_z(angle_degrees.to_radians());
+    *transform = pose;
+
+    let image = variant.and_then(|v| part.variants.get(v)).unwrap_or(&part.image);
+    if sprite.image != *image {
+        sprite.image = image.clone();
+    }
+    let alpha = tint.alpha();
+    let color = if part.tint { tint } else { Color::WHITE.with_alpha(alpha) };
+    if sprite.color != color {
+        sprite.color = color;
+    }
 }
