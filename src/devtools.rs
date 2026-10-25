@@ -12,6 +12,7 @@
 //! - `hungersnot`: kein Gras, kein Vorrat, alle Kaninchen völlig ausgehungert
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
+//! - `winter`: mitten im verschneiten Winter starten
 //! - `nacht`: kurz vor Einbruch der Nacht starten
 //! - `tempo=N`: Spielgeschwindigkeit
 //! - `bild=S`: nach S Sekunden Echtzeit einen Screenshot nach `target/test-bild.png` speichern und beenden
@@ -108,6 +109,11 @@ fn prepare(
     }
     if script.has("tipp") {
         tooltip.0 = Some(Action::Tool(ToolKind::Clover));
+    }
+    if script.has("winter") {
+        // Tag 6 am Vormittag: tiefer Winter, die Wiese liegt unter Schnee.
+        clock.day = 6;
+        clock.time = 0.3;
     }
     if script.has("nacht") {
         clock.time = 0.74;

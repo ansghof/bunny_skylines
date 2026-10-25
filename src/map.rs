@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 
-use crate::daynight::DayClock;
+use crate::daynight::{DayClock, Season};
 
 pub const TILE_SIZE: f32 = 64.0;
 pub const MAP_WIDTH: i32 = 40;
@@ -13,6 +13,11 @@ pub const MAP_HEIGHT: i32 = 30;
 const GRASS_GROWTH_PER_SECOND: f32 = 0.014;
 /// Nachts wächst kaum etwas nach.
 const NIGHT_GROWTH_FACTOR: f32 = 0.3;
+/// Im Frühling wächst alles schneller, im Herbst langsamer.
+const SPRING_GROWTH_FACTOR: f32 = 1.3;
+const AUTUMN_GROWTH_FACTOR: f32 = 0.5;
+/// So schnell erfriert das Gras im Winter: nach gut anderthalb Spielminuten ist alles weg.
+const FROST_PER_SECOND: f32 = 0.01;
 /// Klee wächst so viel schneller nach als Gras.
 const CLOVER_GROWTH_FACTOR: f32 = 2.0;
 /// Und ist so viel nahrhafter.
@@ -184,6 +189,8 @@ pub struct UndergroundTile {
 pub struct Grid {
     surface: Vec<SurfaceTile>,
     underground: Vec<UndergroundTile>,
+    /// Schneedecke auf der ganzen Wiese, 0 bis 1.
+    pub snow: f32,
 }
 
 impl Grid {
@@ -234,6 +241,7 @@ impl Grid {
         let mut grid = Self {
             surface: vec![SurfaceTile::default(); count],
             underground: vec![UndergroundTile::default(); count],
+            snow: 0.0,
         };
         for p in Self::positions() {
             grid.surface_mut(p).grass = 0.5 + 0.5 * noise(p);
@@ -281,9 +289,25 @@ fn grow_grass(time: Res<Time>, clock: Res<DayClock>, mut grid: ResMut<Grid>, mut
     if *timer < 1.0 {
         return;
     }
+    let elapsed = std::mem::take(&mut *timer);
+    grid.snow = clock.snow();
+
+    // Im Winter erfriert das Gras, statt nachzuwachsen.
+    if clock.season() == Season::Winter {
+        let frost = FROST_PER_SECOND * elapsed;
+        for tile in &mut grid.surface {
+            tile.grass = (tile.grass - frost).max(0.0);
+        }
+        return;
+    }
+
     let night = if clock.is_night() { NIGHT_GROWTH_FACTOR } else { 1.0 };
-    let growth = GRASS_GROWTH_PER_SECOND * night * *timer;
-    *timer = 0.0;
+    let season = match clock.season() {
+        Season::Spring => SPRING_GROWTH_FACTOR,
+        Season::Autumn => AUTUMN_GROWTH_FACTOR,
+        Season::Summer | Season::Winter => 1.0,
+    };
+    let growth = GRASS_GROWTH_PER_SECOND * night * season * elapsed;
     for tile in &mut grid.surface {
         if !tile.entrance && tile.grass < 1.0 {
             let speed = if tile.clover { CLOVER_GROWTH_FACTOR } else { 1.0 };
@@ -313,6 +337,10 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     // Gänge darunter scheinen leicht durch.
     if grid.under(p).dug.is_some() {
         rgb = rgb.map(|c| c * 0.9);
+    }
+    // Schnee deckt alles zu, nur ein Hauch der Farbe darunter bleibt.
+    if grid.snow > 0.0 {
+        rgb = mix(rgb, [checker, checker, 1.0], grid.snow * 0.88);
     }
     Color::srgb(rgb[0], rgb[1], rgb[2])
 }

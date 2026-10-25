@@ -10,7 +10,7 @@ use crate::effects::{DirtAssets, throw_dirt};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Grid, Layer, TilePos, ViewLayer};
 use crate::camera::{Orbit, figure_layer};
-use crate::daynight::{DayClock, YEAR_LENGTH, figure_light};
+use crate::daynight::{DayClock, Season, YEAR_LENGTH, figure_light};
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
 /// Spielsekunden, bis ein Junges erwachsen ist.
@@ -378,6 +378,7 @@ fn start_pregnancies(
     all: Query<&Rabbit>,
     pregnant: Query<(), With<Pregnant>>,
     candidates: Query<(Entity, &Rabbit, &Hunger), (Without<Pregnant>, Without<BirthCooldown>)>,
+    clock: Res<DayClock>,
     mut timer: Local<f32>,
 ) {
     *timer += time.delta_secs();
@@ -385,6 +386,10 @@ fn start_pregnancies(
         return;
     }
     *timer = 0.0;
+    // Im Winter gibt es keinen Nachwuchs.
+    if clock.season() == Season::Winter {
+        return;
+    }
 
     if !all.iter().any(|r| r.is_adult() && !r.female) {
         return;

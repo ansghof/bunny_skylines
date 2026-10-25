@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use bevy::prelude::*;
 
 use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
-use crate::daynight::DayClock;
+use crate::daynight::{DayClock, Season};
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos};
 use crate::pathfinding::{Node, find_path};
 use crate::rabbit::{Hunger, Offset, OnLayer, Rabbit, z_for};
@@ -158,6 +158,8 @@ struct Situation<'a> {
     hunger: f32,
     afraid: bool,
     night: bool,
+    /// Im Herbst geht Sammeln vor Graben.
+    autumn: bool,
     food_space: f32,
     start: Node,
 }
@@ -189,6 +191,7 @@ fn decide(
             hunger: hunger.0,
             afraid: fear.0 > 0.0,
             night: clock.is_night(),
+            autumn: clock.season() == Season::Autumn,
             food_space,
             start: current_node(transform, layer),
         };
@@ -254,6 +257,13 @@ fn choose(
         {
             reserved.posts.insert(post);
             return Some((Goal::Guard(post), steps));
+        }
+        if s.autumn
+            && !s.afraid
+            && s.food_space >= 1.0
+            && let Some((tile, steps)) = find_grass(grid, start)
+        {
+            return Some((Goal::Gather(tile), steps));
         }
         if let Some((target, steps)) = find_dig_job(grid, &reserved.dig, start, s.afraid) {
             reserved.dig.insert(target);

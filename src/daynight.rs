@@ -1,5 +1,6 @@
 //! Tageszeit: Morgen, Tag, Abend, Nacht. Nachts schlafen die Kaninchen, in der Dämmerung kommt der Fuchs.
-//! Sonne und Himmelslicht folgen der Tageszeit.
+//! Sonne und Himmelslicht folgen der Tageszeit. Dazu die Jahreszeiten: Im Winter wächst nichts,
+//! dafür lohnt sich der Vorrat.
 
 use bevy::prelude::*;
 
@@ -53,6 +54,35 @@ impl Phase {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Season {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+}
+
+impl Season {
+    pub fn label(self) -> &'static str {
+        match self {
+            Season::Spring => "Frühling",
+            Season::Summer => "Sommer",
+            Season::Autumn => "Herbst",
+            Season::Winter => "Winter",
+        }
+    }
+
+    /// Meldung, wenn diese Jahreszeit beginnt.
+    fn announcement(self) -> &'static str {
+        match self {
+            Season::Spring => "Frühling! Das Gras wächst wieder, und es gibt Nachwuchs.",
+            Season::Summer => "Sommer: Die Wiese steht in vollem Saft.",
+            Season::Autumn => "Herbst: Das Gras wächst langsamer. Zeit, Vorräte anzulegen!",
+            Season::Winter => "Der Winter kommt: Das Gras erfriert. Jetzt hilft nur noch der Vorrat.",
+        }
+    }
+}
+
 #[derive(Resource)]
 pub struct DayClock {
     pub day: u32,
@@ -68,6 +98,34 @@ impl DayClock {
     /// Tag innerhalb des Jahres, ab 1.
     pub fn day_of_year(&self) -> u32 {
         (self.day - 1) % DAYS_PER_YEAR + 1
+    }
+
+    /// Anteil des Jahres, 0 = Frühlingsanfang.
+    pub fn year_progress(&self) -> f32 {
+        ((self.day_of_year() - 1) as f32 + self.time) / DAYS_PER_YEAR as f32
+    }
+
+    pub fn season(&self) -> Season {
+        match self.year_progress() {
+            p if p < 0.25 => Season::Spring,
+            p if p < 0.5 => Season::Summer,
+            p if p < 0.75 => Season::Autumn,
+            _ => Season::Winter,
+        }
+    }
+
+    /// Wie weit die aktuelle Jahreszeit fortgeschritten ist, 0 bis 1.
+    pub fn season_progress(&self) -> f32 {
+        (self.year_progress() * 4.0).fract()
+    }
+
+    /// Schneedecke auf der Wiese, 0 bis 1: fällt zu Winterbeginn, taut zum Frühling.
+    pub fn snow(&self) -> f32 {
+        if self.season() != Season::Winter {
+            return 0.0;
+        }
+        let p = self.season_progress();
+        (p / 0.2).min(1.0) * ((1.0 - p) / 0.15).min(1.0)
     }
 
     pub fn phase(&self) -> Phase {
@@ -101,10 +159,14 @@ impl DayClock {
 
 fn advance_clock(time: Res<Time>, mut clock: ResMut<DayClock>, mut messages: ResMut<Messages>) {
     let before = clock.phase();
+    let season = clock.season();
     clock.time += time.delta_secs() / DAY_LENGTH;
     if clock.time >= 1.0 {
         clock.time -= 1.0;
         clock.day += 1;
+    }
+    if clock.season() != season {
+        messages.push(clock.season().announcement());
     }
     let after = clock.phase();
     if before != after {
