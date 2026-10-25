@@ -14,6 +14,8 @@ use crate::rabbit::{Hunger, Offset, OnLayer, Rabbit, z_for};
 
 const HUNGER_PER_SECOND: f32 = 0.012;
 const HUNGRY: f32 = 0.55;
+/// So viele Kaninchen grasen höchstens gemeinsam auf einem Feld; am Vorrat genauso.
+const MAX_PER_TILE: usize = 3;
 /// So viel Hunger entsteht im Schlaf und in der Winterruhe im Vergleich zum Wachsein.
 const RESTING_HUNGER_FACTOR: f32 = 0.35;
 /// Futtereinheiten im Vorrat pro abgeerntetem Gras. Ein Futter stillt 0,6 Hunger,
@@ -61,8 +63,10 @@ pub enum Goal {
     Gather(TilePos),
     Dig(DigTarget),
     Guard(TilePos),
-    Store,
-    EatFromStore,
+    /// Futter auf diesem Feld der Vorratskammer abladen.
+    Store(TilePos),
+    /// Auf diesem Feld der Vorratskammer fressen.
+    EatFromStore(TilePos),
     Sleep(TilePos),
     Wander,
 }
@@ -100,12 +104,51 @@ pub struct Reserved {
     posts: HashSet<TilePos>,
     /// Belegte Schlafplätze pro Nest.
     beds: HashMap<TilePos, usize>,
+    /// Kaninchen pro Feld beim Grasen, Sammeln und am Vorrat, unterwegs mitgezählt.
+    spots: HashMap<TilePos, usize>,
 }
 
 impl Reserved {
     fn free_bed(&mut self, bed: TilePos) {
         if let Some(count) = self.beds.get_mut(&bed) {
             *count = count.saturating_sub(1);
+        }
+    }
+
+    fn spot_free(&self, tile: TilePos) -> bool {
+        self.spots.get(&tile).copied().unwrap_or(0) < MAX_PER_TILE
+    }
+
+    /// Nur für Testläufe: die meisten Kaninchen, die sich gerade ein Feld teilen.
+    #[cfg(debug_assertions)]
+    pub fn busiest_spot(&self) -> usize {
+        self.spots.values().max().copied().unwrap_or(0)
+    }
+
+    fn claim_spot(&mut self, tile: TilePos) {
+        *self.spots.entry(tile).or_default() += 1;
+    }
+
+    fn free_spot(&mut self, tile: TilePos) {
+        if let Some(count) = self.spots.get_mut(&tile) {
+            *count = count.saturating_sub(1);
+        }
+    }
+
+    /// Belegt das Feld, auf das ein Ziel führt, falls es eins ist, das sich Kaninchen teilen.
+    fn claim_goal(&mut self, goal: Goal) {
+        if let Some(tile) = goal.spot() {
+            self.claim_spot(tile);
+        }
+    }
+}
+
+impl Goal {
+    /// Das Feld, auf dem höchstens `MAX_PER_TILE` Kaninchen gleichzeitig sein dürfen.
+    fn spot(self) -> Option<TilePos> {
+        match self {
+            Goal::Eat(tile) | Goal::Gather(tile) | Goal::Store(tile) | Goal::EatFromStore(tile) => Some(tile),
+            _ => None,
         }
     }
 }
@@ -120,6 +163,12 @@ pub fn release(activity: &Activity, reserved: &mut Reserved) {
             reserved.posts.remove(post);
         }
         Activity::Walking(Goal::Sleep(bed)) | Activity::Sleeping { bed } => reserved.free_bed(*bed),
+        Activity::Walking(goal) => {
+            if let Some(tile) = goal.spot() {
+                reserved.free_spot(tile);
+            }
+        }
+        Activity::Eating { tile, .. } | Activity::Gathering { tile, .. } => reserved.free_spot(*tile),
         _ => {}
     }
 }
@@ -222,6 +271,7 @@ fn decide(
         };
         match choose(&situation, &mut rng, &mut reserved, &mut carrying) {
             Some((goal, steps)) => {
+                reserved.claim_goal(goal);
                 path.0 = steps.into();
                 *activity = Activity::Walking(goal);
             }
@@ -244,15 +294,15 @@ fn choose(
         let prefer_store = s.afraid || !s.rabbit.is_adult() || start.layer == Layer::Underground;
         let from_store = || {
             (s.colony.food >= 1.0)
-                .then(|| find_chamber(grid, start, Chamber::Storage))
+                .then(|| find_storage(grid, reserved, start))
                 .flatten()
-                .map(|steps| (Goal::EatFromStore, steps))
+                .map(|(tile, steps)| (Goal::EatFromStore(tile), steps))
         };
         if prefer_store && let Some(plan) = from_store() {
             return Some(plan);
         }
         if !s.afraid
-            && let Some((tile, steps)) = find_grass(grid, start)
+            && let Some((tile, steps)) = find_grass(grid, reserved, start)
         {
             return Some((Goal::Eat(tile), steps));
         }
@@ -270,8 +320,8 @@ fn choose(
 
     if s.rabbit.is_adult() {
         if carrying.0 > 0.0 {
-            if let Some(steps) = find_chamber(grid, start, Chamber::Storage) {
-                return Some((Goal::Store, steps));
+            if let Some((tile, steps)) = find_storage(grid, reserved, start) {
+                return Some((Goal::Store(tile), steps));
             }
             // Kein Vorrat erreichbar: Futter fallen lassen.
             carrying.0 = 0.0;
@@ -279,7 +329,7 @@ fn choose(
         if s.gather_first {
             if !s.afraid
                 && s.food_space >= 1.0
-                && let Some((tile, steps)) = find_grass(grid, start)
+                && let Some((tile, steps)) = find_grass(grid, reserved, start)
             {
                 return Some((Goal::Gather(tile), steps));
             }
@@ -293,7 +343,7 @@ fn choose(
         if s.autumn
             && !s.afraid
             && s.food_space >= 1.0
-            && let Some((tile, steps)) = find_grass(grid, start)
+            && let Some((tile, steps)) = find_grass(grid, reserved, start)
         {
             return Some((Goal::Gather(tile), steps));
         }
@@ -305,7 +355,7 @@ fn choose(
         }
         if !s.afraid
             && s.food_space >= 1.0
-            && let Some((tile, steps)) = find_grass(grid, start)
+            && let Some((tile, steps)) = find_grass(grid, reserved, start)
         {
             return Some((Goal::Gather(tile), steps));
         }
@@ -322,19 +372,29 @@ fn path_end(start: Node, steps: &[Node]) -> TilePos {
     steps.last().map_or(start.pos, |node| node.pos)
 }
 
-fn find_grass(grid: &Grid, start: Node) -> Option<(TilePos, Vec<Node>)> {
+/// Das nächste Feld mit genug Gras, auf dem noch Platz zum Grasen ist.
+fn find_grass(grid: &Grid, reserved: &Reserved, start: Node) -> Option<(TilePos, Vec<Node>)> {
     let steps = find_path(grid, start, |node| {
         let tile = grid.surface(node.pos);
-        node.layer == Layer::Surface && !tile.entrance && !tile.post && tile.grass >= EDIBLE_GRASS
+        node.layer == Layer::Surface
+            && !tile.entrance
+            && !tile.post
+            && tile.grass >= EDIBLE_GRASS
+            && reserved.spot_free(node.pos)
     })?;
     Some((path_end(start, &steps), steps))
 }
 
-fn find_chamber(grid: &Grid, start: Node, chamber: Chamber) -> Option<Vec<Node>> {
-    find_path(grid, start, |node| {
+/// Das nächste Feld der Vorratskammer, an dem noch Platz ist.
+fn find_storage(grid: &Grid, reserved: &Reserved, start: Node) -> Option<(TilePos, Vec<Node>)> {
+    let steps = find_path(grid, start, |node| {
         let tile = grid.under(node.pos);
-        node.layer == Layer::Underground && tile.chamber == Some(chamber) && tile.dug.is_some()
-    })
+        node.layer == Layer::Underground
+            && tile.chamber == Some(Chamber::Storage)
+            && tile.dug.is_some()
+            && reserved.spot_free(node.pos)
+    })?;
+    Some((path_end(start, &steps), steps))
 }
 
 /// Das nächste Nest mit freiem Platz.
@@ -472,13 +532,15 @@ fn walk(
                 reserved.posts.remove(&post);
                 Activity::Idle(0.2)
             }
-            Goal::Store => {
+            Goal::Store(tile) => {
+                reserved.free_spot(tile);
                 let capacity = Colony::food_capacity(&grid);
                 colony.food = (colony.food + carrying.0).min(capacity);
                 carrying.0 = 0.0;
                 Activity::Idle(0.5)
             }
-            Goal::EatFromStore => {
+            Goal::EatFromStore(tile) => {
+                reserved.free_spot(tile);
                 if colony.food >= 1.0 {
                     colony.food -= 1.0;
                     hunger.0 = (hunger.0 - 0.6).max(0.0);
@@ -508,6 +570,7 @@ fn work(
                 if *left > 0.0 {
                     continue;
                 }
+                reserved.free_spot(*tile);
                 let field = grid.surface_mut(*tile);
                 let eaten = field.grass.min(0.5);
                 field.grass -= eaten;
@@ -519,15 +582,17 @@ fn work(
                 if *left > 0.0 {
                     continue;
                 }
+                reserved.free_spot(*tile);
                 let field = grid.surface_mut(*tile);
                 let taken = field.grass.min(0.5);
                 field.grass -= taken;
                 // Eingelagert und getrocknet ist Gras mehr wert als frisch gefressen.
                 carrying.0 += taken * FOOD_PER_GATHERED_GRASS * field.nutrition();
-                match find_chamber(&grid, current_node(transform, layer), Chamber::Storage) {
-                    Some(steps) => {
+                match find_storage(&grid, &reserved, current_node(transform, layer)) {
+                    Some((store, steps)) => {
+                        reserved.claim_spot(store);
                         path.0 = steps.into();
-                        Activity::Walking(Goal::Store)
+                        Activity::Walking(Goal::Store(store))
                     }
                     None => Activity::Idle(0.5),
                 }

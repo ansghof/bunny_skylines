@@ -32,6 +32,7 @@ use crate::ending::{EndScreen, restart};
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer, tiles_between};
 use crate::toolbar::{Action, Tooltip};
 use crate::tools::ToolKind;
+use crate::behavior::{Activity, Reserved};
 use crate::rabbit::{Hunger, Rabbit};
 
 pub const ENV: &str = "BUNNY_TEST";
@@ -48,7 +49,7 @@ impl Plugin for DevToolsPlugin {
         let commands: Vec<String> = script.split(',').map(|s| s.trim().to_string()).collect();
         app.insert_resource(TestScript(commands))
             .add_systems(Startup, prepare)
-            .add_systems(Update, (age_founders, famine, auto_restart, log_seasons))
+            .add_systems(Update, (age_founders, famine, auto_restart, log_seasons, log_crowding))
             .add_systems(PreUpdate, fake_cursor.after(update_cursor))
             .add_systems(Update, take_shot);
     }
@@ -199,6 +200,20 @@ fn log_seasons(
         colony.food,
         Colony::food_capacity(&grid),
     );
+}
+
+/// Alle 5 Sekunden: die meisten Kaninchen, die sich gerade ein Feld teilen, unterwegs mitgezählt.
+fn log_crowding(time: Res<Time<Real>>, mut timer: Local<f32>, reserved: Res<Reserved>, rabbits: Query<&Activity>) {
+    *timer += time.delta_secs();
+    if *timer < 5.0 {
+        return;
+    }
+    *timer = 0.0;
+    let grazing = rabbits
+        .iter()
+        .filter(|a| matches!(a, Activity::Eating { .. } | Activity::Gathering { .. } | Activity::Walking(_)))
+        .count();
+    info!("Gedraenge: hoechstens {} auf einem Feld, {grazing} unterwegs oder grasend", reserved.busiest_spot());
 }
 
 fn fake_cursor(script: Res<TestScript>, mut cursor: ResMut<CursorWorld>) {

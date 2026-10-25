@@ -171,7 +171,7 @@ fn rabbit_bundle(
             Hunger(rng.range(0.1, 0.3)),
             Fear::default(),
             OnLayer(layer),
-            Offset(Vec2::new(rng.range(-14.0, 14.0), rng.range(-14.0, 14.0))),
+            Offset(Vec2::new(rng.range(-20.0, 20.0), rng.range(-18.0, 18.0))),
         ),
         (Activity::Idle(rng.range(0.5, 2.0)), Path::default(), Carrying::default()),
         Anim {
