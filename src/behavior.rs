@@ -2,11 +2,11 @@
 //! nachts schlafen und bei Gefahr in den Bau flüchten.
 //! Jedes Kaninchen entscheidet selbst, sobald es mit seiner aktuellen Tätigkeit fertig ist.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::prelude::*;
 
-use crate::colony::{Colony, Rng};
+use crate::colony::{Colony, Rng, SLEEP_PER_TILE};
 use crate::daynight::DayClock;
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos};
 use crate::pathfinding::{Node, find_path};
@@ -45,7 +45,8 @@ pub enum Activity {
     Gathering { tile: TilePos, left: f32 },
     Digging { target: DigTarget, left: f32 },
     Guarding { post: TilePos, left: f32 },
-    Sleeping,
+    /// Schläft im Nest auf diesem Feld der Schlafkammer.
+    Sleeping { bed: TilePos },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -56,7 +57,7 @@ pub enum Goal {
     Guard(TilePos),
     Store,
     EatFromStore,
-    Sleep,
+    Sleep(TilePos),
     Wander,
 }
 
@@ -84,6 +85,16 @@ pub struct Fear(pub f32);
 pub struct Reserved {
     dig: HashSet<DigTarget>,
     posts: HashSet<TilePos>,
+    /// Belegte Schlafplätze pro Nest.
+    beds: HashMap<TilePos, usize>,
+}
+
+impl Reserved {
+    fn free_bed(&mut self, bed: TilePos) {
+        if let Some(count) = self.beds.get_mut(&bed) {
+            *count = count.saturating_sub(1);
+        }
+    }
 }
 
 /// Gibt frei, was ein Kaninchen für seine Tätigkeit belegt hat, z. B. wenn es flüchtet.
@@ -95,6 +106,7 @@ pub fn release(activity: &Activity, reserved: &mut Reserved) {
         Activity::Walking(Goal::Guard(post)) | Activity::Guarding { post, .. } => {
             reserved.posts.remove(post);
         }
+        Activity::Walking(Goal::Sleep(bed)) | Activity::Sleeping { bed } => reserved.free_bed(*bed),
         _ => {}
     }
 }
@@ -128,7 +140,7 @@ fn tick_needs(time: Res<Time>, mut rabbits: Query<(&Activity, &mut Hunger, &mut 
     let dt = time.delta_secs();
     for (activity, mut hunger, mut fear) in &mut rabbits {
         // Im Schlaf verbraucht ein Kaninchen weniger.
-        let rate = if matches!(activity, Activity::Sleeping) { 0.4 } else { 1.0 };
+        let rate = if matches!(activity, Activity::Sleeping { .. }) { 0.4 } else { 1.0 };
         hunger.0 = (hunger.0 + HUNGER_PER_SECOND * rate * dt).min(1.0);
         fear.0 = (fear.0 - dt).max(0.0);
     }
@@ -213,9 +225,10 @@ fn choose(
     }
 
     if s.night
-        && let Some(steps) = find_chamber(grid, start, Chamber::Sleeping)
+        && let Some((bed, steps)) = find_bed(grid, &reserved.beds, start)
     {
-        return Some((Goal::Sleep, steps));
+        *reserved.beds.entry(bed).or_default() += 1;
+        return Some((Goal::Sleep(bed), steps));
     }
 
     if s.rabbit.is_adult() {
@@ -269,6 +282,18 @@ fn find_chamber(grid: &Grid, start: Node, chamber: Chamber) -> Option<Vec<Node>>
         let tile = grid.under(node.pos);
         node.layer == Layer::Underground && tile.chamber == Some(chamber) && tile.dug.is_some()
     })
+}
+
+/// Das nächste Nest mit freiem Platz.
+fn find_bed(grid: &Grid, beds: &HashMap<TilePos, usize>, start: Node) -> Option<(TilePos, Vec<Node>)> {
+    let steps = find_path(grid, start, |node| {
+        let tile = grid.under(node.pos);
+        node.layer == Layer::Underground
+            && tile.chamber == Some(Chamber::Sleeping)
+            && tile.dug.is_some()
+            && beds.get(&node.pos).copied().unwrap_or(0) < SLEEP_PER_TILE
+    })?;
+    Some((path_end(start, &steps), steps))
 }
 
 fn find_free_post(grid: &Grid, taken: &HashSet<TilePos>, start: Node) -> Option<(TilePos, Vec<Node>)> {
@@ -403,7 +428,7 @@ fn walk(
                 }
                 Activity::Idle(1.0)
             }
-            Goal::Sleep => Activity::Sleeping,
+            Goal::Sleep(bed) => Activity::Sleeping { bed },
             Goal::Wander => Activity::Idle(rng.range(1.0, 3.5)),
         };
     }
@@ -468,10 +493,11 @@ fn work(
                 reserved.posts.remove(post);
                 Activity::Idle(0.2)
             }
-            Activity::Sleeping => {
+            Activity::Sleeping { bed } => {
                 if clock.is_night() {
                     continue;
                 }
+                reserved.free_bed(*bed);
                 // Nicht alle wachen gleichzeitig auf.
                 Activity::Idle(rng.range(0.0, 4.0))
             }

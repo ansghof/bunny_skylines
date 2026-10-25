@@ -304,7 +304,7 @@ fn animate(
         let eating = matches!(activity, Activity::Eating { .. } | Activity::Gathering { .. });
         let digging = matches!(activity, Activity::Digging { .. });
         let guarding = matches!(activity, Activity::Guarding { .. });
-        let sleeping = matches!(activity, Activity::Sleeping);
+        let sleeping = matches!(activity, Activity::Sleeping { .. });
 
         let dx = transform.translation.x - anim.last_x;
         if dx.abs() > 0.01 {

@@ -3,6 +3,9 @@ mod camera;
 mod colony;
 mod danger;
 mod daynight;
+#[cfg(debug_assertions)]
+mod devtools;
+mod furnishing;
 mod map;
 mod pathfinding;
 mod predator;
@@ -15,15 +18,19 @@ mod ui;
 use bevy::prelude::*;
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Bunny Skylines – Bau ’nen Bau!".into(),
-                resolution: (1280, 720).into(),
-                ..default()
-            }),
+    // Automatische Testläufe sollen niemandem den Fokus wegnehmen.
+    let test_run = cfg!(debug_assertions) && std::env::var_os("BUNNY_TEST").is_some();
+
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Bunny Skylines – Bau ’nen Bau!".into(),
+            resolution: (1280, 720).into(),
+            focused: !test_run,
             ..default()
-        }))
+        }),
+        ..default()
+    }))
         .insert_resource(ClearColor(Color::srgb(0.98, 0.95, 0.86)))
         .add_plugins((
             camera::CameraPlugin,
@@ -37,7 +44,10 @@ fn main() {
             daynight::DayNightPlugin,
             predator::PredatorPlugin,
             danger::DangerPlugin,
+            furnishing::FurnishingPlugin,
             ui::UiPlugin,
-        ))
-        .run();
+        ));
+    #[cfg(debug_assertions)]
+    app.add_plugins(devtools::DevToolsPlugin);
+    app.run();
 }
