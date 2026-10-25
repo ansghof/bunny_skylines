@@ -50,9 +50,10 @@ pub struct Orbit {
 }
 
 impl Orbit {
-    /// Drehung für Aufsteller: Sie schauen genau zur Kamera, damit ihre Ebenen nicht verrutschen.
+    /// Drehung für Aufsteller: aufrecht, zur Kamera gedreht. Nicht mitgeneigt, sonst kippen
+    /// Figuren in Gängen nach hinten in die Erdwand.
     pub fn billboard(&self) -> Quat {
-        Quat::from_rotation_y(self.yaw) * Quat::from_rotation_x(-self.pitch)
+        Quat::from_rotation_y(self.yaw)
     }
 
     /// Die Richtung „rechts auf dem Bildschirm“ in Kartenkoordinaten.

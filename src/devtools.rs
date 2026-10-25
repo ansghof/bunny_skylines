@@ -6,9 +6,11 @@
 //! - `unten` / `oben`: mit der Untergrund- bzw. Oberflächen-Ansicht starten
 //! - `abstand=N`, `drehung=Grad`, `neigung=Grad`: Kamera einstellen
 //! - `vorrat`: den Gang am Startbau zur Vorratskammer machen und 15 Futter einlagern
+//! - `graben`: Grabaufträge neben dem Startgang setzen
 //! - `nacht`: kurz vor Einbruch der Nacht starten
 //! - `tempo=N`: Spielgeschwindigkeit
 //! - `bild=S`: nach S Sekunden Echtzeit einen Screenshot nach `target/test-bild.png` speichern und beenden
+//! - `serie=N`: statt eines Bildes N Bilder im Abstand von 0,12 s (`target/test-bild-0.png` …)
 
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
@@ -16,10 +18,11 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use crate::camera::Orbit;
 use crate::colony::Colony;
 use crate::daynight::DayClock;
-use crate::map::{Chamber, Grid, Layer, TilePos, ViewLayer};
+use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer};
 
 pub const ENV: &str = "BUNNY_TEST";
 const SHOT_PATH: &str = "target/test-bild.png";
+const SERIES_INTERVAL: f32 = 0.12;
 
 pub struct DevToolsPlugin;
 
@@ -80,6 +83,11 @@ fn prepare(
         }
         colony.food = 15.0;
     }
+    if script.has("graben") {
+        for (x, y) in [(21, 16), (21, 17), (22, 17), (20, 17)] {
+            grid.under_mut(TilePos::new(x, y)).planned = Some(Depth::Medium);
+        }
+    }
     if script.has("nacht") {
         clock.time = 0.74;
     }
@@ -92,19 +100,25 @@ fn take_shot(
     mut commands: Commands,
     script: Res<TestScript>,
     time: Res<Time<Real>>,
-    mut taken: Local<bool>,
+    mut taken: Local<usize>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Some(at) = script.value("bild") else {
         return;
     };
+    let series = script.value("serie").map(|n| n as usize);
+    let count = series.unwrap_or(1);
     let elapsed = time.elapsed_secs();
-    if !*taken && elapsed >= at {
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(SHOT_PATH));
-        *taken = true;
+    if *taken < count && elapsed >= at + *taken as f32 * SERIES_INTERVAL {
+        let path = match series {
+            Some(_) => format!("target/test-bild-{}.png", *taken),
+            None => SHOT_PATH.to_string(),
+        };
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        *taken += 1;
     }
     // Eine Sekunde Zeit zum Speichern lassen.
-    if *taken && elapsed >= at + 1.0 {
+    if *taken == count && elapsed >= at + count as f32 * SERIES_INTERVAL + 1.0 {
         exit.write(AppExit::Success);
     }
 }

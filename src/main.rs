@@ -5,6 +5,7 @@ mod danger;
 mod daynight;
 #[cfg(debug_assertions)]
 mod devtools;
+mod effects;
 mod furnishing;
 mod ground;
 mod map;
@@ -47,6 +48,7 @@ fn main() {
             predator::PredatorPlugin,
             danger::DangerPlugin,
             furnishing::FurnishingPlugin,
+            effects::EffectsPlugin,
             ui::UiPlugin,
         ));
     #[cfg(debug_assertions)]

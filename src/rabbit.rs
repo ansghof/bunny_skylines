@@ -4,7 +4,8 @@ use std::f32::consts::{PI, TAU};
 
 use bevy::prelude::*;
 
-use crate::behavior::{Activity, Carrying, Fear, Path};
+use crate::behavior::{Activity, Carrying, DigTarget, Fear, Path};
+use crate::effects::{DirtAssets, throw_dirt};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Grid, Layer, TilePos, ViewLayer};
 use crate::camera::Orbit;
@@ -291,22 +292,25 @@ fn tick_stomping(mut commands: Commands, time: Res<Time>, mut rabbits: Query<(En
 }
 
 fn animate(
+    mut commands: Commands,
     time: Res<Time>,
     view: Res<ViewLayer>,
     orbit: Res<Orbit>,
     clock: Res<DayClock>,
+    dirt: Res<DirtAssets>,
+    mut rng: ResMut<Rng>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut rabbits: Query<(&Rabbit, &Activity, &OnLayer, &Fur, &Transform, &mut Anim, Has<Stomping>, &AvatarLink)>,
-    avatars: Query<&Children, With<Avatar>>,
-    mut roots: Query<(&RigRoot, &mut Transform, &Children), (Without<Rabbit>, Without<Part>)>,
-    mut parts: Query<(&Part, &mut Transform), (Without<RigRoot>, Without<Rabbit>)>,
+    avatars: Query<(&Children, &Transform), (With<Avatar>, Without<Rabbit>)>,
+    mut roots: Query<(&RigRoot, &mut Transform, &Children), (Without<Rabbit>, Without<Part>, Without<Avatar>)>,
+    mut parts: Query<(&Part, &mut Transform), (Without<RigRoot>, Without<Rabbit>, Without<Avatar>)>,
 ) {
     let dt = time.delta_secs();
     let screen_right = orbit.screen_right();
     let billboard = orbit.billboard();
 
     for (rabbit, activity, layer, fur, transform, mut anim, stomping, link) in &mut rabbits {
-        let Ok(children) = avatars.get(link.0) else {
+        let Ok((children, avatar_transform)) = avatars.get(link.0) else {
             continue;
         };
         let light = figure_light(&clock, layer.0);
@@ -319,8 +323,13 @@ fn animate(
         let sleeping = matches!(activity, Activity::Sleeping { .. });
 
         // Links oder rechts auf dem Bildschirm, je nachdem wie die Kamera gedreht ist.
+        // Beim Graben schaut das Kaninchen zum Feld, das es gräbt.
         let position = transform.translation.truncate();
-        let sideways = (position - anim.last_position).dot(screen_right);
+        let heading = match activity {
+            Activity::Digging { target: DigTarget::Tunnel(p), .. } => p.center() - position,
+            _ => position - anim.last_position,
+        };
+        let sideways = heading.dot(screen_right);
         if sideways.abs() > 0.01 {
             anim.facing_left = sideways < 0.0;
         }
@@ -354,13 +363,23 @@ fn animate(
         let growth = 0.55 + 0.45 * (rabbit.age / ADULT_AGE).min(1.0);
         let facing = if anim.facing_left { -1.0 } else { 1.0 };
         let alpha = if layer.0 == view.0 { 1.0 } else { 0.3 };
-        let lean = if digging {
-            -0.15
-        } else if guarding {
-            0.12
-        } else {
-            0.0
-        };
+        // Positiv = nach hinten. Die Figur ist schon gespiegelt, wenn sie gedreht wird,
+        // deshalb kippt sie nur mit der Blickrichtung multipliziert nach vorn.
+        let lean = facing
+            * if digging {
+                -0.22 + (t * 14.0).sin() * 0.03
+            } else if guarding {
+                0.12
+            } else {
+                0.0
+            };
+
+        // Die Hinterbeine schleudern die gelockerte Erde hinter dem Kaninchen in die Luft.
+        if digging && layer.0 == view.0 && rng.chance(dt * 12.0) {
+            let right3 = Vec3::new(screen_right.x, 0.0, -screen_right.y);
+            let behind = avatar_transform.translation - right3 * facing * 18.0 * growth + Vec3::Y * 4.0;
+            throw_dirt(&mut commands, &dirt, &mut rng, behind, -right3 * facing);
+        }
 
         for child in children.iter() {
             let Ok((root, mut root_transform, root_children)) = roots.get_mut(child) else {
@@ -386,10 +405,18 @@ fn animate(
                     "ohr_links" | "ohr_rechts" => (t * 0.9).sin() * 3.0,
                     "bein_hinten" if stomping => (t * 30.0).sin().abs() * -28.0,
                     "bein_hinten" if moving => -(anim.hop_phase * TAU).sin() * 18.0,
-                    "bein_hinten" if digging => (t * 18.0).sin() * 25.0,
+                    // Ab und zu ein Tritt nach hinten, um die Erde wegzuschieben.
+                    "bein_hinten" if digging => -(t * 7.0).sin().max(0.0).powi(3) * 22.0,
+                    // Die Vorderpfoten scharren schnell vor und zurück.
+                    "pfote_vorne" if digging => (t * 16.0).sin() * 30.0,
                     _ => 0.0,
                 };
-                let offset = if eating && head_part {
+                let offset = if digging && head_part {
+                    Vec2::new(4.0, -10.0)
+                } else if digging && part.name == "pfote_vorne" {
+                    let scrape = t * 16.0;
+                    Vec2::new(scrape.sin() * 8.0, scrape.cos().max(0.0) * 5.0)
+                } else if eating && head_part {
                     Vec2::new(0.0, -6.0 + (t * 9.0).sin() * 3.0)
                 } else if sleeping && head_part {
                     Vec2::new(0.0, -10.0)
