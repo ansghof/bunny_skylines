@@ -3,7 +3,7 @@
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
-use crate::camera::Orbit;
+use crate::camera::{Orbit, figure_layer};
 use crate::colony::Rng;
 
 const GRAVITY: f32 = 320.0;
@@ -71,6 +71,7 @@ pub fn throw_dirt(commands: &mut Commands, assets: &DirtAssets, rng: &mut Rng, o
         Mesh3d(assets.mesh.clone()),
         MeshMaterial3d(material),
         NotShadowCaster,
+        figure_layer(),
         Transform::from_translation(origin).with_scale(Vec3::splat(size)),
     ));
 }

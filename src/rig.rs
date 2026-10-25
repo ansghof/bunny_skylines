@@ -13,6 +13,7 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use serde::Deserialize;
 
+use crate::camera::figure_layer;
 use crate::ground::{floor_y, to_world3};
 use crate::map::{Grid, Layer, TilePos};
 use crate::rabbit::OnLayer;
@@ -225,6 +226,7 @@ fn attach_rigs(
                 Mesh3d(mesh),
                 MeshMaterial3d(material.clone()),
                 NotShadowCaster,
+                figure_layer(),
                 base,
                 Part {
                     name: part.name.clone(),
@@ -328,15 +330,23 @@ pub fn pose_part(
     let srgb = base.to_srgba();
     let color = Color::srgba(srgb.red * light, srgb.green * light, srgb.blue * light, alpha);
 
+    // Kantenglättung per Abdeckung lässt halbdurchsichtige Figuren fast verschwinden;
+    // Figuren aus der anderen Ebene werden deshalb echt durchsichtig gemischt.
+    let alpha_mode = if alpha < 1.0 {
+        AlphaMode::Blend
+    } else {
+        AlphaMode::AlphaToCoverage
+    };
     let Some(material) = materials.get(&part.material) else {
         return;
     };
     let same_image = material.base_color_texture.as_ref() == Some(image);
-    if same_image && material.base_color == color {
+    if same_image && material.base_color == color && material.alpha_mode == alpha_mode {
         return;
     }
     if let Some(mut material) = materials.get_mut(&part.material) {
         material.base_color_texture = Some(image.clone());
         material.base_color = color;
+        material.alpha_mode = alpha_mode;
     }
 }

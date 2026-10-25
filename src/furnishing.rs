@@ -8,7 +8,7 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
-use crate::camera::Orbit;
+use crate::camera::{Orbit, figure_layer};
 use crate::colony::{Colony, FOOD_PER_STORAGE_TILE};
 use crate::ground::{depth_y, to_world3};
 use crate::map::{Chamber, Grid, Layer, TilePos, ViewLayer};
@@ -171,7 +171,14 @@ fn place_furnishing(
             visibility,
         ));
         match kind {
-            Kind::Pile => entity.insert((Mesh3d(assets.upright.clone()), Upright, at.with_scale(size.extend(1.0)))),
+            // Futterhaufen stehen wie Figuren und werden mit ihnen gezeichnet, damit sie aus
+            // jedem Winkel zur Kamera schauen können, ohne in der Kammerwand zu verschwinden.
+            Kind::Pile => entity.insert((
+                Mesh3d(assets.upright.clone()),
+                Upright,
+                figure_layer(),
+                at.with_scale(size.extend(1.0)),
+            )),
             // Flache Vierecke liegen in x-z: die Bildhöhe gehört auf z.
             Kind::Nest | Kind::Light => entity.insert((
                 Mesh3d(assets.flat.clone()),

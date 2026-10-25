@@ -2,6 +2,7 @@
 //! WASD/Pfeiltasten oder mittlere Maustaste verschieben, rechte Maustaste dreht und neigt,
 //! Mausrad zoomt. Läuft in Echtzeit, also auch während der Pause.
 
+use bevy::camera::visibility::RenderLayers;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
@@ -38,6 +39,19 @@ impl Plugin for CameraPlugin {
 #[derive(Component)]
 pub struct MainCamera;
 
+/// Zweite Kamera, die nur die Figuren zeichnet, über den Boden hinweg.
+/// So können Aufsteller voll zur Kamera schauen, ohne in Gangwände zu kippen,
+/// und Kaninchen in Gängen bleiben aus jedem Blickwinkel sichtbar.
+#[derive(Component)]
+struct FigureCamera;
+
+/// Ebene für alles, was die Figuren-Kamera zeichnet.
+pub const FIGURE_LAYER: usize = 1;
+
+pub fn figure_layer() -> RenderLayers {
+    RenderLayers::layer(FIGURE_LAYER)
+}
+
 /// Wo die Kamera hinschaut und von wo.
 #[derive(Resource)]
 pub struct Orbit {
@@ -50,10 +64,10 @@ pub struct Orbit {
 }
 
 impl Orbit {
-    /// Drehung für Aufsteller: aufrecht, zur Kamera gedreht. Nicht mitgeneigt, sonst kippen
-    /// Figuren in Gängen nach hinten in die Erdwand.
+    /// Drehung für Aufsteller: Sie schauen genau zur Kamera, auch von schräg oben,
+    /// damit sie nie flach oder verzerrt wirken.
     pub fn billboard(&self) -> Quat {
-        Quat::from_rotation_y(self.yaw)
+        Quat::from_rotation_y(self.yaw) * Quat::from_rotation_x(-self.pitch)
     }
 
     /// Die Richtung „rechts auf dem Bildschirm“ in Kartenkoordinaten.
@@ -80,6 +94,22 @@ fn spawn_camera(mut commands: Commands) {
         Tonemapping::None,
         DebandDither::Disabled,
         MainCamera,
+        Transform::default(),
+    ));
+    // Zeichnet danach über das Bild der Hauptkamera, mit eigener Tiefe: Der Boden verdeckt nichts.
+    commands.spawn((
+        Camera3d::default(),
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        Tonemapping::None,
+        DebandDither::Disabled,
+        figure_layer(),
+        FigureCamera,
+        // Die Anzeige gehört über alles.
+        IsDefaultUiCamera,
         Transform::default(),
     ));
 }
@@ -153,11 +183,15 @@ fn zoom(scroll: Res<AccumulatedMouseScroll>, mut orbit: ResMut<Orbit>) {
     orbit.distance = (orbit.distance * (1.0 - steps * ZOOM_STEP)).clamp(MIN_DISTANCE, MAX_DISTANCE);
 }
 
-fn apply_orbit(orbit: Res<Orbit>, mut camera: Single<&mut Transform, With<MainCamera>>) {
+fn apply_orbit(orbit: Res<Orbit>, mut cameras: Query<&mut Transform, Or<(With<MainCamera>, With<FigureCamera>)>>) {
     let offset = Vec3::new(
         orbit.yaw.sin() * orbit.pitch.cos(),
         orbit.pitch.sin(),
         orbit.yaw.cos() * orbit.pitch.cos(),
     ) * orbit.distance;
-    **camera = Transform::from_translation(orbit.focus + offset).looking_at(orbit.focus, Vec3::Y);
+    let view = Transform::from_translation(orbit.focus + offset).looking_at(orbit.focus, Vec3::Y);
+    // Beide Kameras müssen exakt gleich stehen, sonst rutschen Figuren gegen den Boden.
+    for mut camera in &mut cameras {
+        *camera = view;
+    }
 }
