@@ -3,11 +3,16 @@
 
 use bevy::prelude::*;
 
+use crate::daynight::DayClock;
+
 pub const TILE_SIZE: f32 = 64.0;
 pub const MAP_WIDTH: i32 = 40;
 pub const MAP_HEIGHT: i32 = 30;
 
-const GRASS_GROWTH_PER_SECOND: f32 = 0.03;
+/// Von abgefressen bis voll dauert es gut eine Spielminute, etwa ein Viertel des Tages.
+const GRASS_GROWTH_PER_SECOND: f32 = 0.014;
+/// Nachts wächst kaum etwas nach.
+const NIGHT_GROWTH_FACTOR: f32 = 0.3;
 
 pub struct MapPlugin;
 
@@ -257,13 +262,14 @@ fn toggle_view(keys: Res<ButtonInput<KeyCode>>, mut view: ResMut<ViewLayer>) {
     }
 }
 
-fn grow_grass(time: Res<Time>, mut grid: ResMut<Grid>, mut timer: Local<f32>) {
-    // Nur einmal pro Sekunde, damit die Felder nicht jedes Bild neu eingefärbt werden.
+fn grow_grass(time: Res<Time>, clock: Res<DayClock>, mut grid: ResMut<Grid>, mut timer: Local<f32>) {
+    // Nur einmal pro Sekunde, damit der Boden nicht jedes Bild neu gebaut wird.
     *timer += time.delta_secs();
     if *timer < 1.0 {
         return;
     }
-    let growth = GRASS_GROWTH_PER_SECOND * *timer;
+    let night = if clock.is_night() { NIGHT_GROWTH_FACTOR } else { 1.0 };
+    let growth = GRASS_GROWTH_PER_SECOND * night * *timer;
     *timer = 0.0;
     for tile in &mut grid.surface {
         if !tile.entrance && tile.grass < 1.0 {

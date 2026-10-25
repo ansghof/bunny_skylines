@@ -7,6 +7,7 @@
 //! - `abstand=N`, `drehung=Grad`, `neigung=Grad`: Kamera einstellen
 //! - `vorrat`: den Gang am Startbau zur Vorratskammer machen und 15 Futter einlagern
 //! - `graben`: Grabaufträge neben dem Startgang setzen
+//! - `zeiger`: Mauszeiger fest über ein ungegrabenes Feld neben dem Startbau setzen
 //! - `nacht`: kurz vor Einbruch der Nacht starten
 //! - `tempo=N`: Spielgeschwindigkeit
 //! - `bild=S`: nach S Sekunden Echtzeit einen Screenshot nach `target/test-bild.png` speichern und beenden
@@ -15,7 +16,7 @@
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
-use crate::camera::Orbit;
+use crate::camera::{CursorWorld, Orbit, update_cursor};
 use crate::colony::Colony;
 use crate::daynight::DayClock;
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer};
@@ -34,6 +35,7 @@ impl Plugin for DevToolsPlugin {
         let commands: Vec<String> = script.split(',').map(|s| s.trim().to_string()).collect();
         app.insert_resource(TestScript(commands))
             .add_systems(Startup, prepare)
+            .add_systems(PreUpdate, fake_cursor.after(update_cursor))
             .add_systems(Update, take_shot);
     }
 }
@@ -93,6 +95,12 @@ fn prepare(
     }
     if let Some(speed) = script.value("tempo") {
         time.set_relative_speed(speed);
+    }
+}
+
+fn fake_cursor(script: Res<TestScript>, mut cursor: ResMut<CursorWorld>) {
+    if script.has("zeiger") {
+        cursor.0 = Some(TilePos::new(21, 13).center());
     }
 }
 

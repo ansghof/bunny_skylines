@@ -7,8 +7,8 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseSc
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use crate::ground::floor_y_for_view;
-use crate::map::ViewLayer;
+use crate::ground::pick;
+use crate::map::{Grid, ViewLayer};
 
 const PAN_SPEED: f32 = 1.0;
 const ROTATE_SPEED: f32 = 0.006;
@@ -84,25 +84,18 @@ fn spawn_camera(mut commands: Commands) {
     ));
 }
 
-fn update_cursor(
+pub fn update_cursor(
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Single<(&Camera, &GlobalTransform), With<MainCamera>>,
     view: Res<ViewLayer>,
+    grid: Res<Grid>,
     mut cursor: ResMut<CursorWorld>,
 ) {
     let (camera, transform) = *camera;
-    // Schnittpunkt des Mausstrahls mit der Bodenhöhe der aktuellen Ansicht.
-    let floor = floor_y_for_view(view.0);
     cursor.0 = window
         .cursor_position()
         .and_then(|position| camera.viewport_to_world(transform, position).ok())
-        .and_then(|ray| {
-            let distance = (floor - ray.origin.y) / ray.direction.y;
-            (distance > 0.0).then(|| {
-                let hit = ray.origin + *ray.direction * distance;
-                Vec2::new(hit.x, -hit.z)
-            })
-        });
+        .and_then(|ray| pick(&grid, view.0, ray));
 }
 
 fn pan_keyboard(keys: Res<ButtonInput<KeyCode>>, time: Res<Time<Real>>, mut orbit: ResMut<Orbit>) {

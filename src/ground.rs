@@ -46,12 +46,28 @@ pub fn floor_y(grid: &Grid, layer: Layer, p: TilePos) -> f32 {
     }
 }
 
-/// Höhe, auf der die Maus in der jeweiligen Ansicht den Boden trifft.
-pub fn floor_y_for_view(layer: Layer) -> f32 {
-    match layer {
-        Layer::Surface => 0.0,
-        Layer::Underground => -20.0,
+/// Der Kartenpunkt, den ein Mausstrahl trifft. Zuerst auf Höhe der Oberkante;
+/// liegt dort im Untergrund ein Gang, folgt der Strahl bis auf dessen Boden.
+pub fn pick(grid: &Grid, view: Layer, ray: Ray3d) -> Option<Vec2> {
+    let hit_at = |y: f32| {
+        let distance = (y - ray.origin.y) / ray.direction.y;
+        (distance > 0.0).then(|| {
+            let hit = ray.origin + *ray.direction * distance;
+            Vec2::new(hit.x, -hit.z)
+        })
+    };
+    let top = hit_at(0.0)?;
+    if view == Layer::Surface {
+        return Some(top);
     }
+    let Some(tile) = TilePos::from_world(top).filter(|p| grid.under(*p).dug.is_some()) else {
+        return Some(top);
+    };
+    // Trifft der Strahl auf dem Gangboden wieder einen Gang, ist das der sichtbare Punkt;
+    // sonst endet er an einer Gangwand, und die Oberkante passt besser.
+    let floor = hit_at(floor_y(grid, Layer::Underground, tile))?;
+    let floor_is_dug = TilePos::from_world(floor).is_some_and(|p| grid.under(p).dug.is_some());
+    Some(if floor_is_dug { floor } else { top })
 }
 
 /// Ein Rechteck auf dem Boden, z. B. für die Bauvorschau.

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::camera::CursorWorld;
 use crate::colony::{Colony, Messages, cost};
-use crate::ground::{floor_y_for_view, gizmo_rect};
+use crate::ground::gizmo_rect;
 use crate::map::{Chamber, Depth, Grid, Layer, TILE_SIZE, TilePos, ViewLayer, tiles_between};
 
 pub struct ToolsPlugin;
@@ -211,5 +211,6 @@ fn draw_preview(
     };
     let min = start.center().min(end.center()) - TILE_SIZE / 2.0;
     let max = start.center().max(end.center()) + TILE_SIZE / 2.0;
-    gizmo_rect(&mut gizmos, min, max, floor_y_for_view(view.0), color);
+    // Auf der Oberkante, sonst steckt der Rahmen dort, wo noch nicht gegraben ist, in der Erde.
+    gizmo_rect(&mut gizmos, min, max, 0.0, color);
 }
