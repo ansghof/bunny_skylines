@@ -2,13 +2,14 @@
 
 use std::f32::consts::{PI, TAU};
 
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::behavior::{Activity, Carrying, DigTarget, Fear, Path, Reserved, release};
 use crate::effects::{DirtAssets, throw_dirt};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Grid, Layer, TilePos, ViewLayer};
-use crate::camera::Orbit;
+use crate::camera::{Orbit, figure_layer};
 use crate::daynight::{DayClock, YEAR_LENGTH, figure_light};
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
@@ -20,6 +21,14 @@ const LIFESPAN_YEARS: (f32, f32) = (8.0, 9.5);
 const OLD_AGE_YEARS: f32 = 6.0;
 /// So lange hält ein völlig ausgehungertes Kaninchen durch, in Spielsekunden.
 const STARVE_SECONDS: f32 = 60.0;
+/// Ab diesem Hunger zeigt ein Kaninchen eine Gedankenblase.
+pub const SHOW_HUNGER: f32 = 0.8;
+/// Gedankenblasen sind in vierfacher Spielgröße gemalt.
+const ICON_SCALE: f32 = 0.4;
+/// Höhe der Blase über den Füßen eines erwachsenen Kaninchens.
+const ICON_HEIGHT: f32 = 64.0;
+/// So weit sitzt der Kopf vor der Körpermitte.
+const ICON_AHEAD: f32 = 12.0;
 const PREGNANCY_SECONDS: f32 = 40.0;
 const BIRTH_COOLDOWN_SECONDS: f32 = 90.0;
 const HOPS_PER_SECOND: f32 = 2.6;
@@ -49,7 +58,9 @@ pub struct RabbitPlugin;
 
 impl Plugin for RabbitPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_founders).add_systems(
+        app.add_systems(Startup, (spawn_founders, prepare_hunger_icons))
+            .add_systems(Update, show_hunger.after(animate))
+            .add_systems(
             Update,
             (
                 (grow_up, die).chain(),
@@ -83,6 +94,16 @@ impl Rabbit {
     /// Alte Kaninchen sind langsamer.
     pub fn is_old(&self) -> bool {
         self.age >= OLD_AGE_YEARS * YEAR_LENGTH
+    }
+
+    /// Völlig ausgehungert; ohne Futter stirbt es bald.
+    pub fn is_starving(&self) -> bool {
+        self.starving > 0.0
+    }
+
+    /// Junge sind kleiner und wachsen bis zum Erwachsenenalter heran.
+    fn growth(&self) -> f32 {
+        0.55 + 0.45 * (self.age / ADULT_AGE).min(1.0)
     }
 
     /// Nur für Testläufe: Das Kaninchen hat noch so viele Spielsekunden zu leben.
@@ -204,6 +225,113 @@ fn grow_up(time: Res<Time>, mut rabbits: Query<&mut Rabbit>, mut messages: ResMu
         if !was_adult && rabbit.is_adult() {
             messages.push(format!("{} ist erwachsen geworden.", rabbit.name));
         }
+    }
+}
+
+#[derive(Resource)]
+struct HungerIcons {
+    /// Unten in der Mitte verankert, damit die Blase auf dem Kopf sitzt.
+    mesh: Handle<Mesh>,
+    hungry: Handle<StandardMaterial>,
+    starving: Handle<StandardMaterial>,
+}
+
+/// Die Gedankenblase eines Kaninchens.
+#[derive(Component)]
+struct HungerIcon;
+
+/// Verweis vom Kaninchen auf seine Gedankenblase.
+#[derive(Component)]
+struct HungerIconLink(Entity);
+
+fn prepare_hunger_icons(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let mut icon = |file: &str| {
+        materials.add(StandardMaterial {
+            base_color_texture: Some(asset_server.load(format!("symbole/{file}"))),
+            alpha_mode: AlphaMode::AlphaToCoverage,
+            unlit: true,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        })
+    };
+    let hungry = icon("hunger.png");
+    let starving = icon("hungersnot.png");
+    commands.insert_resource(HungerIcons {
+        mesh: meshes.add(Mesh::from(Rectangle::new(64.0, 72.0)).translated_by(Vec3::new(0.0, 36.0, 0.0))),
+        hungry,
+        starving,
+    });
+}
+
+/// Hungrige Kaninchen zeigen eine Blase mit Möhre, verhungernde eine rote, pulsierende.
+fn show_hunger(
+    mut commands: Commands,
+    time: Res<Time>,
+    view: Res<ViewLayer>,
+    orbit: Res<Orbit>,
+    icons: Res<HungerIcons>,
+    rabbits: Query<(Entity, &Rabbit, &Hunger, &OnLayer, &Anim, &AvatarLink, Option<&HungerIconLink>)>,
+    mut bubbles: Query<
+        (&mut Transform, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
+        With<HungerIcon>,
+    >,
+) {
+    for (entity, rabbit, hunger, layer, anim, avatar, link) in &rabbits {
+        let Some(link) = link else {
+            let bubble = commands
+                .spawn((
+                    HungerIcon,
+                    Mesh3d(icons.mesh.clone()),
+                    MeshMaterial3d(icons.hungry.clone()),
+                    NotShadowCaster,
+                    figure_layer(),
+                    Transform::default(),
+                    Visibility::Hidden,
+                    ChildOf(avatar.0),
+                ))
+                .id();
+            commands.entity(entity).insert(HungerIconLink(bubble));
+            continue;
+        };
+        // Ist der Aufsteller neu gebaut worden, ist die alte Blase mit ihm verschwunden.
+        let Ok((mut transform, mut visibility, mut material)) = bubbles.get_mut(link.0) else {
+            commands.entity(entity).remove::<HungerIconLink>();
+            continue;
+        };
+
+        let show = hunger.0 >= SHOW_HUNGER && layer.0 == view.0;
+        let wanted = if show { Visibility::Inherited } else { Visibility::Hidden };
+        if *visibility != wanted {
+            *visibility = wanted;
+        }
+        if !show {
+            continue;
+        }
+
+        let starving = rabbit.is_starving();
+        let image = if starving { &icons.starving } else { &icons.hungry };
+        if material.0 != *image {
+            material.0 = image.clone();
+        }
+        let t = time.elapsed_secs();
+        let growth = rabbit.growth();
+        let pulse = if starving { 1.0 + (t * 6.0).sin() * 0.12 } else { 1.0 };
+        let bob = (t * 2.0).sin() * 1.5;
+        // Über den Kopf, der in Blickrichtung vor der Körpermitte sitzt.
+        let right = orbit.screen_right();
+        let facing = if anim.facing_left { -1.0 } else { 1.0 };
+        let ahead = Vec3::new(right.x, 0.0, -right.y) * facing * ICON_AHEAD * growth;
+        *transform = Transform {
+            translation: ahead + Vec3::new(0.0, ICON_HEIGHT * growth + bob, 0.0),
+            rotation: orbit.billboard(),
+            scale: Vec3::splat(ICON_SCALE * pulse),
+        };
     }
 }
 
@@ -390,6 +518,7 @@ fn animate(
         let digging = matches!(activity, Activity::Digging { .. });
         let guarding = matches!(activity, Activity::Guarding { .. });
         let sleeping = matches!(activity, Activity::Sleeping { .. });
+        let starving = rabbit.is_starving();
 
         // Links oder rechts auf dem Bildschirm, je nachdem wie die Kamera gedreht ist.
         // Beim Graben schaut das Kaninchen zum Feld, das es gräbt.
@@ -428,8 +557,7 @@ fn animate(
         }
         let eyes_closed = sleeping || anim.blink_timer < 0.0;
 
-        // Junge sind kleiner und wachsen bis zum Erwachsenenalter heran.
-        let growth = 0.55 + 0.45 * (rabbit.age / ADULT_AGE).min(1.0);
+        let growth = rabbit.growth();
         let facing = if anim.facing_left { -1.0 } else { 1.0 };
         let alpha = if layer.0 == view.0 { 1.0 } else { 0.3 };
         // Positiv = nach hinten. Die Figur ist schon gespiegelt, wenn sie gedreht wird,
@@ -466,6 +594,8 @@ fn animate(
                 let head_part = matches!(part.name.as_str(), "kopf" | "auge" | "ohr_links" | "ohr_rechts");
                 let angle = match part.name.as_str() {
                     "ohr_links" | "ohr_rechts" if sleeping => -35.0,
+                    // Wer verhungert, lässt die Ohren hängen.
+                    "ohr_links" | "ohr_rechts" if starving && !moving => -28.0,
                     // Ohren schwingen dem Hopser hinterher.
                     "ohr_links" | "ohr_rechts" if moving => (anim.hop_phase * TAU - 0.8).sin() * 12.0,
                     "ohr_links" | "ohr_rechts" if digging => -10.0,

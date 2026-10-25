@@ -6,7 +6,7 @@ use crate::colony::{Colony, Messages};
 use crate::danger::AlarmButton;
 use crate::daynight::DayClock;
 use crate::map::{Grid, ViewLayer};
-use crate::rabbit::Rabbit;
+use crate::rabbit::{Hunger, Rabbit, SHOW_HUNGER};
 use crate::speed;
 use crate::tools::{Tool, ToolKind};
 
@@ -62,7 +62,7 @@ fn update_status(
     tool: Res<Tool>,
     grid: Res<Grid>,
     colony: Res<Colony>,
-    rabbits: Query<&Rabbit>,
+    rabbits: Query<(&Rabbit, &Hunger)>,
     mut text: Single<&mut Text, With<StatusText>>,
 ) {
     let alarm = if alarm.cooldown > 0.0 {
@@ -71,7 +71,14 @@ fn update_status(
         "bereit".into()
     };
     let total = rabbits.iter().count();
-    let young = rabbits.iter().filter(|r| !r.is_adult()).count();
+    let young = rabbits.iter().filter(|(r, _)| !r.is_adult()).count();
+    let hungry = rabbits.iter().filter(|(_, h)| h.0 >= SHOW_HUNGER).count();
+    let starving = rabbits.iter().filter(|(r, _)| r.is_starving()).count();
+    let hunger = match (hungry, starving) {
+        (0, _) => String::new(),
+        (n, 0) => format!("    Hungrig: {n}"),
+        (n, s) => format!("    Hungrig: {n}, davon {s} am Verhungern!"),
+    };
     let depth = if tool.kind == ToolKind::Dig {
         format!(", Tiefe {} [R]", tool.depth.label())
     } else {
@@ -81,7 +88,7 @@ fn update_status(
     text.0 = format!(
         "Jahr {} · Tag {} · {}    Ansicht: {} [Tab]    Tempo: {} [Leertaste, 1–3]\n\
          Werkzeug: {}{price}{depth}    Alarm [F]: {alarm}\n\
-         Kaninchen: {total} (davon {young} Junge)    Schlafplätze: {}\n\
+         Kaninchen: {total} (davon {young} Junge)    Schlafplätze: {}{hunger}\n\
          Futter: {:.0} / {:.0}    Erde: {:.0}",
         clock.year(),
         clock.day_of_year(),
