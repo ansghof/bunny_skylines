@@ -1,5 +1,13 @@
+mod behavior;
 mod camera;
+mod colony;
 mod map;
+mod pathfinding;
+mod rabbit;
+mod rig;
+mod speed;
+mod tools;
+mod ui;
 
 use bevy::prelude::*;
 
@@ -14,6 +22,16 @@ fn main() {
             ..default()
         }))
         .insert_resource(ClearColor(Color::srgb(0.98, 0.95, 0.86)))
-        .add_plugins((camera::CameraPlugin, map::MapPlugin))
+        .add_plugins((
+            camera::CameraPlugin,
+            speed::SpeedPlugin,
+            map::MapPlugin,
+            tools::ToolsPlugin,
+            colony::ColonyPlugin,
+            rig::RigPlugin,
+            rabbit::RabbitPlugin,
+            behavior::BehaviorPlugin,
+            ui::UiPlugin,
+        ))
         .run();
 }

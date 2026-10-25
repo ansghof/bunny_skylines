@@ -1,8 +1,9 @@
 //! Spielkamera: Verschieben mit WASD/Pfeiltasten oder gedrückter mittlerer Maustaste,
-//! Zoomen mit dem Mausrad.
+//! Zoomen mit dem Mausrad. Läuft in Echtzeit, also auch während der Pause.
 
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
 const PAN_SPEED: f32 = 800.0;
 const ZOOM_STEP: f32 = 0.1;
@@ -13,7 +14,9 @@ pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_camera)
+        app.init_resource::<CursorWorld>()
+            .add_systems(Startup, spawn_camera)
+            .add_systems(PreUpdate, update_cursor)
             .add_systems(Update, (pan_keyboard, pan_mouse, zoom));
     }
 }
@@ -21,8 +24,23 @@ impl Plugin for CameraPlugin {
 #[derive(Component)]
 pub struct MainCamera;
 
+/// Mausposition in Weltkoordinaten, `None` wenn die Maus außerhalb des Fensters ist.
+#[derive(Resource, Default)]
+pub struct CursorWorld(pub Option<Vec2>);
+
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((Camera2d, MainCamera));
+}
+
+fn update_cursor(
+    window: Single<&Window, With<PrimaryWindow>>,
+    camera: Single<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut cursor: ResMut<CursorWorld>,
+) {
+    let (camera, transform) = *camera;
+    cursor.0 = window
+        .cursor_position()
+        .and_then(|position| camera.viewport_to_world_2d(transform, position).ok());
 }
 
 fn current_scale(projection: &Projection) -> f32 {
@@ -34,7 +52,7 @@ fn current_scale(projection: &Projection) -> f32 {
 
 fn pan_keyboard(
     keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     mut camera: Single<(&mut Transform, &Projection), With<MainCamera>>,
 ) {
     let mut direction = Vec2::ZERO;

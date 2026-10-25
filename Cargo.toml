@@ -5,8 +5,19 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 
+[workspace]
+members = ["tools/art_export"]
+
 [dependencies]
-bevy = { version = "0.20", features = ["file_watcher"] }
+# system_font_discovery: Die eingebaute Schrift hat keine Umlaute, also Systemschriften nutzen.
+bevy = { version = "0.20", features = ["file_watcher", "system_font_discovery"] }
+ron = "0.12"
+serde = { version = "1", features = ["derive"] }
+
+# Bevy-Systeme haben naturgemäß viele Parameter und lange Query-Typen.
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
 
 [features]
 # Schnellere Kompilierzeiten beim Entwickeln: `cargo run --features dev`

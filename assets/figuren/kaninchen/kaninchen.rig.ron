@@ -1,0 +1,23 @@
+// Bauplan des Kaninchens. Änderungen werden im laufenden Spiel sofort übernommen.
+//
+// pixel_massstab: PNG-Pixel -> Spieleinheiten (Teile sind in doppelter Größe gemalt)
+// position:   wo der Drehpunkt des Teils sitzt, in PNG-Pixeln; (0, 0) = zwischen den Füßen, y nach oben
+// drehpunkt:  Punkt im Bild, um den sich das Teil dreht; (0, 0) = unten links, (1, 1) = oben rechts
+// drehung:    Grundneigung in Grad, positiv = gegen den Uhrzeigersinn
+// ebene:      höhere Ebenen liegen weiter vorne
+// faerben:    false = behält seine Farbe (Augen, Schwanz), true = bekommt die Fellfarbe
+// varianten:  weitere Bilder desselben Teils, z. B. geschlossene Augen
+(
+    pixel_massstab: 0.3,
+    teile: [
+        (name: "bein_hinten", bild: "bein_hinten.png", position: (-14, 18),  drehpunkt: (0.8, 0.5), ebene: 0),
+        (name: "koerper",     bild: "koerper.png",     position: (-8, 52),   drehpunkt: (0.5, 0.5), ebene: 1),
+        (name: "schwanz",     bild: "schwanz.png",     position: (-62, 62),  drehpunkt: (0.5, 0.5), ebene: 2, faerben: false),
+        (name: "ohr_rechts",  bild: "ohr_rechts.png",  position: (46, 104),  drehpunkt: (0.5, 0.0), drehung: -12, ebene: 2),
+        (name: "ohr_links",   bild: "ohr_links.png",   position: (26, 108),  drehpunkt: (0.5, 0.0), drehung: 8,   ebene: 3),
+        (name: "kopf",        bild: "kopf.png",        position: (40, 88),   drehpunkt: (0.5, 0.5), ebene: 4),
+        (name: "auge",        bild: "auge_offen.png",  position: (52, 94),   drehpunkt: (0.5, 0.5), ebene: 5, faerben: false,
+            varianten: {"zu": "auge_zu.png"}),
+        (name: "pfote_vorne", bild: "pfote_vorne.png", position: (30, 10),   drehpunkt: (0.5, 0.5), ebene: 5),
+    ],
+)
