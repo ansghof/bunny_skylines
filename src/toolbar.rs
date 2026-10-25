@@ -6,6 +6,7 @@ use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
+use crate::behavior::Priorities;
 use crate::danger::{ALARM_COOLDOWN_SECONDS, AlarmButton};
 use crate::map::{Depth, Layer, ViewLayer};
 use crate::tools::{TOOLS, Tool, ToolKind, select};
@@ -27,7 +28,7 @@ impl Plugin for ToolbarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Tooltip>()
             .add_systems(Startup, spawn_toolbar)
-            .add_systems(Update, (highlight_buttons, update_tooltip));
+            .add_systems(Update, (toggle_gather_key, highlight_buttons, update_tooltip));
     }
 }
 
@@ -40,6 +41,8 @@ pub(crate) enum Action {
     Tool(ToolKind),
     Depth(Depth),
     Alarm,
+    /// Alle Erwachsenen sammeln zuerst.
+    GatherFirst,
     /// `None` = Pause.
     Speed(Option<f32>),
     View(Layer),
@@ -72,6 +75,7 @@ impl Action {
             Action::Depth(Depth::Medium) => "tiefe_mittel",
             Action::Depth(Depth::Deep) => "tiefe_tief",
             Action::Alarm => "alarm",
+            Action::GatherFirst => "sammeln",
             Action::View(Layer::Surface) => "ansicht_oben",
             Action::View(Layer::Underground) => "ansicht_unten",
             Action::Speed(_) => return None,
@@ -112,6 +116,9 @@ impl Action {
                      Danach {ALARM_COOLDOWN_SECONDS:.0} s gesperrt.{state}"
                 )
             }
+            Action::GatherFirst => "Vorräte anlegen  [B]
+Alle Erwachsenen sammeln Gras für den Vorrat,                  Graben und Wache haben Pause. Nochmal klicken zum Beenden."
+                .into(),
             Action::Speed(None) => "Pause  [Leertaste]".into(),
             Action::Speed(Some(speed)) => format!("Tempo {speed}×  [{speed}]"),
             Action::View(layer) => format!("Ansicht: {}  [Tab]", layer.label()),
@@ -123,7 +130,7 @@ fn spawn_toolbar(mut commands: Commands, asset_server: Res<AssetServer>) {
     let groups: [Vec<Action>; 5] = [
         TOOLS.iter().map(|(kind, _, _)| Action::Tool(*kind)).collect(),
         [Depth::Shallow, Depth::Medium, Depth::Deep].map(Action::Depth).to_vec(),
-        vec![Action::Alarm],
+        vec![Action::GatherFirst, Action::Alarm],
         vec![
             Action::Speed(None),
             Action::Speed(Some(1.0)),
@@ -283,6 +290,7 @@ struct ActionTargets<'w> {
     view: ResMut<'w, ViewLayer>,
     time: ResMut<'w, Time<Virtual>>,
     alarm: ResMut<'w, AlarmButton>,
+    priorities: ResMut<'w, Priorities>,
 }
 
 impl ActionTargets<'_> {
@@ -295,6 +303,7 @@ impl ActionTargets<'_> {
                 select(ToolKind::Dig, &mut self.tool, &mut self.view);
             }
             Action::Alarm => self.alarm.requested = true,
+            Action::GatherFirst => self.priorities.gather_first = !self.priorities.gather_first,
             Action::Speed(None) => {
                 if self.time.is_paused() {
                     self.time.unpause();
@@ -311,11 +320,18 @@ impl ActionTargets<'_> {
     }
 }
 
+fn toggle_gather_key(keys: Res<ButtonInput<KeyCode>>, mut priorities: ResMut<Priorities>) {
+    if keys.just_pressed(KeyCode::KeyB) {
+        priorities.gather_first = !priorities.gather_first;
+    }
+}
+
 fn highlight_buttons(
     tool: Res<Tool>,
     view: Res<ViewLayer>,
     time: Res<Time<Virtual>>,
     alarm: Res<AlarmButton>,
+    priorities: Res<Priorities>,
     mut buttons: Query<(&ActionButton, &Hovered, &mut BackgroundColor, &mut BorderColor)>,
 ) {
     for (button, hovered, mut background, mut border) in &mut buttons {
@@ -323,6 +339,7 @@ fn highlight_buttons(
             Action::Tool(kind) => (tool.kind == kind, false),
             Action::Depth(depth) => (tool.depth == depth, tool.kind != ToolKind::Dig),
             Action::Alarm => (false, alarm.cooldown > 0.0),
+            Action::GatherFirst => (priorities.gather_first, false),
             Action::Speed(None) => (time.is_paused(), false),
             Action::Speed(Some(speed)) => (!time.is_paused() && time.relative_speed() == speed, false),
             Action::View(layer) => (view.0 == layer, false),

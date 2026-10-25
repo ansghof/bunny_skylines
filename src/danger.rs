@@ -26,10 +26,7 @@ pub struct DangerPlugin;
 impl Plugin for DangerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Alarms>()
-            .insert_resource(AlarmButton {
-                cooldown: 0.0,
-                requested: false,
-            })
+            .init_resource::<AlarmButton>()
             .add_systems(
                 Update,
                 (guards_watch, notice_foxes, alarm_button, spread_alarms, draw_rings)
@@ -49,7 +46,7 @@ struct Alarm {
 #[derive(Resource, Default)]
 struct Alarms(Vec<Alarm>);
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct AlarmButton {
     pub cooldown: f32,
     /// Über die Werkzeugleiste ausgelöst; wirkt wie die Taste F.

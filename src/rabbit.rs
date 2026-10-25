@@ -195,7 +195,7 @@ pub fn z_for(position: Vec2) -> f32 {
     10.0 - position.y * 0.001
 }
 
-fn spawn_founders(
+pub fn spawn_founders(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut rng: ResMut<Rng>,
@@ -386,8 +386,8 @@ fn start_pregnancies(
         return;
     }
     *timer = 0.0;
-    // Im Winter gibt es keinen Nachwuchs.
-    if clock.season() == Season::Winter {
+    // Nachwuchs gibt es nur im Frühling und Sommer, damit die Jungen vor dem Winter groß sind.
+    if !matches!(clock.season(), Season::Spring | Season::Summer) {
         return;
     }
 

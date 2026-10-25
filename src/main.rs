@@ -6,6 +6,7 @@ mod daynight;
 #[cfg(debug_assertions)]
 mod devtools;
 mod effects;
+mod ending;
 mod furnishing;
 mod ground;
 mod map;
@@ -56,6 +57,7 @@ fn main() {
             effects::EffectsPlugin,
             ui::UiPlugin,
             toolbar::ToolbarPlugin,
+            ending::EndingPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);

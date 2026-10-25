@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 
+use crate::behavior::Priorities;
 use crate::colony::{Colony, Messages};
 use crate::danger::AlarmButton;
 use crate::daynight::DayClock;
@@ -65,6 +66,7 @@ fn update_status(
     tool: Res<Tool>,
     grid: Res<Grid>,
     colony: Res<Colony>,
+    priorities: Res<Priorities>,
     rabbits: Query<(&Rabbit, &Hunger)>,
     mut text: Single<&mut Text, With<StatusText>>,
 ) {
@@ -88,11 +90,12 @@ fn update_status(
         String::new()
     };
     let price = tool.kind.cost_label().map_or(String::new(), |c| format!(" ({c})"));
+    let gathering = if priorities.gather_first { "    Vorräte anlegen [B]" } else { "" };
     text.0 = format!(
         "Jahr {} · {} · Tag {} · {}    Ansicht: {} [Tab]    Tempo: {} [Leertaste, 1–3]\n\
          Werkzeug: {}{price}{depth}    Alarm [F]: {alarm}\n\
          Kaninchen: {total} (davon {young} Junge)    Schlafplätze: {}{hunger}\n\
-         Futter: {:.0} / {:.0}    Erde: {:.0}",
+         Futter: {:.0} / {:.0}    Erde: {:.0}{gathering}",
         clock.year(),
         clock.season().label(),
         clock.day_of_year(),

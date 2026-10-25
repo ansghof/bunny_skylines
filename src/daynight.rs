@@ -25,7 +25,7 @@ pub struct DayNightPlugin;
 
 impl Plugin for DayNightPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(DayClock { day: 1, time: 0.2 })
+        app.init_resource::<DayClock>()
             .insert_resource(GlobalAmbientLight {
                 color: Color::WHITE,
                 brightness: AMBIENT_DAY,
@@ -88,6 +88,13 @@ pub struct DayClock {
     pub day: u32,
     /// Anteil des Tages, 0 = Sonnenaufgang.
     pub time: f32,
+}
+
+impl Default for DayClock {
+    /// Ein Spiel beginnt am Vormittag des ersten Frühlingstags.
+    fn default() -> Self {
+        Self { day: 1, time: 0.2 }
+    }
 }
 
 impl DayClock {

@@ -32,8 +32,7 @@ pub struct PredatorPlugin;
 
 impl Plugin for PredatorPlugin {
     fn build(&self, app: &mut App) {
-        // Der erste Fuchs kommt frühestens am zweiten Tag, damit die Familie Zeit zum Graben hat.
-        app.insert_resource(FoxSpawner { next: 300.0 })
+        app.init_resource::<FoxSpawner>()
             .add_systems(Update, (spawn_foxes, hunt).chain().after(BehaviorSet))
             .add_systems(Update, animate_foxes.after(hunt));
         #[cfg(debug_assertions)]
@@ -75,8 +74,15 @@ impl Fox {
 }
 
 #[derive(Resource)]
-struct FoxSpawner {
+pub struct FoxSpawner {
     next: f32,
+}
+
+impl Default for FoxSpawner {
+    fn default() -> Self {
+        // Der erste Fuchs kommt frühestens am zweiten Tag, damit die Familie Zeit zum Graben hat.
+        Self { next: 300.0 }
+    }
 }
 
 fn half_extent() -> Vec2 {

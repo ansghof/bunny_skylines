@@ -236,7 +236,7 @@ impl Grid {
 
     /// Wiese mit leicht ungleichmäßigem Gras und einem kleinen Startbau:
     /// ein Eingang, ein kurzer Gang und eine Schlafkammer.
-    fn starting_meadow() -> Self {
+    pub fn starting_meadow() -> Self {
         let count = (MAP_WIDTH * MAP_HEIGHT) as usize;
         let mut grid = Self {
             surface: vec![SurfaceTile::default(); count],

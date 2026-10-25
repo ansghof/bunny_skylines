@@ -14,6 +14,11 @@ use crate::rabbit::{Hunger, Offset, OnLayer, Rabbit, z_for};
 
 const HUNGER_PER_SECOND: f32 = 0.012;
 const HUNGRY: f32 = 0.55;
+/// So viel Hunger entsteht im Schlaf und in der Winterruhe im Vergleich zum Wachsein.
+const RESTING_HUNGER_FACTOR: f32 = 0.35;
+/// Futtereinheiten im Vorrat pro abgeerntetem Gras. Ein Futter stillt 0,6 Hunger,
+/// frisch gefressenes Gras 1,3 pro Gras: Einlagern verdoppelt den Wert ungefähr.
+const FOOD_PER_GATHERED_GRASS: f32 = 4.0;
 const WALK_SPEED: f32 = 110.0;
 const FLEE_SPEED: f32 = 165.0;
 /// Ab so viel Gras lohnt sich ein Feld zum Fressen.
@@ -27,6 +32,7 @@ pub struct BehaviorPlugin;
 impl Plugin for BehaviorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Reserved>()
+            .init_resource::<Priorities>()
             .add_systems(Update, (tick_needs, decide, walk, work).chain().in_set(BehaviorSet));
     }
 }
@@ -79,6 +85,13 @@ pub struct Carrying(pub f32);
 /// Restliche Sekunden Angst nach einer Flucht.
 #[derive(Component, Default)]
 pub struct Fear(pub f32);
+
+/// Was der Spieler gerade wichtig findet.
+#[derive(Resource, Default)]
+pub struct Priorities {
+    /// Alle Erwachsenen sammeln zuerst Futter; Graben und Wache haben Pause.
+    pub gather_first: bool,
+}
 
 /// Aufträge und Wachposten, die schon ein Kaninchen übernommen hat.
 #[derive(Resource, Default)]
@@ -140,7 +153,12 @@ fn tick_needs(time: Res<Time>, mut rabbits: Query<(&Activity, &mut Hunger, &mut 
     let dt = time.delta_secs();
     for (activity, mut hunger, mut fear) in &mut rabbits {
         // Im Schlaf verbraucht ein Kaninchen weniger.
-        let rate = if matches!(activity, Activity::Sleeping { .. }) { 0.4 } else { 1.0 };
+        // Im Schlaf und in der Winterruhe verbraucht ein Kaninchen viel weniger.
+        let rate = if matches!(activity, Activity::Sleeping { .. }) {
+            RESTING_HUNGER_FACTOR
+        } else {
+            1.0
+        };
         hunger.0 = (hunger.0 + HUNGER_PER_SECOND * rate * dt).min(1.0);
         fear.0 = (fear.0 - dt).max(0.0);
     }
@@ -158,8 +176,12 @@ struct Situation<'a> {
     hunger: f32,
     afraid: bool,
     night: bool,
+    /// Im Winter halten die Kaninchen Winterruhe in ihren Nestern.
+    winter: bool,
     /// Im Herbst geht Sammeln vor Graben.
     autumn: bool,
+    /// Der Spieler will Vorräte anlegen.
+    gather_first: bool,
     food_space: f32,
     start: Node,
 }
@@ -169,6 +191,7 @@ fn decide(
     grid: Res<Grid>,
     colony: Res<Colony>,
     clock: Res<DayClock>,
+    priorities: Res<Priorities>,
     mut rng: ResMut<Rng>,
     mut reserved: ResMut<Reserved>,
     mut rabbits: Query<(&Rabbit, &Hunger, &Fear, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Carrying)>,
@@ -191,7 +214,9 @@ fn decide(
             hunger: hunger.0,
             afraid: fear.0 > 0.0,
             night: clock.is_night(),
+            winter: clock.season() == Season::Winter,
             autumn: clock.season() == Season::Autumn,
+            gather_first: priorities.gather_first,
             food_space,
             start: current_node(transform, layer),
         };
@@ -236,7 +261,7 @@ fn choose(
         }
     }
 
-    if s.night
+    if (s.night || s.winter)
         && let Some((bed, steps)) = find_bed(grid, &reserved.beds, start)
     {
         *reserved.beds.entry(bed).or_default() += 1;
@@ -251,7 +276,14 @@ fn choose(
             // Kein Vorrat erreichbar: Futter fallen lassen.
             carrying.0 = 0.0;
         }
-        if !s.afraid
+        if s.gather_first {
+            if !s.afraid
+                && s.food_space >= 1.0
+                && let Some((tile, steps)) = find_grass(grid, start)
+            {
+                return Some((Goal::Gather(tile), steps));
+            }
+        } else if !s.afraid
             && !s.night
             && let Some((post, steps)) = find_free_post(grid, &reserved.posts, start)
         {
@@ -265,7 +297,9 @@ fn choose(
         {
             return Some((Goal::Gather(tile), steps));
         }
-        if let Some((target, steps)) = find_dig_job(grid, &reserved.dig, start, s.afraid) {
+        if !s.gather_first
+            && let Some((target, steps)) = find_dig_job(grid, &reserved.dig, start, s.afraid)
+        {
             reserved.dig.insert(target);
             return Some((Goal::Dig(target), steps));
         }
@@ -488,7 +522,8 @@ fn work(
                 let field = grid.surface_mut(*tile);
                 let taken = field.grass.min(0.5);
                 field.grass -= taken;
-                carrying.0 += taken * 2.0 * field.nutrition();
+                // Eingelagert und getrocknet ist Gras mehr wert als frisch gefressen.
+                carrying.0 += taken * FOOD_PER_GATHERED_GRASS * field.nutrition();
                 match find_chamber(&grid, current_node(transform, layer), Chamber::Storage) {
                     Some(steps) => {
                         path.0 = steps.into();
@@ -524,12 +559,18 @@ fn work(
                 Activity::Idle(0.2)
             }
             Activity::Sleeping { bed } => {
-                if clock.is_night() {
+                // Hunger weckt jeden, sonst schlafen sie die Nacht und den Winter durch.
+                let resting_time = clock.is_night() || clock.season() == Season::Winter;
+                if resting_time && hunger.0 <= HUNGRY {
                     continue;
                 }
                 reserved.free_bed(*bed);
-                // Nicht alle wachen gleichzeitig auf.
-                Activity::Idle(rng.range(0.0, 4.0))
+                if hunger.0 > HUNGRY {
+                    Activity::Idle(0.0)
+                } else {
+                    // Nicht alle wachen gleichzeitig auf.
+                    Activity::Idle(rng.range(0.0, 4.0))
+                }
             }
             Activity::Idle(_) | Activity::Walking(_) | Activity::Fleeing => continue,
         };

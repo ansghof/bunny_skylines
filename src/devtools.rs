@@ -6,6 +6,7 @@
 //! - `unten` / `oben`: mit der Untergrund- bzw. Oberflächen-Ansicht starten
 //! - `abstand=N`, `drehung=Grad`, `neigung=Grad`: Kamera einstellen
 //! - `vorrat`: den Gang am Startbau zur Vorratskammer machen und 15 Futter einlagern
+//! - `lager=N`: N zusätzliche Felder Vorratskammer neben dem Startbau
 //! - `graben`: Grabaufträge neben dem Startgang setzen
 //! - `zeiger`: Mauszeiger fest über ein ungegrabenes Feld neben dem Startbau setzen
 //! - `alt`: Die Gründer haben nur noch 5 Spielsekunden zu leben
@@ -13,7 +14,10 @@
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
 //! - `winter`: mitten im verschneiten Winter starten
+//! - `neustart`: sobald die Familie ausgestorben ist, „Neu beginnen“ drücken
 //! - `nacht`: kurz vor Einbruch der Nacht starten
+//!
+//! Bei jedem Wechsel der Jahreszeit steht im Protokoll, wie viele Kaninchen leben und wie viel Futter da ist.
 //! - `tempo=N`: Spielgeschwindigkeit
 //! - `bild=S`: nach S Sekunden Echtzeit einen Screenshot nach `target/test-bild.png` speichern und beenden
 //! - `serie=N`: statt eines Bildes N Bilder im Abstand von 0,12 s (`target/test-bild-0.png` …)
@@ -23,7 +27,8 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
 use crate::camera::{CursorWorld, Orbit, update_cursor};
 use crate::colony::Colony;
-use crate::daynight::DayClock;
+use crate::daynight::{DayClock, Season};
+use crate::ending::{EndScreen, restart};
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer, tiles_between};
 use crate::toolbar::{Action, Tooltip};
 use crate::tools::ToolKind;
@@ -43,7 +48,7 @@ impl Plugin for DevToolsPlugin {
         let commands: Vec<String> = script.split(',').map(|s| s.trim().to_string()).collect();
         app.insert_resource(TestScript(commands))
             .add_systems(Startup, prepare)
-            .add_systems(Update, (age_founders, famine))
+            .add_systems(Update, (age_founders, famine, auto_restart, log_seasons))
             .add_systems(PreUpdate, fake_cursor.after(update_cursor))
             .add_systems(Update, take_shot);
     }
@@ -94,6 +99,14 @@ fn prepare(
             grid.under_mut(TilePos::new(x, 15)).chamber = Some(Chamber::Storage);
         }
         colony.food = 15.0;
+    }
+    if let Some(tiles) = script.value("lager") {
+        // Eine Reihe gegrabener Vorratsfelder über dem Startgang.
+        for x in 20..20 + tiles as i32 {
+            let tile = grid.under_mut(TilePos::new(x, 14));
+            tile.dug = Some(Depth::Medium);
+            tile.chamber = Some(Chamber::Storage);
+        }
     }
     if script.has("graben") {
         for (x, y) in [(21, 16), (21, 17), (22, 17), (20, 17)] {
@@ -157,6 +170,35 @@ fn famine(
         }
         *done = true;
     }
+}
+
+fn auto_restart(script: Res<TestScript>, mut commands: Commands, screens: Query<(), With<EndScreen>>) {
+    if script.has("neustart") && !screens.is_empty() {
+        commands.run_system_cached(restart);
+    }
+}
+
+fn log_seasons(
+    clock: Res<DayClock>,
+    colony: Res<Colony>,
+    grid: Res<Grid>,
+    rabbits: Query<&Rabbit>,
+    mut last: Local<Option<Season>>,
+) {
+    let season = clock.season();
+    if *last == Some(season) {
+        return;
+    }
+    *last = Some(season);
+    let young = rabbits.iter().filter(|r| !r.is_adult()).count();
+    info!(
+        "Jahr {} {}: {} Kaninchen ({young} Junge), Futter {:.0}/{:.0}",
+        clock.year(),
+        season.label(),
+        rabbits.iter().count(),
+        colony.food,
+        Colony::food_capacity(&grid),
+    );
 }
 
 fn fake_cursor(script: Res<TestScript>, mut cursor: ResMut<CursorWorld>) {

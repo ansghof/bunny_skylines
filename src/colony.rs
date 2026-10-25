@@ -31,10 +31,7 @@ pub struct ColonyPlugin;
 
 impl Plugin for ColonyPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Colony {
-            food: START_FOOD,
-            earth: 0.0,
-        })
+        app.init_resource::<Colony>()
             .insert_resource(Rng(0x5EED_CAFE_F00D_1234))
             .init_resource::<Messages>();
     }
@@ -47,6 +44,15 @@ pub struct Colony {
     pub food: f32,
     /// Erde aus dem Graben; Baumaterial für Hügel und Wälle.
     pub earth: f32,
+}
+
+impl Default for Colony {
+    fn default() -> Self {
+        Self {
+            food: START_FOOD,
+            earth: 0.0,
+        }
+    }
 }
 
 impl Colony {
