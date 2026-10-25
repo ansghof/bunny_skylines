@@ -1,0 +1,25 @@
+[package]
+name = "bunny_skylines"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[dependencies]
+bevy = { version = "0.20", features = ["file_watcher"] }
+
+[features]
+# Schnellere Kompilierzeiten beim Entwickeln: `cargo run --features dev`
+dev = ["bevy/dynamic_linking"]
+
+# Eigener Code leicht optimiert, Abhängigkeiten voll optimiert:
+# so bleibt das Spiel im Debug-Build flüssig, ohne dass jede Änderung lange baut.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
