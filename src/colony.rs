@@ -11,24 +11,53 @@ pub const SLEEP_PER_TILE: usize = 2;
 /// Futtereinheiten pro Feld Vorratskammer.
 pub const FOOD_PER_STORAGE_TILE: f32 = 10.0;
 
+/// Was das Bauen kostet. Rohstoffe sind die Währung: Futter (Gras, auch fürs Nest) und Erde.
+pub mod cost {
+    /// Ein Wachposten ist ein Erdhügel.
+    pub const POST_EARTH: f32 = 5.0;
+    /// Ein Nest pro Feld Schlafkammer, aus eingetragenem Gras.
+    pub const NEST_FOOD: f32 = 2.0;
+    /// Erde, die beim Graben eines Feldes anfällt.
+    pub const EARTH_PER_TILE: f32 = 1.0;
+}
+
+const START_FOOD: f32 = 8.0;
+
 const MAX_MESSAGES: usize = 5;
 
 pub struct ColonyPlugin;
 
 impl Plugin for ColonyPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Colony { food: 0.0 })
+        app.insert_resource(Colony {
+            food: START_FOOD,
+            earth: 0.0,
+        })
             .insert_resource(Rng(0x5EED_CAFE_F00D_1234))
             .init_resource::<Messages>();
     }
 }
 
+/// Die Rohstoffe der Kolonie.
 #[derive(Resource)]
 pub struct Colony {
+    /// Futter im Vorrat; wird gegessen und für Nester verbraucht.
     pub food: f32,
+    /// Erde aus dem Graben; Baumaterial für Hügel und Wälle.
+    pub earth: f32,
 }
 
 impl Colony {
+    /// Zieht den Preis ab, wenn genug da ist. Sonst bleibt alles, wie es ist.
+    pub fn pay(&mut self, food: f32, earth: f32) -> bool {
+        if self.food < food || self.earth < earth {
+            return false;
+        }
+        self.food -= food;
+        self.earth -= earth;
+        true
+    }
+
     pub fn food_capacity(grid: &Grid) -> f32 {
         grid.chamber_tiles(Chamber::Storage) as f32 * FOOD_PER_STORAGE_TILE
     }

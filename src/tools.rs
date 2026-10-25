@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 use crate::camera::CursorWorld;
+use crate::colony::{Colony, Messages, cost};
 use crate::ground::{floor_y_for_view, gizmo_rect};
 use crate::map::{Chamber, Depth, Grid, Layer, TILE_SIZE, TilePos, ViewLayer, tiles_between};
 
@@ -34,6 +35,15 @@ impl ToolKind {
             ToolKind::Chamber(chamber) => chamber.label(),
             ToolKind::Post => "Wachposten",
             ToolKind::Remove => "Entfernen",
+        }
+    }
+
+    /// Was das Werkzeug kostet, für die Anzeige.
+    pub fn cost_label(self) -> Option<String> {
+        match self {
+            ToolKind::Post => Some(format!("{:.0} Erde", cost::POST_EARTH)),
+            ToolKind::Chamber(Chamber::Sleeping) => Some(format!("{:.0} Futter pro Nest", cost::NEST_FOOD)),
+            _ => None,
         }
     }
 
@@ -93,6 +103,8 @@ fn apply_drag(
     view: Res<ViewLayer>,
     mut drag: ResMut<Drag>,
     mut grid: ResMut<Grid>,
+    mut colony: ResMut<Colony>,
+    mut messages: ResMut<Messages>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
         drag.start = cursor.0.and_then(TilePos::from_world);
@@ -111,14 +123,23 @@ fn apply_drag(
     // Eingänge und Posten immer einzeln, ein ganzer Bereich davon ergibt keinen Sinn.
     if tool.kind.is_single() {
         let tile = grid.surface_mut(end);
-        if !tile.entrance {
-            match tool.kind {
-                ToolKind::Entrance => tile.entrance_planned = true,
-                _ => tile.post = true,
-            }
+        if tile.entrance {
+            return;
+        }
+        match tool.kind {
+            ToolKind::Entrance => tile.entrance_planned = true,
+            _ if tile.post => {}
+            _ if colony.pay(0.0, cost::POST_EARTH) => tile.post = true,
+            _ => messages.push(format!(
+                "Für einen Wachposten fehlt Erde ({:.0} von {:.0}). Erde gibt es beim Graben.",
+                colony.earth,
+                cost::POST_EARTH
+            )),
         }
         return;
     }
+
+    let mut missing_food = false;
     for p in tiles_between(start, end) {
         match tool.kind {
             ToolKind::Dig => {
@@ -129,20 +150,39 @@ fn apply_drag(
             }
             ToolKind::Chamber(chamber) => {
                 let tile = grid.under_mut(p);
-                if tile.dug.is_some() || tile.planned.is_some() {
-                    tile.chamber = Some(chamber);
+                if (tile.dug.is_none() && tile.planned.is_none()) || tile.chamber == Some(chamber) {
+                    continue;
                 }
+                // Wird ein Nest zu etwas anderem, kommt das Gras zurück in den Vorrat.
+                if tile.chamber == Some(Chamber::Sleeping) {
+                    colony.food += cost::NEST_FOOD;
+                }
+                if chamber == Chamber::Sleeping && !colony.pay(cost::NEST_FOOD, 0.0) {
+                    missing_food = true;
+                    continue;
+                }
+                tile.chamber = Some(chamber);
             }
             ToolKind::Remove => {
                 let tile = grid.under_mut(p);
                 tile.planned = None;
-                tile.chamber = None;
+                if tile.chamber.take() == Some(Chamber::Sleeping) {
+                    colony.food += cost::NEST_FOOD;
+                }
                 let surface = grid.surface_mut(p);
                 surface.entrance_planned = false;
-                surface.post = false;
+                if std::mem::take(&mut surface.post) {
+                    colony.earth += cost::POST_EARTH;
+                }
             }
             ToolKind::Entrance | ToolKind::Post => unreachable!(),
         }
+    }
+    if missing_food {
+        messages.push(format!(
+            "Für mehr Nester fehlt Futter ({:.0} Futter pro Nest). Sammler tragen Gras in den Vorrat.",
+            cost::NEST_FOOD
+        ));
     }
 }
 

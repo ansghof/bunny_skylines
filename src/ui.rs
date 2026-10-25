@@ -77,10 +77,12 @@ fn update_status(
     } else {
         String::new()
     };
+    let price = tool.kind.cost_label().map_or(String::new(), |c| format!(" ({c})"));
     text.0 = format!(
         "Tag {} · {}    Ansicht: {} [Tab]    Tempo: {} [Leertaste, 1–3]\n\
-         Werkzeug: {}{depth}    Alarm [F]: {alarm}\n\
-         Kaninchen: {total} (davon {young} Junge)    Schlafplätze: {}    Vorrat: {:.0} / {:.0}",
+         Werkzeug: {}{price}{depth}    Alarm [F]: {alarm}\n\
+         Kaninchen: {total} (davon {young} Junge)    Schlafplätze: {}\n\
+         Futter: {:.0} / {:.0}    Erde: {:.0}",
         clock.day,
         clock.phase().label(),
         view.0.label(),
@@ -89,6 +91,7 @@ fn update_status(
         Colony::sleeping_places(&grid),
         colony.food,
         Colony::food_capacity(&grid),
+        colony.earth,
     );
 }
 

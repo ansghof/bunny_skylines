@@ -225,7 +225,10 @@ impl Grid {
         grid.surface_mut(entrance).entrance = true;
         grid.under_mut(entrance).dug = Some(Depth::Shallow);
         grid.under_mut(TilePos::new(21, 15)).dug = Some(Depth::Shallow);
-        grid.under_mut(TilePos::new(22, 15)).dug = Some(Depth::Medium);
+        // Eine kleine Vorratskammer mit dem mitgebrachten Futter.
+        let store = grid.under_mut(TilePos::new(22, 15));
+        store.dug = Some(Depth::Medium);
+        store.chamber = Some(Chamber::Storage);
         for p in tiles_between(TilePos::new(23, 14), TilePos::new(24, 16)) {
             let tile = grid.under_mut(p);
             tile.dug = Some(Depth::Medium);

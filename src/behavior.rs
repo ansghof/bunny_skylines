@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::prelude::*;
 
-use crate::colony::{Colony, Rng, SLEEP_PER_TILE};
+use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
 use crate::daynight::DayClock;
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos};
 use crate::pathfinding::{Node, find_path};
@@ -212,15 +212,24 @@ fn choose(
     let start = s.start;
 
     if s.hunger > HUNGRY {
+        // Im Bau, mit Angst und als Junges zuerst aus dem Vorrat; draußen lieber frisches Gras.
+        let prefer_store = s.afraid || !s.rabbit.is_adult() || start.layer == Layer::Underground;
+        let from_store = || {
+            (s.colony.food >= 1.0)
+                .then(|| find_chamber(grid, start, Chamber::Storage))
+                .flatten()
+                .map(|steps| (Goal::EatFromStore, steps))
+        };
+        if prefer_store && let Some(plan) = from_store() {
+            return Some(plan);
+        }
         if !s.afraid
             && let Some((tile, steps)) = find_grass(grid, start)
         {
             return Some((Goal::Eat(tile), steps));
         }
-        if s.colony.food >= 1.0
-            && let Some(steps) = find_chamber(grid, start, Chamber::Storage)
-        {
-            return Some((Goal::EatFromStore, steps));
+        if let Some(plan) = from_store() {
+            return Some(plan);
         }
     }
 
@@ -438,6 +447,7 @@ fn work(
     time: Res<Time>,
     clock: Res<DayClock>,
     mut grid: ResMut<Grid>,
+    mut colony: ResMut<Colony>,
     mut rng: ResMut<Rng>,
     mut reserved: ResMut<Reserved>,
     mut rabbits: Query<(&Transform, &OnLayer, &mut Activity, &mut Path, &mut Hunger, &mut Carrying)>,
@@ -480,13 +490,19 @@ fn work(
                 }
                 let target = *target;
                 finish_digging(&mut grid, target);
+                colony.earth += cost::EARTH_PER_TILE;
                 reserved.dig.remove(&target);
                 hunger.0 = (hunger.0 + 0.08).min(1.0);
                 Activity::Idle(0.3)
             }
             Activity::Guarding { post, left } => {
                 *left -= dt;
-                // Hunger und Dunkelheit beenden die Schicht früher.
+                // Wachen werden am Posten aus dem Vorrat versorgt, solange etwas da ist.
+                if hunger.0 > HUNGRY && colony.food >= 1.0 {
+                    colony.food -= 1.0;
+                    hunger.0 = (hunger.0 - 0.6).max(0.0);
+                }
+                // Ist der Vorrat leer, beendet der Hunger die Schicht; Dunkelheit auch.
                 if *left > 0.0 && !clock.is_night() && hunger.0 <= HUNGRY && grid.surface(*post).post {
                     continue;
                 }
