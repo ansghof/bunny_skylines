@@ -7,7 +7,9 @@ use bevy::prelude::*;
 use crate::behavior::{Activity, Carrying, Fear, Path};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Grid, Layer, TilePos, ViewLayer};
-use crate::rig::{Part, RigRoot, RigSource, pose_part};
+use crate::camera::Orbit;
+use crate::daynight::{DayClock, figure_light};
+use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
 /// Spielsekunden, bis ein Junges erwachsen ist.
 pub const ADULT_AGE: f32 = 150.0;
@@ -92,7 +94,7 @@ struct Anim {
     /// Pro Kaninchen verschieden, damit sich nicht alle im Gleichschritt bewegen.
     seed: f32,
     facing_left: bool,
-    last_x: f32,
+    last_position: Vec2,
 }
 
 fn rabbit_bundle(
@@ -120,7 +122,7 @@ fn rabbit_bundle(
             blink_timer: rng.range(1.0, 4.0),
             seed: rng.f32(),
             facing_left: false,
-            last_x: position.x,
+            last_position: position,
         },
         RigSource {
             rig: asset_server.load(RIG_PATH),
@@ -291,13 +293,23 @@ fn tick_stomping(mut commands: Commands, time: Res<Time>, mut rabbits: Query<(En
 fn animate(
     time: Res<Time>,
     view: Res<ViewLayer>,
-    mut rabbits: Query<(&Rabbit, &Activity, &OnLayer, &Fur, &Transform, &mut Anim, Has<Stomping>, &Children)>,
+    orbit: Res<Orbit>,
+    clock: Res<DayClock>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut rabbits: Query<(&Rabbit, &Activity, &OnLayer, &Fur, &Transform, &mut Anim, Has<Stomping>, &AvatarLink)>,
+    avatars: Query<&Children, With<Avatar>>,
     mut roots: Query<(&RigRoot, &mut Transform, &Children), (Without<Rabbit>, Without<Part>)>,
-    mut parts: Query<(&Part, &mut Transform, &mut Sprite), (Without<RigRoot>, Without<Rabbit>)>,
+    mut parts: Query<(&Part, &mut Transform), (Without<RigRoot>, Without<Rabbit>)>,
 ) {
     let dt = time.delta_secs();
+    let screen_right = orbit.screen_right();
+    let billboard = orbit.billboard();
 
-    for (rabbit, activity, layer, fur, transform, mut anim, stomping, children) in &mut rabbits {
+    for (rabbit, activity, layer, fur, transform, mut anim, stomping, link) in &mut rabbits {
+        let Ok(children) = avatars.get(link.0) else {
+            continue;
+        };
+        let light = figure_light(&clock, layer.0);
         let t = time.elapsed_secs() + anim.seed * 10.0;
         let fleeing = matches!(activity, Activity::Fleeing);
         let moving = fleeing || matches!(activity, Activity::Walking(_));
@@ -306,11 +318,13 @@ fn animate(
         let guarding = matches!(activity, Activity::Guarding { .. });
         let sleeping = matches!(activity, Activity::Sleeping { .. });
 
-        let dx = transform.translation.x - anim.last_x;
-        if dx.abs() > 0.01 {
-            anim.facing_left = dx < 0.0;
+        // Links oder rechts auf dem Bildschirm, je nachdem wie die Kamera gedreht ist.
+        let position = transform.translation.truncate();
+        let sideways = (position - anim.last_position).dot(screen_right);
+        if sideways.abs() > 0.01 {
+            anim.facing_left = sideways < 0.0;
         }
-        anim.last_x = transform.translation.x;
+        anim.last_position = position;
 
         if moving {
             let rate = if fleeing { FLEE_HOPS_PER_SECOND } else { HOPS_PER_SECOND };
@@ -354,11 +368,11 @@ fn animate(
             };
             let scale = root.pixel_scale * growth;
             root_transform.translation = Vec3::new(0.0, lift * HOP_HEIGHT * growth, 0.0);
-            root_transform.scale = Vec3::new(facing * scale * stretch_x, scale * stretch_y, 1.0);
-            root_transform.rotation = Quat::from_rotation_z(lean);
+            root_transform.scale = Vec3::new(facing * scale * stretch_x, scale * stretch_y, scale);
+            root_transform.rotation = billboard * Quat::from_rotation_z(lean);
 
             for part_entity in root_children.iter() {
-                let Ok((part, mut part_transform, mut sprite)) = parts.get_mut(part_entity) else {
+                let Ok((part, mut part_transform)) = parts.get_mut(part_entity) else {
                     continue;
                 };
                 let head_part = matches!(part.name.as_str(), "kopf" | "auge" | "ohr_links" | "ohr_rechts");
@@ -386,11 +400,12 @@ fn animate(
                 pose_part(
                     part,
                     &mut part_transform,
-                    &mut sprite,
+                    &mut materials,
                     offset,
                     angle,
                     variant,
                     fur.0.with_alpha(alpha),
+                    light,
                 );
             }
         }

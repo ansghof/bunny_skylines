@@ -15,8 +15,7 @@ impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Grid::starting_meadow())
             .init_resource::<ViewLayer>()
-            .add_systems(Startup, spawn_tiles)
-            .add_systems(Update, (toggle_view, grow_grass, show_view_layer, color_tiles).chain());
+            .add_systems(Update, (toggle_view, grow_grass).chain());
     }
 }
 
@@ -249,31 +248,6 @@ fn noise(p: TilePos) -> f32 {
 #[derive(Resource, Default)]
 pub struct ViewLayer(pub Layer);
 
-#[derive(Component)]
-struct LayerRoot(Layer);
-
-#[derive(Component)]
-struct TileSprite {
-    pos: TilePos,
-    layer: Layer,
-}
-
-fn spawn_tiles(mut commands: Commands) {
-    for layer in [Layer::Surface, Layer::Underground] {
-        let root = commands
-            .spawn((LayerRoot(layer), Transform::default(), Visibility::default()))
-            .id();
-        for pos in Grid::positions() {
-            commands.spawn((
-                Sprite::from_color(Color::WHITE, Vec2::splat(TILE_SIZE)),
-                Transform::from_translation(pos.center().extend(0.0)),
-                TileSprite { pos, layer },
-                ChildOf(root),
-            ));
-        }
-    }
-}
-
 fn toggle_view(keys: Res<ButtonInput<KeyCode>>, mut view: ResMut<ViewLayer>) {
     if keys.just_pressed(KeyCode::Tab) {
         view.0 = view.0.other();
@@ -295,32 +269,8 @@ fn grow_grass(time: Res<Time>, mut grid: ResMut<Grid>, mut timer: Local<f32>) {
     }
 }
 
-fn show_view_layer(view: Res<ViewLayer>, mut roots: Query<(&LayerRoot, &mut Visibility)>) {
-    if !view.is_changed() {
-        return;
-    }
-    for (root, mut visibility) in &mut roots {
-        *visibility = if root.0 == view.0 {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
-    }
-}
-
-fn color_tiles(grid: Res<Grid>, mut tiles: Query<(&TileSprite, &mut Sprite)>) {
-    if !grid.is_changed() {
-        return;
-    }
-    for (tile, mut sprite) in &mut tiles {
-        sprite.color = match tile.layer {
-            Layer::Surface => surface_color(&grid, tile.pos),
-            Layer::Underground => underground_color(&grid, tile.pos),
-        };
-    }
-}
-
-fn surface_color(grid: &Grid, p: TilePos) -> Color {
+/// Farbe eines Oberflächenfeldes: Gras je nach Bewuchs, Markierungen für Aufträge und Posten.
+pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     let tile = grid.surface(p);
     if tile.entrance {
         return Color::srgb(0.29, 0.20, 0.13);
@@ -340,7 +290,8 @@ fn surface_color(grid: &Grid, p: TilePos) -> Color {
     Color::srgb(rgb[0], rgb[1], rgb[2])
 }
 
-fn underground_color(grid: &Grid, p: TilePos) -> Color {
+/// Farbe eines Untergrund-Feldes: Erde, Gang je nach Tiefe, Aufträge und Kammern.
+pub fn underground_color(grid: &Grid, p: TilePos) -> Color {
     let tile = grid.under(p);
     let checker = if (p.x + p.y) % 2 == 0 { 1.0 } else { 0.95 };
     let mut rgb = match tile.dug {

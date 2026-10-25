@@ -5,6 +5,7 @@ use bevy::prelude::*;
 
 use crate::behavior::{Activity, BehaviorSet, Carrying, Fear, Path, Reserved, start_flight};
 use crate::colony::Messages;
+use crate::ground::gizmo_circle;
 use crate::map::{Grid, Layer, TILE_SIZE};
 use crate::predator::Fox;
 use crate::rabbit::{OnLayer, Rabbit, Stomping};
@@ -198,10 +199,6 @@ fn draw_rings(
             continue;
         }
         let color = Color::srgba(0.55, 0.36, 0.2, 0.9 * (1.0 - progress));
-        gizmos.circle_2d(
-            Isometry2d::from_translation(transform.translation.truncate()),
-            ring.radius * progress,
-            color,
-        );
+        gizmo_circle(&mut gizmos, transform.translation.truncate(), ring.radius * progress, 0.0, color);
     }
 }

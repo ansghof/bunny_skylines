@@ -7,10 +7,11 @@ use bevy::prelude::*;
 
 use crate::behavior::{Activity, BehaviorSet, Reserved, release};
 use crate::colony::{Messages, Rng};
-use crate::daynight::DayClock;
+use crate::daynight::{DayClock, figure_light};
 use crate::map::{Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, ViewLayer};
 use crate::rabbit::{OnLayer, Rabbit, z_for};
-use crate::rig::{Part, RigRoot, RigSource, pose_part};
+use crate::camera::Orbit;
+use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
 const RIG_PATH: &str = "figuren/fuchs/fuchs.rig.ron";
 const RIG_FOLDER: &str = "figuren/fuchs";
@@ -238,19 +239,29 @@ fn nearest_exit(position: Vec2) -> Vec2 {
 fn animate_foxes(
     time: Res<Time>,
     view: Res<ViewLayer>,
-    mut foxes: Query<(&mut Fox, &Children)>,
+    orbit: Res<Orbit>,
+    clock: Res<DayClock>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut foxes: Query<(&mut Fox, &AvatarLink)>,
+    avatars: Query<&Children, With<Avatar>>,
     mut roots: Query<(&RigRoot, &mut Transform, &Children), (Without<Fox>, Without<Part>)>,
-    mut parts: Query<(&Part, &mut Transform, &mut Sprite), (Without<RigRoot>, Without<Fox>)>,
+    mut parts: Query<(&Part, &mut Transform), (Without<RigRoot>, Without<Fox>)>,
 ) {
     let dt = time.delta_secs();
-    for (mut fox, children) in &mut foxes {
+    let light = figure_light(&clock, Layer::Surface);
+    for (mut fox, link) in &mut foxes {
+        let Ok(children) = avatars.get(link.0) else {
+            continue;
+        };
         let speed = fox.velocity.length();
         let sneaking = fox.state == FoxState::Prowling;
         // Schritte pro Sekunde wachsen mit dem Tempo.
         fox.anim_phase = (fox.anim_phase + dt * (speed / 55.0).max(0.0)).fract();
         let swing = (fox.anim_phase * TAU).sin();
         let t = time.elapsed_secs();
-        let facing = if fox.velocity.x < -0.1 { -1.0 } else { 1.0 };
+        // Links oder rechts auf dem Bildschirm, je nachdem wie die Kamera gedreht ist.
+        let sideways = fox.velocity.dot(orbit.screen_right());
+        let facing = if sideways < -0.1 { -1.0 } else { 1.0 };
         let alpha = match (fox.state, view.0) {
             (_, Layer::Underground) => 0.3,
             (FoxState::Lurking(_), _) => 0.45,
@@ -266,16 +277,17 @@ fn animate_foxes(
             let bob = if speed > 1.0 { swing.abs() * 3.0 } else { 0.0 };
             root_transform.translation = Vec3::new(0.0, bob, 0.0);
             // Bleibt er stehen, behält er die letzte Blickrichtung.
-            if fox.velocity.x.abs() > 0.1 {
+            if sideways.abs() > 0.1 {
                 root_transform.scale.x = facing * root.pixel_scale;
             } else if root_transform.scale.x == 0.0 {
                 root_transform.scale.x = root.pixel_scale;
             }
             root_transform.scale.y = root.pixel_scale * crouch;
-            root_transform.scale.z = 1.0;
+            root_transform.scale.z = root.pixel_scale;
+            root_transform.rotation = orbit.billboard();
 
             for part_entity in root_children.iter() {
-                let Ok((part, mut part_transform, mut sprite)) = parts.get_mut(part_entity) else {
+                let Ok((part, mut part_transform)) = parts.get_mut(part_entity) else {
                     continue;
                 };
                 let stride = if speed > 1.0 { 22.0 } else { 0.0 };
@@ -290,11 +302,12 @@ fn animate_foxes(
                 pose_part(
                     part,
                     &mut part_transform,
-                    &mut sprite,
+                    &mut materials,
                     Vec2::ZERO,
                     angle,
                     None,
                     Color::WHITE.with_alpha(alpha),
+                    light,
                 );
             }
         }

@@ -11,7 +11,7 @@ use crate::speed;
 use crate::tools::{Tool, ToolKind};
 
 const HELP: &str = "G Graben · E Eingang · N Schlafkammer · V Vorratskammer · P Wachposten · X Entfernen · R Tiefe · F Alarm\n\
-Linke Maustaste ziehen: Bereich markieren · Mittlere Maustaste oder WASD: Karte verschieben · Mausrad: Zoom";
+Linke Maustaste ziehen: Bereich markieren · Mittlere Maustaste oder WASD: verschieben · Rechte Maustaste: drehen und neigen · Mausrad: Zoom";
 
 pub struct UiPlugin;
 

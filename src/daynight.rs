@@ -1,21 +1,32 @@
 //! Tageszeit: Morgen, Tag, Abend, Nacht. Nachts schlafen die Kaninchen, in der Dämmerung kommt der Fuchs.
+//! Sonne und Himmelslicht folgen der Tageszeit.
 
 use bevy::prelude::*;
 
 use crate::colony::Messages;
-use crate::map::{Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, ViewLayer};
+use crate::map::{Layer, ViewLayer};
 
 /// Länge eines ganzen Tages in Spielsekunden.
 pub const DAY_LENGTH: f32 = 240.0;
 const NIGHT_DARKNESS: f32 = 0.45;
+const SUN_DAY: f32 = 2400.0;
+const SUN_NIGHT: f32 = 700.0;
+const AMBIENT_DAY: f32 = 330.0;
+const AMBIENT_NIGHT: f32 = 220.0;
+const SKY_DAY: [f32; 3] = [0.98, 0.95, 0.86];
+const SKY_NIGHT: [f32; 3] = [0.10, 0.12, 0.22];
 
 pub struct DayNightPlugin;
 
 impl Plugin for DayNightPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(DayClock { day: 1, time: 0.2 })
-            .add_systems(Startup, spawn_night_overlay)
-            .add_systems(Update, (advance_clock, update_night_overlay).chain());
+            .insert_resource(GlobalAmbientLight {
+                color: Color::WHITE,
+                brightness: AMBIENT_DAY,
+                affects_lightmapped_meshes: true,
+            })
+            .add_systems(Update, (advance_clock, update_lights).chain());
     }
 }
 
@@ -64,7 +75,7 @@ impl DayClock {
     }
 
     /// 0 = hell, `NIGHT_DARKNESS` = Nacht; in der Dämmerung fließend.
-    fn darkness(&self) -> f32 {
+    pub fn darkness(&self) -> f32 {
         let fade = match self.phase() {
             Phase::Morning => 1.0 - self.time / 0.15,
             Phase::Day => 0.0,
@@ -92,25 +103,38 @@ fn advance_clock(time: Res<Time>, mut clock: ResMut<DayClock>, mut messages: Res
     }
 }
 
-#[derive(Component)]
-struct NightOverlay;
-
-fn spawn_night_overlay(mut commands: Commands) {
-    // Etwas größer als die Karte, damit beim Verschieben keine hellen Ränder entstehen.
-    let size = Vec2::new(MAP_WIDTH as f32, MAP_HEIGHT as f32) * TILE_SIZE * 3.0;
-    commands.spawn((
-        NightOverlay,
-        Sprite::from_color(Color::srgba(0.05, 0.07, 0.2, 0.0), size),
-        Transform::from_xyz(0.0, 0.0, 30.0),
-    ));
+/// Helligkeit für die unbeleuchtet gemalten Figuren: 1 am Tag, dunkler in der Nacht.
+/// Unter der Erde ist es immer etwas gedämpft, aber die Nacht ändert dort nichts.
+pub fn figure_light(clock: &DayClock, layer: Layer) -> f32 {
+    match layer {
+        Layer::Surface => 1.0 - clock.darkness() * 0.9,
+        Layer::Underground => 0.85,
+    }
 }
 
-fn update_night_overlay(
+/// Sonne und Himmelslicht folgen der Tageszeit; im Untergrund bleibt es gleichmäßig.
+fn update_lights(
     clock: Res<DayClock>,
     view: Res<ViewLayer>,
-    mut overlay: Single<&mut Sprite, With<NightOverlay>>,
+    mut ambient: ResMut<GlobalAmbientLight>,
+    mut sky: ResMut<ClearColor>,
+    mut suns: Query<&mut DirectionalLight>,
 ) {
-    // Unter der Erde ist es ohnehin dunkel; dort blendet die Nacht nicht zusätzlich ab.
-    let alpha = if view.0 == Layer::Surface { clock.darkness() } else { 0.0 };
-    overlay.color.set_alpha(alpha);
+    if !clock.is_changed() && !view.is_changed() {
+        return;
+    }
+    let night = if view.0 == Layer::Surface {
+        clock.darkness() / NIGHT_DARKNESS
+    } else {
+        0.0
+    };
+    // Ohne Tonemapping so bemessen, dass der Boden am Tag etwa seine gemalte Farbe zeigt.
+    for mut sun in &mut suns {
+        sun.illuminance = SUN_DAY - (SUN_DAY - SUN_NIGHT) * night;
+        sun.color = Color::srgb(1.0, 0.97 - 0.2 * night, 0.92 - 0.1 * night);
+    }
+    ambient.brightness = AMBIENT_DAY - (AMBIENT_DAY - AMBIENT_NIGHT) * night;
+    ambient.color = Color::srgb(1.0 - 0.45 * night, 1.0 - 0.35 * night, 1.0);
+    let [r, g, b] = [0, 1, 2].map(|i| SKY_DAY[i] + (SKY_NIGHT[i] - SKY_DAY[i]) * night);
+    sky.0 = Color::srgb(r, g, b);
 }

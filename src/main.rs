@@ -6,6 +6,7 @@ mod daynight;
 #[cfg(debug_assertions)]
 mod devtools;
 mod furnishing;
+mod ground;
 mod map;
 mod pathfinding;
 mod predator;
@@ -36,6 +37,7 @@ fn main() {
             camera::CameraPlugin,
             speed::SpeedPlugin,
             map::MapPlugin,
+            ground::GroundPlugin,
             tools::ToolsPlugin,
             colony::ColonyPlugin,
             rig::RigPlugin,

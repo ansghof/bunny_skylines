@@ -3,7 +3,8 @@
 //! `BUNNY_TEST` enthält durch Komma getrennte Anweisungen, z. B.
 //! `BUNNY_TEST=unten,vorrat,nacht,tempo=3,bild=12 cargo run`
 //!
-//! - `unten`: mit der Untergrund-Ansicht starten
+//! - `unten` / `oben`: mit der Untergrund- bzw. Oberflächen-Ansicht starten
+//! - `abstand=N`, `drehung=Grad`, `neigung=Grad`: Kamera einstellen
 //! - `vorrat`: den Gang am Startbau zur Vorratskammer machen und 15 Futter einlagern
 //! - `nacht`: kurz vor Einbruch der Nacht starten
 //! - `tempo=N`: Spielgeschwindigkeit
@@ -12,6 +13,7 @@
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
+use crate::camera::Orbit;
 use crate::colony::Colony;
 use crate::daynight::DayClock;
 use crate::map::{Chamber, Grid, Layer, TilePos, ViewLayer};
@@ -55,9 +57,22 @@ fn prepare(
     mut colony: ResMut<Colony>,
     mut clock: ResMut<DayClock>,
     mut time: ResMut<Time<Virtual>>,
+    mut orbit: ResMut<Orbit>,
 ) {
     if script.has("unten") {
         view.0 = Layer::Underground;
+    }
+    if script.has("oben") {
+        view.0 = Layer::Surface;
+    }
+    if let Some(distance) = script.value("abstand") {
+        orbit.distance = distance;
+    }
+    if let Some(degrees) = script.value("drehung") {
+        orbit.yaw = degrees.to_radians();
+    }
+    if let Some(degrees) = script.value("neigung") {
+        orbit.pitch = degrees.to_radians();
     }
     if script.has("vorrat") {
         for x in [21, 22] {

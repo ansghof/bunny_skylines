@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 use crate::camera::CursorWorld;
+use crate::ground::{floor_y_for_view, gizmo_rect};
 use crate::map::{Chamber, Depth, Grid, Layer, TILE_SIZE, TilePos, ViewLayer, tiles_between};
 
 pub struct ToolsPlugin;
@@ -170,5 +171,5 @@ fn draw_preview(
     };
     let min = start.center().min(end.center()) - TILE_SIZE / 2.0;
     let max = start.center().max(end.center()) + TILE_SIZE / 2.0;
-    gizmos.rect_2d(Isometry2d::from_translation((min + max) / 2.0), max - min, color);
+    gizmo_rect(&mut gizmos, min, max, floor_y_for_view(view.0), color);
 }
