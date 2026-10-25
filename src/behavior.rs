@@ -15,7 +15,7 @@ use crate::rabbit::{Hunger, Offset, OnLayer, Rabbit, z_for};
 const HUNGER_PER_SECOND: f32 = 0.012;
 const HUNGRY: f32 = 0.55;
 /// So viele Kaninchen grasen höchstens gemeinsam auf einem Feld; am Vorrat genauso.
-const MAX_PER_TILE: usize = 3;
+const MAX_PER_TILE: usize = 2;
 /// So viel Hunger entsteht im Schlaf und in der Winterruhe im Vergleich zum Wachsein.
 const RESTING_HUNGER_FACTOR: f32 = 0.35;
 /// Futtereinheiten im Vorrat pro abgeerntetem Gras. Ein Futter stillt 0,6 Hunger,
