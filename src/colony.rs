@@ -17,6 +17,8 @@ pub mod cost {
     pub const POST_EARTH: f32 = 5.0;
     /// Ein Nest pro Feld Schlafkammer, aus eingetragenem Gras.
     pub const NEST_FOOD: f32 = 2.0;
+    /// Saatgut für ein Feld Klee.
+    pub const CLOVER_FOOD: f32 = 1.0;
     /// Erde, die beim Graben eines Feldes anfällt.
     pub const EARTH_PER_TILE: f32 = 1.0;
 }

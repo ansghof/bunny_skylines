@@ -18,7 +18,7 @@ const STOMP_RADIUS: f32 = TILE_SIZE * 7.0;
 const RELAY_RADIUS: f32 = TILE_SIZE * 2.5;
 /// Ab dieser Entfernung bemerkt ein Kaninchen den Fuchs selbst.
 const NOTICE_RADIUS: f32 = TILE_SIZE * 2.2;
-const ALARM_COOLDOWN_SECONDS: f32 = 30.0;
+pub const ALARM_COOLDOWN_SECONDS: f32 = 30.0;
 const RING_SECONDS: f32 = 0.8;
 
 pub struct DangerPlugin;
@@ -26,7 +26,10 @@ pub struct DangerPlugin;
 impl Plugin for DangerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Alarms>()
-            .insert_resource(AlarmButton { cooldown: 0.0 })
+            .insert_resource(AlarmButton {
+                cooldown: 0.0,
+                requested: false,
+            })
             .add_systems(
                 Update,
                 (guards_watch, notice_foxes, alarm_button, spread_alarms, draw_rings)
@@ -49,6 +52,8 @@ struct Alarms(Vec<Alarm>);
 #[derive(Resource)]
 pub struct AlarmButton {
     pub cooldown: f32,
+    /// Über die Werkzeugleiste ausgelöst; wirkt wie die Taste F.
+    pub requested: bool,
 }
 
 /// Sichtbare Bodenwelle eines Stampfers.
@@ -135,7 +140,8 @@ fn alarm_button(
     mut rabbits: FlightQuery,
 ) {
     button.cooldown = (button.cooldown - time.delta_secs()).max(0.0);
-    if !keys.just_pressed(KeyCode::KeyF) {
+    let pressed = keys.just_pressed(KeyCode::KeyF) || std::mem::take(&mut button.requested);
+    if !pressed {
         return;
     }
     if button.cooldown > 0.0 {

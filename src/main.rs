@@ -14,6 +14,7 @@ mod predator;
 mod rabbit;
 mod rig;
 mod speed;
+mod toolbar;
 mod tools;
 mod ui;
 
@@ -34,6 +35,7 @@ fn main() {
         ..default()
     }))
         .insert_resource(ClearColor(Color::srgb(0.98, 0.95, 0.86)))
+        // Welt und Spiellogik
         .add_plugins((
             camera::CameraPlugin,
             speed::SpeedPlugin,
@@ -47,9 +49,13 @@ fn main() {
             daynight::DayNightPlugin,
             predator::PredatorPlugin,
             danger::DangerPlugin,
+        ))
+        // Darstellung und Bedienung
+        .add_plugins((
             furnishing::FurnishingPlugin,
             effects::EffectsPlugin,
             ui::UiPlugin,
+            toolbar::ToolbarPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);

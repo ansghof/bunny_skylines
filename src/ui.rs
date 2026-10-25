@@ -10,8 +10,10 @@ use crate::rabbit::{Hunger, Rabbit, SHOW_HUNGER};
 use crate::speed;
 use crate::tools::{Tool, ToolKind};
 
-const HELP: &str = "G Graben · E Eingang · N Schlafkammer · V Vorratskammer · P Wachposten · X Entfernen · R Tiefe · F Alarm\n\
-Linke Maustaste ziehen: Bereich markieren · Mittlere Maustaste oder WASD: verschieben · Rechte Maustaste: drehen und neigen · Mausrad: Zoom";
+/// Werkzeuge stehen in der Werkzeugleiste; hier nur noch die Kamera und das Markieren.
+const HELP: &str = "Linke Maustaste ziehen: Bereich markieren\n\
+Mittlere Maustaste oder WASD: verschieben\n\
+Rechte Maustaste: drehen und neigen · Mausrad: Zoom";
 
 pub struct UiPlugin;
 
@@ -51,7 +53,8 @@ fn panel(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((Text::default(), StatusText, panel(Some(12.0), None, Some(12.0), None)));
     commands.spawn((Text::default(), MessageText, panel(None, Some(12.0), Some(12.0), None)));
-    commands.spawn((Text::new(HELP), panel(Some(12.0), None, None, Some(12.0))));
+    // Über der Werkzeugleiste, damit sich beide nicht überdecken.
+    commands.spawn((Text::new(HELP), panel(Some(12.0), None, None, Some(84.0))));
 }
 
 fn update_status(

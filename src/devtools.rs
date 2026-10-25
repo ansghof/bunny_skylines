@@ -10,6 +10,8 @@
 //! - `zeiger`: Mauszeiger fest über ein ungegrabenes Feld neben dem Startbau setzen
 //! - `alt`: Die Gründer haben nur noch 5 Spielsekunden zu leben
 //! - `hungersnot`: kein Gras, kein Vorrat, alle Kaninchen völlig ausgehungert
+//! - `klee`: ein paar Kleefelder neben dem Eingang säen
+//! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
 //! - `nacht`: kurz vor Einbruch der Nacht starten
 //! - `tempo=N`: Spielgeschwindigkeit
 //! - `bild=S`: nach S Sekunden Echtzeit einen Screenshot nach `target/test-bild.png` speichern und beenden
@@ -21,7 +23,9 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use crate::camera::{CursorWorld, Orbit, update_cursor};
 use crate::colony::Colony;
 use crate::daynight::DayClock;
-use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer};
+use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer, tiles_between};
+use crate::toolbar::{Action, Tooltip};
+use crate::tools::ToolKind;
 use crate::rabbit::{Hunger, Rabbit};
 
 pub const ENV: &str = "BUNNY_TEST";
@@ -67,6 +71,7 @@ fn prepare(
     mut clock: ResMut<DayClock>,
     mut time: ResMut<Time<Virtual>>,
     mut orbit: ResMut<Orbit>,
+    mut tooltip: ResMut<Tooltip>,
 ) {
     if script.has("unten") {
         view.0 = Layer::Underground;
@@ -93,6 +98,16 @@ fn prepare(
         for (x, y) in [(21, 16), (21, 17), (22, 17), (20, 17)] {
             grid.under_mut(TilePos::new(x, y)).planned = Some(Depth::Medium);
         }
+    }
+    if script.has("klee") {
+        for p in tiles_between(TilePos::new(17, 13), TilePos::new(19, 17)) {
+            let field = grid.surface_mut(p);
+            field.clover = true;
+            field.grass = 1.0;
+        }
+    }
+    if script.has("tipp") {
+        tooltip.0 = Some(Action::Tool(ToolKind::Clover));
     }
     if script.has("nacht") {
         clock.time = 0.74;

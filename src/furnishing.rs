@@ -1,5 +1,5 @@
 //! Einrichtung im Bau: Heunester in Schlafkammern, Futterhaufen, die mit dem Vorrat wachsen,
-//! und ein Lichtschein unter jedem Eingang. Nur in der Untergrund-Ansicht zu sehen.
+//! und ein Lichtschein unter jedem Eingang, alles in der Untergrund-Ansicht. Dazu Kleefelder an der Oberfläche.
 //! Nester und Lichtschein liegen flach am Boden, Futterhaufen stehen als Aufsteller.
 
 use std::collections::HashMap;
@@ -32,19 +32,35 @@ enum Kind {
     Nest,
     Pile,
     Light,
+    Clover,
+}
+
+impl Kind {
+    /// In welcher Ansicht diese Einrichtung zu sehen ist.
+    fn layer(self) -> Layer {
+        match self {
+            Kind::Clover => Layer::Surface,
+            Kind::Nest | Kind::Pile | Kind::Light => Layer::Underground,
+        }
+    }
+}
+
+fn visibility_in(layer: Layer, view: Layer) -> Visibility {
+    if layer == view { Visibility::Visible } else { Visibility::Hidden }
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 5] = [
+const IMAGES: [(&str, Vec2); 6] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
     ("futter_klein.png", Vec2::new(80.0, 56.0)),
     ("futter_mittel.png", Vec2::new(104.0, 72.0)),
     ("futter_voll.png", Vec2::new(124.0, 88.0)),
     ("lichtschein.png", Vec2::new(128.0, 128.0)),
+    ("klee.png", Vec2::new(128.0, 128.0)),
 ];
 
 #[derive(Component)]
-struct Furnishing;
+struct Furnishing(Layer);
 
 /// Steht aufrecht und dreht sich zur Kamera.
 #[derive(Component)]
@@ -135,8 +151,13 @@ fn place_furnishing(
                 None => {}
             }
         }
-        if grid.surface(p).entrance {
+        let surface = grid.surface(p);
+        if surface.entrance {
             wanted.insert((p, Kind::Light), "lichtschein.png");
+        }
+        // Abgefressener Klee ist nur noch Farbe am Boden, bis er nachwächst.
+        if surface.clover && surface.grass > 0.25 {
+            wanted.insert((p, Kind::Clover), "klee.png");
         }
     }
 
@@ -149,26 +170,24 @@ fn place_furnishing(
         keep
     });
 
-    let visibility = if view.0 == Layer::Underground {
-        Visibility::Visible
-    } else {
-        Visibility::Hidden
-    };
     for (key, image) in wanted {
         if placed.0.contains_key(&key) {
             continue;
         }
         let (pos, kind) = key;
-        let floor = grid.under(pos).dug.map_or(0.0, depth_y);
+        let floor = match kind.layer() {
+            Layer::Surface => 0.0,
+            Layer::Underground => grid.under(pos).dug.map_or(0.0, depth_y),
+        };
         // Leicht über dem Boden, damit nichts flimmert.
-        let lift = if kind == Kind::Light { 0.5 } else { 1.0 };
+        let lift = if matches!(kind, Kind::Light | Kind::Clover) { 0.5 } else { 1.0 };
         let size = image_size(image);
         let at = Transform::from_translation(to_world3(pos.center(), floor + lift));
         let mut entity = commands.spawn((
-            Furnishing,
+            Furnishing(kind.layer()),
             MeshMaterial3d(assets.materials[image].clone()),
             NotShadowCaster,
-            visibility,
+            visibility_in(kind.layer(), view.0),
         ));
         match kind {
             // Futterhaufen stehen wie Figuren und werden mit ihnen gezeichnet, damit sie aus
@@ -180,7 +199,7 @@ fn place_furnishing(
                 at.with_scale(size.extend(1.0)),
             )),
             // Flache Vierecke liegen in x-z: die Bildhöhe gehört auf z.
-            Kind::Nest | Kind::Light => entity.insert((
+            Kind::Nest | Kind::Light | Kind::Clover => entity.insert((
                 Mesh3d(assets.flat.clone()),
                 at.with_scale(Vec3::new(size.x, 1.0, size.y)),
             )),
@@ -189,17 +208,12 @@ fn place_furnishing(
     }
 }
 
-fn show_with_view(view: Res<ViewLayer>, mut furnishing: Query<&mut Visibility, With<Furnishing>>) {
+fn show_with_view(view: Res<ViewLayer>, mut furnishing: Query<(&Furnishing, &mut Visibility)>) {
     if !view.is_changed() {
         return;
     }
-    let visibility = if view.0 == Layer::Underground {
-        Visibility::Visible
-    } else {
-        Visibility::Hidden
-    };
-    for mut v in &mut furnishing {
-        *v = visibility;
+    for (furnishing, mut v) in &mut furnishing {
+        *v = visibility_in(furnishing.0, view.0);
     }
 }
 

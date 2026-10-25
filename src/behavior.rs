@@ -464,10 +464,10 @@ fn work(
                 if *left > 0.0 {
                     continue;
                 }
-                let grass = &mut grid.surface_mut(*tile).grass;
-                let eaten = grass.min(0.5);
-                *grass -= eaten;
-                hunger.0 = (hunger.0 - eaten * 1.3).max(0.0);
+                let field = grid.surface_mut(*tile);
+                let eaten = field.grass.min(0.5);
+                field.grass -= eaten;
+                hunger.0 = (hunger.0 - eaten * 1.3 * field.nutrition()).max(0.0);
                 Activity::Idle(0.4)
             }
             Activity::Gathering { tile, left } => {
@@ -475,10 +475,10 @@ fn work(
                 if *left > 0.0 {
                     continue;
                 }
-                let grass = &mut grid.surface_mut(*tile).grass;
-                let taken = grass.min(0.5);
-                *grass -= taken;
-                carrying.0 += taken * 2.0;
+                let field = grid.surface_mut(*tile);
+                let taken = field.grass.min(0.5);
+                field.grass -= taken;
+                carrying.0 += taken * 2.0 * field.nutrition();
                 match find_chamber(&grid, current_node(transform, layer), Chamber::Storage) {
                     Some(steps) => {
                         path.0 = steps.into();

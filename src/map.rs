@@ -13,6 +13,10 @@ pub const MAP_HEIGHT: i32 = 30;
 const GRASS_GROWTH_PER_SECOND: f32 = 0.014;
 /// Nachts wächst kaum etwas nach.
 const NIGHT_GROWTH_FACTOR: f32 = 0.3;
+/// Klee wächst so viel schneller nach als Gras.
+const CLOVER_GROWTH_FACTOR: f32 = 2.0;
+/// Und ist so viel nahrhafter.
+const CLOVER_NUTRITION: f32 = 1.5;
 
 pub struct MapPlugin;
 
@@ -157,6 +161,15 @@ pub struct SurfaceTile {
     pub entrance_planned: bool,
     /// Wachposten: Von hier hält ein Kaninchen Ausschau.
     pub post: bool,
+    /// Gesäter Klee: wächst schneller nach und ist nahrhafter als Gras.
+    pub clover: bool,
+}
+
+impl SurfaceTile {
+    /// Wie viel ein Bissen von diesem Feld wert ist, verglichen mit Gras.
+    pub fn nutrition(&self) -> f32 {
+        if self.clover { CLOVER_NUTRITION } else { 1.0 }
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -273,7 +286,8 @@ fn grow_grass(time: Res<Time>, clock: Res<DayClock>, mut grid: ResMut<Grid>, mut
     *timer = 0.0;
     for tile in &mut grid.surface {
         if !tile.entrance && tile.grass < 1.0 {
-            tile.grass = (tile.grass + growth).min(1.0);
+            let speed = if tile.clover { CLOVER_GROWTH_FACTOR } else { 1.0 };
+            tile.grass = (tile.grass + growth * speed).min(1.0);
         }
     }
 }
@@ -288,6 +302,10 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass).map(|c| c * checker);
     if tile.entrance_planned {
         rgb = mix(rgb, [0.95, 0.62, 0.25], 0.55);
+    }
+    if tile.clover {
+        // Kräftiges Blaugrün, je voller, desto deutlicher.
+        rgb = mix(rgb, [0.33, 0.60, 0.34], 0.35 + 0.35 * tile.grass);
     }
     if tile.post {
         rgb = mix(rgb, [0.60, 0.48, 0.30], 0.7);
