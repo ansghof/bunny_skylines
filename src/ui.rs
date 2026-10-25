@@ -79,11 +79,12 @@ fn update_status(
     };
     let price = tool.kind.cost_label().map_or(String::new(), |c| format!(" ({c})"));
     text.0 = format!(
-        "Tag {} · {}    Ansicht: {} [Tab]    Tempo: {} [Leertaste, 1–3]\n\
+        "Jahr {} · Tag {} · {}    Ansicht: {} [Tab]    Tempo: {} [Leertaste, 1–3]\n\
          Werkzeug: {}{price}{depth}    Alarm [F]: {alarm}\n\
          Kaninchen: {total} (davon {young} Junge)    Schlafplätze: {}\n\
          Futter: {:.0} / {:.0}    Erde: {:.0}",
-        clock.day,
+        clock.year(),
+        clock.day_of_year(),
         clock.phase().label(),
         view.0.label(),
         speed::label(&time),

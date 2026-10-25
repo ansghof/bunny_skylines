@@ -8,6 +8,10 @@ use crate::map::{Layer, ViewLayer};
 
 /// Länge eines ganzen Tages in Spielsekunden.
 pub const DAY_LENGTH: f32 = 240.0;
+/// Ein Spieljahr: 6 Tage, bei 1× also 24 Minuten.
+pub const DAYS_PER_YEAR: u32 = 6;
+/// Ein Spieljahr in Spielsekunden, z. B. für das Alter der Kaninchen.
+pub const YEAR_LENGTH: f32 = DAY_LENGTH * DAYS_PER_YEAR as f32;
 const NIGHT_DARKNESS: f32 = 0.45;
 const SUN_DAY: f32 = 2400.0;
 const SUN_NIGHT: f32 = 700.0;
@@ -57,6 +61,15 @@ pub struct DayClock {
 }
 
 impl DayClock {
+    pub fn year(&self) -> u32 {
+        (self.day - 1) / DAYS_PER_YEAR + 1
+    }
+
+    /// Tag innerhalb des Jahres, ab 1.
+    pub fn day_of_year(&self) -> u32 {
+        (self.day - 1) % DAYS_PER_YEAR + 1
+    }
+
     pub fn phase(&self) -> Phase {
         match self.time {
             t if t < 0.15 => Phase::Morning,
@@ -96,7 +109,10 @@ fn advance_clock(time: Res<Time>, mut clock: ResMut<DayClock>, mut messages: Res
     let after = clock.phase();
     if before != after {
         match after {
-            Phase::Morning => messages.push(format!("Tag {} beginnt.", clock.day)),
+            Phase::Morning if clock.day_of_year() == 1 => {
+                messages.push(format!("Ein neues Jahr beginnt: Jahr {}.", clock.year()))
+            }
+            Phase::Morning => messages.push(format!("Tag {} beginnt.", clock.day_of_year())),
             Phase::Night => messages.push("Es wird Nacht. Die Kaninchen gehen schlafen."),
             _ => {}
         }

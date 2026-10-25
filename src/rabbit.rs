@@ -4,16 +4,22 @@ use std::f32::consts::{PI, TAU};
 
 use bevy::prelude::*;
 
-use crate::behavior::{Activity, Carrying, DigTarget, Fear, Path};
+use crate::behavior::{Activity, Carrying, DigTarget, Fear, Path, Reserved, release};
 use crate::effects::{DirtAssets, throw_dirt};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Grid, Layer, TilePos, ViewLayer};
 use crate::camera::Orbit;
-use crate::daynight::{DayClock, figure_light};
+use crate::daynight::{DayClock, YEAR_LENGTH, figure_light};
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
 /// Spielsekunden, bis ein Junges erwachsen ist.
 pub const ADULT_AGE: f32 = 150.0;
+/// Lebensdauer in Spieljahren, von bis.
+const LIFESPAN_YEARS: (f32, f32) = (8.0, 9.5);
+/// Ab diesem Alter in Spieljahren gilt ein Kaninchen als alt.
+const OLD_AGE_YEARS: f32 = 6.0;
+/// So lange hält ein völlig ausgehungertes Kaninchen durch, in Spielsekunden.
+const STARVE_SECONDS: f32 = 60.0;
 const PREGNANCY_SECONDS: f32 = 40.0;
 const BIRTH_COOLDOWN_SECONDS: f32 = 90.0;
 const HOPS_PER_SECOND: f32 = 2.6;
@@ -45,7 +51,14 @@ impl Plugin for RabbitPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_founders).add_systems(
             Update,
-            (grow_up, start_pregnancies, give_birth, tick_birth_cooldown, tick_stomping, animate),
+            (
+                (grow_up, die).chain(),
+                start_pregnancies,
+                give_birth,
+                tick_birth_cooldown,
+                tick_stomping,
+                animate,
+            ),
         );
     }
 }
@@ -56,11 +69,26 @@ pub struct Rabbit {
     pub female: bool,
     /// Alter in Spielsekunden.
     pub age: f32,
+    /// So alt wird dieses Kaninchen, in Spielsekunden.
+    lifespan: f32,
+    /// Wie lange es schon völlig ausgehungert ist, in Spielsekunden.
+    starving: f32,
 }
 
 impl Rabbit {
     pub fn is_adult(&self) -> bool {
         self.age >= ADULT_AGE
+    }
+
+    /// Alte Kaninchen sind langsamer.
+    pub fn is_old(&self) -> bool {
+        self.age >= OLD_AGE_YEARS * YEAR_LENGTH
+    }
+
+    /// Nur für Testläufe: Das Kaninchen hat noch so viele Spielsekunden zu leben.
+    #[cfg(debug_assertions)]
+    pub fn set_remaining_life(&mut self, seconds: f32) {
+        self.age = (self.lifespan - seconds).max(0.0);
     }
 }
 
@@ -110,7 +138,14 @@ fn rabbit_bundle(
 ) -> impl Bundle {
     (
         (
-            Rabbit { name, female, age },
+            Rabbit {
+                name,
+                female,
+                age,
+                // Nicht alle Gleichaltrigen sollen am selben Tag sterben.
+                lifespan: rng.range(LIFESPAN_YEARS.0, LIFESPAN_YEARS.1) * YEAR_LENGTH,
+                starving: 0.0,
+            },
             Fur(fur),
             Hunger(rng.range(0.1, 0.3)),
             Fear::default(),
@@ -169,6 +204,40 @@ fn grow_up(time: Res<Time>, mut rabbits: Query<&mut Rabbit>, mut messages: ResMu
         if !was_adult && rabbit.is_adult() {
             messages.push(format!("{} ist erwachsen geworden.", rabbit.name));
         }
+    }
+}
+
+/// Kaninchen sterben im hohen Alter oder wenn sie zu lange nichts zu fressen finden.
+fn die(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut messages: ResMut<Messages>,
+    mut reserved: ResMut<Reserved>,
+    mut rabbits: Query<(Entity, &mut Rabbit, &Hunger, &Activity)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut rabbit, hunger, activity) in &mut rabbits {
+        let years = rabbit.age / YEAR_LENGTH;
+        let message = if rabbit.age >= rabbit.lifespan {
+            format!("{} ist mit {years:.0} Jahren friedlich eingeschlafen.", rabbit.name)
+        } else if hunger.0 >= 1.0 {
+            // Warnen, sobald der Hunger zu zählen beginnt; im ersten Bild ist dt oft 0.
+            let was_starving = rabbit.starving > 0.0;
+            rabbit.starving += dt;
+            if !was_starving && rabbit.starving > 0.0 {
+                messages.push(format!("{} hat großen Hunger und wird schwach!", rabbit.name));
+            }
+            if rabbit.starving < STARVE_SECONDS {
+                continue;
+            }
+            format!("{} hat den Hunger nicht überstanden.", rabbit.name)
+        } else {
+            rabbit.starving = 0.0;
+            continue;
+        };
+        release(activity, &mut reserved);
+        commands.entity(entity).despawn();
+        messages.push(message);
     }
 }
 

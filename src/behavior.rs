@@ -365,9 +365,11 @@ fn walk(
         &mut Hunger,
         &mut Carrying,
         &Offset,
+        &Rabbit,
     )>,
 ) {
-    for (mut transform, mut layer, mut path, mut activity, mut hunger, mut carrying, offset) in &mut rabbits {
+    for (mut transform, mut layer, mut path, mut activity, mut hunger, mut carrying, offset, rabbit) in &mut rabbits
+    {
         let speed = match *activity {
             Activity::Fleeing => FLEE_SPEED,
             // Sehr hungrige Kaninchen werden langsam.
@@ -375,6 +377,8 @@ fn walk(
             Activity::Walking(_) => WALK_SPEED,
             _ => continue,
         };
+        // Alte Kaninchen hoppeln gemächlicher, auch auf der Flucht.
+        let speed = if rabbit.is_old() { speed * 0.8 } else { speed };
 
         let mut budget = speed * time.delta_secs();
         while budget > 0.0 {

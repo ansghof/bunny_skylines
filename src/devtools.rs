@@ -8,6 +8,8 @@
 //! - `vorrat`: den Gang am Startbau zur Vorratskammer machen und 15 Futter einlagern
 //! - `graben`: Grabaufträge neben dem Startgang setzen
 //! - `zeiger`: Mauszeiger fest über ein ungegrabenes Feld neben dem Startbau setzen
+//! - `alt`: Die Gründer haben nur noch 5 Spielsekunden zu leben
+//! - `hungersnot`: kein Gras, kein Vorrat, alle Kaninchen völlig ausgehungert
 //! - `nacht`: kurz vor Einbruch der Nacht starten
 //! - `tempo=N`: Spielgeschwindigkeit
 //! - `bild=S`: nach S Sekunden Echtzeit einen Screenshot nach `target/test-bild.png` speichern und beenden
@@ -20,6 +22,7 @@ use crate::camera::{CursorWorld, Orbit, update_cursor};
 use crate::colony::Colony;
 use crate::daynight::DayClock;
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer};
+use crate::rabbit::{Hunger, Rabbit};
 
 pub const ENV: &str = "BUNNY_TEST";
 const SHOT_PATH: &str = "target/test-bild.png";
@@ -35,6 +38,7 @@ impl Plugin for DevToolsPlugin {
         let commands: Vec<String> = script.split(',').map(|s| s.trim().to_string()).collect();
         app.insert_resource(TestScript(commands))
             .add_systems(Startup, prepare)
+            .add_systems(Update, (age_founders, famine))
             .add_systems(PreUpdate, fake_cursor.after(update_cursor))
             .add_systems(Update, take_shot);
     }
@@ -95,6 +99,42 @@ fn prepare(
     }
     if let Some(speed) = script.value("tempo") {
         time.set_relative_speed(speed);
+    }
+}
+
+/// Einmal, sobald die Gründer da sind.
+fn age_founders(script: Res<TestScript>, mut done: Local<bool>, mut rabbits: Query<&mut Rabbit>) {
+    if *done || !script.has("alt") || rabbits.is_empty() {
+        return;
+    }
+    for mut rabbit in &mut rabbits {
+        rabbit.set_remaining_life(5.0);
+    }
+    *done = true;
+}
+
+/// Hält Wiese und Vorrat leer und alle hungrig, solange der Testlauf dauert.
+fn famine(
+    script: Res<TestScript>,
+    mut grid: ResMut<Grid>,
+    mut colony: ResMut<Colony>,
+    mut done: Local<bool>,
+    mut rabbits: Query<&mut Hunger>,
+) {
+    if !script.has("hungersnot") {
+        return;
+    }
+    colony.food = 0.0;
+    for p in Grid::positions() {
+        if grid.surface(p).grass > 0.0 {
+            grid.surface_mut(p).grass = 0.0;
+        }
+    }
+    if !*done && !rabbits.is_empty() {
+        for mut hunger in &mut rabbits {
+            hunger.0 = 1.0;
+        }
+        *done = true;
     }
 }
 
