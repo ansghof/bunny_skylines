@@ -69,6 +69,8 @@ pub enum Terrain {
     ForestEdge,
     /// Ein alter Steinwall mit Fels darunter; darin wohnen Marder.
     StoneWall,
+    /// Fast überall Sand: nur schmale Gänge, wenige feste Stellen.
+    SandPit,
 }
 
 impl Terrain {
@@ -77,6 +79,7 @@ impl Terrain {
             Terrain::Meadow => Grid::starting_meadow(),
             Terrain::ForestEdge => Grid::forest_edge(),
             Terrain::StoneWall => Grid::stone_wall(),
+            Terrain::SandPit => Grid::sand_pit(),
         }
     }
 }
@@ -166,7 +169,34 @@ const THE_STONE_WALL: Chapter = Chapter {
     night_tools: true,
 };
 
-pub const CHAPTERS: [&Chapter; 3] = [&THE_HEDGE, &THE_FOREST_EDGE, &THE_STONE_WALL];
+const THE_SAND_PIT: Chapter = Chapter {
+    number: 4,
+    title: "Die Sandgrube",
+    story: "Die Familie findet eine weite Wiese an einer alten Sandgrube. Gras gibt es reichlich, \
+            und Feinde kommen selten. Doch der Boden ist locker: Im Sand halten nur schmale Gänge, \
+            breitere Kammern gehen nur dort, wo Erde oder Wurzeln den Boden zusammenhalten.\n\n\
+            Sucht die festen Stellen, plant den Bau sorgfältig und baut genug Nester und Vorräte \
+            für eine große Familie.",
+    targets: &[Target::Rabbits(30), Target::Food(60.0)],
+    max_losses: None,
+    terrain: Terrain::SandPit,
+    dangers: Dangers { first_fox: 300.0, fox_pace: 0.8, buzzard_from_start: false, marten_from_start: false },
+    known: &[
+        Tech::Posts,
+        Tech::Hedges,
+        Tech::Clover,
+        Tech::Claws,
+        Tech::DeepTunnels,
+        Tech::DriedHay,
+        Tech::SunSpots,
+        Tech::Nursery,
+    ],
+    relatives: 4,
+    start_earth: 10.0,
+    night_tools: true,
+};
+
+pub const CHAPTERS: [&Chapter; 4] = [&THE_HEDGE, &THE_FOREST_EDGE, &THE_STONE_WALL, &THE_SAND_PIT];
 
 /// Das Kapitel mit dieser Nummer; unbekannte Nummern ergeben das erste.
 pub fn chapter(number: u32) -> &'static Chapter {
@@ -346,6 +376,7 @@ fn check_goals(
         Terrain::Meadow => "sich an der Hecke eingelebt",
         Terrain::ForestEdge => "das Jahr am Waldrand überstanden",
         Terrain::StoneWall => "den Winter am Steinwall ohne große Verluste überstanden",
+        Terrain::SandPit => "an der Sandgrube eine große Familie gegründet",
     };
     let body = format!(
         "Die Familie Buddelberg hat {feat}: {} Kaninchen und {:.0} Futter im Vorrat, im {} von Jahr {}.\n\n{outlook}",

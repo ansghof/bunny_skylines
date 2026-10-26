@@ -240,6 +240,9 @@ pub struct SurfaceTile {
     /// Ein alter, halb verfallener Steinwall; darin wohnen Marder.
     #[serde(default)]
     pub stones: bool,
+    /// Offener Sand in einer Sandgrube.
+    #[serde(default)]
+    pub sand: bool,
 }
 
 impl SurfaceTile {
@@ -439,6 +442,32 @@ impl Grid {
         grid
     }
 
+    /// Die Wiese an einer alten Sandgrube: Fast überall ist Sand, nur wenige feste Stellen.
+    /// In der Grube selbst wächst kaum Gras.
+    pub fn sand_pit() -> Self {
+        let mut grid = Self::starting_meadow();
+        for p in Self::positions() {
+            let start_area = (p.x - 22).abs() <= 2 && (p.y - 15).abs() <= 2;
+            if !start_area {
+                grid.under_mut(p).soil = match smooth_noise(p, 5, 777) {
+                    v if v > 0.8 => Soil::Roots,
+                    v if v > 0.66 => Soil::Earth,
+                    _ => Soil::Sand,
+                };
+            }
+            // Die Grube: ein Oval links oben mit nacktem Sand.
+            let dx = (p.x - 9) as f32 / 7.0;
+            let dy = (p.y - 21) as f32 / 5.0;
+            if dx * dx + dy * dy < 1.0 {
+                let tile = grid.surface_mut(p);
+                tile.fertility = 0.15;
+                tile.grass = 0.0;
+                tile.sand = true;
+            }
+        }
+        grid
+    }
+
     /// Alle Felder unter dem Steinwall, z. B. um Marder dort auftauchen zu lassen.
     pub fn wall_tiles(&self) -> Vec<TilePos> {
         Self::positions().filter(|p| self.surface(*p).stones).collect()
@@ -571,6 +600,8 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass.min(1.0)).map(|c| c * checker);
     if tile.stones {
         rgb = mix(rgb, [0.58 * checker, 0.57 * checker, 0.52 * checker], 0.8);
+    } else if tile.sand {
+        rgb = mix(rgb, [0.90 * checker, 0.80 * checker, 0.56 * checker], 0.9);
     } else if tile.forest {
         // Waldboden: Moos und Laub im Schatten der Bäume.
         rgb = mix(rgb, [0.30 * checker, 0.40 * checker, 0.22 * checker], 0.7);
