@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
 use crate::daynight::{DayClock, Season};
-use crate::map::{Chamber, Depth, Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos};
+use crate::map::{Chamber, Depth, Feature, Grid, Layer, TILE_SIZE, TilePos};
 use crate::progress::{Progress, Tech};
 use crate::pathfinding::{Node, find_path, find_path_where};
 use crate::rabbit::{Hunger, Mood, Offset, OnLayer, Rabbit, z_for};
@@ -854,9 +854,9 @@ fn finish_digging(grid: &mut Grid, target: DigTarget) {
 }
 
 /// Weg zum nächsten Feld am Kartenrand, für Kaninchen, die fortziehen.
+/// Der Weg hinaus: bis an den Rand des eigenen Landes, dahinter ist es fort.
 pub fn path_to_edge(grid: &Grid, transform: &Transform, layer: &OnLayer) -> Option<Vec<Node>> {
     find_path(grid, current_node(transform, layer), |node| {
-        let p = node.pos;
-        node.layer == Layer::Surface && (p.x == 0 || p.y == 0 || p.x == MAP_WIDTH - 1 || p.y == MAP_HEIGHT - 1)
+        node.layer == Layer::Surface && grid.on_border(node.pos)
     })
 }

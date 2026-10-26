@@ -49,7 +49,7 @@ impl Stage {
         }
     }
 
-    fn next(self) -> Option<Stage> {
+    pub fn next(self) -> Option<Stage> {
         match self {
             Stage::Burrow => Some(Stage::Warren),
             Stage::Warren => Some(Stage::Settlement),
@@ -257,6 +257,16 @@ impl Progress {
         self.unlocked.insert(tech);
     }
 
+    /// Wie viele Grundstücke die Familie auf ihrer Stufe besitzen darf.
+    pub fn plots_allowed(&self) -> usize {
+        match self.stage {
+            Stage::Burrow => 2,
+            Stage::Warren => 4,
+            Stage::Settlement => 7,
+            Stage::Town => 12,
+        }
+    }
+
     pub fn has(&self, tech: Tech) -> bool {
         self.unlocked.contains(&tech)
     }
@@ -325,9 +335,11 @@ fn grow_stage(mut progress: ResMut<Progress>, mut messages: ResMut<Messages>, ra
     if rabbits.iter().count() >= needed && progress.winters_survived >= winters {
         progress.stage = next;
         messages.push(match next {
-            Stage::Burrow | Stage::Warren => "Aus dem Erdloch ist ein richtiger Bau geworden! Neue Forschungen sind möglich.",
-            Stage::Settlement => "Der Bau ist zur Siedlung gewachsen! Neue Forschungen sind möglich.",
-            Stage::Town => "Die Siedlung ist jetzt eine Kaninchenstadt!",
+            Stage::Burrow | Stage::Warren => {
+                "Aus dem Erdloch ist ein richtiger Bau geworden! Neue Forschungen sind möglich, und ihr könnt Land dazukaufen."
+            }
+            Stage::Settlement => "Der Bau ist zur Siedlung gewachsen! Neue Forschungen und mehr Land sind möglich.",
+            Stage::Town => "Die Siedlung ist jetzt eine Kaninchenstadt! Alles Land kann jetzt gekauft werden.",
         });
     }
 }

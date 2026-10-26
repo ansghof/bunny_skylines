@@ -9,7 +9,7 @@ use crate::camera::CursorWorld;
 use crate::colony::{Colony, Messages, cost};
 use crate::daynight::DayClock;
 use crate::ground::gizmo_rect;
-use crate::map::{Chamber, Depth, Feature, Grid, Layer, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, tiles_between};
+use crate::map::{Plot, Chamber, Depth, Feature, Grid, Layer, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, tiles_between};
 use crate::progress::{Progress, Stage, Tech};
 use crate::toolbar::Toolbar;
 
@@ -38,6 +38,8 @@ pub enum ToolKind {
     Plug,
     /// Platz für eine Nachtwache im Bau.
     Watch,
+    /// Ein angrenzendes Grundstück dazukaufen.
+    Land,
     Remove,
 }
 
@@ -49,7 +51,7 @@ pub enum Lock {
 }
 
 /// Alle Werkzeuge in der Reihenfolge der Werkzeugleiste, mit Taste und Tastenname.
-pub const TOOLS: [(ToolKind, KeyCode, &str); 19] = [
+pub const TOOLS: [(ToolKind, KeyCode, &str); 20] = [
     (ToolKind::Point, KeyCode::Escape, "Esc"),
     (ToolKind::Dig, KeyCode::KeyG, "G"),
     (ToolKind::Entrance, KeyCode::KeyE, "E"),
@@ -68,6 +70,7 @@ pub const TOOLS: [(ToolKind, KeyCode, &str); 19] = [
     (ToolKind::Feature(Feature::Festival), KeyCode::Digit5, "5"),
     (ToolKind::Watch, KeyCode::KeyI, "I"),
     (ToolKind::Plug, KeyCode::KeyC, "C"),
+    (ToolKind::Land, KeyCode::Digit6, "6"),
     (ToolKind::Remove, KeyCode::KeyX, "X"),
 ];
 
@@ -83,6 +86,7 @@ impl ToolKind {
             ToolKind::Feature(feature) => feature.label(),
             ToolKind::Plug => "Erdpfropf",
             ToolKind::Watch => "Nachtwache",
+            ToolKind::Land => "Land kaufen",
             ToolKind::Remove => "Entfernen",
         }
     }
@@ -121,6 +125,10 @@ impl ToolKind {
             ToolKind::Watch => {
                 "Hier hält nachts ein Kaninchen Wache. Kommt ein Marder in den Bau, stampft es \
                  und weckt alle in den verbundenen Gängen."
+            }
+            ToolKind::Land => {
+                "Ein Grundstück neben eurem Land für Erde dazukaufen. Wie viel Land ihr haben dürft, \
+                 hängt von der Größe der Familie ab."
             }
             ToolKind::Remove => "Aufträge, Kammern und Bauten an der Oberfläche entfernen.",
         }
@@ -204,6 +212,7 @@ impl ToolKind {
             self,
             ToolKind::Entrance
                 | ToolKind::Post
+                | ToolKind::Land
                 | ToolKind::Plug
                 | ToolKind::Watch
                 | ToolKind::Feature(Feature::BoltHole | Feature::SunSpot)
@@ -215,7 +224,7 @@ impl ToolKind {
         match self {
             ToolKind::Dig | ToolKind::Chamber(_) | ToolKind::Plug | ToolKind::Watch => Some(Layer::Underground),
             ToolKind::Entrance | ToolKind::Post | ToolKind::Clover | ToolKind::Feature(_) => Some(Layer::Surface),
-            ToolKind::Point | ToolKind::Remove => None,
+            ToolKind::Point | ToolKind::Land | ToolKind::Remove => None,
         }
     }
 }
@@ -318,6 +327,10 @@ pub(crate) fn apply_drag(
     if tool.kind == ToolKind::Point {
         return;
     }
+    if tool.kind == ToolKind::Land {
+        buy_plot(Plot::of(TilePos::from_world_clamped(cursor)), &mut grid, &mut colony, &progress, &mut messages, &mut sounds);
+        return;
+    }
     if tool.kind.layer().is_some_and(|layer| layer != view.0) {
         return;
     }
@@ -340,10 +353,16 @@ pub(crate) fn apply_drag(
 
     let mut short = false;
     let mut too_wide = None;
+    let mut unexplored = false;
     for p in tiles {
+        // Auf fremdem Land wird nichts gebaut.
+        if !grid.owns(p) && tool.kind != ToolKind::Remove {
+            unexplored = true;
+            continue;
+        }
         match tool.kind {
-            // Schon oben abgefangen: Zeigen baut nichts.
-            ToolKind::Point => {}
+            // Schon oben abgefangen: Zeigen baut nichts, Land wird einzeln gekauft.
+            ToolKind::Point | ToolKind::Land => {}
             ToolKind::Dig => {
                 let tile = grid.under(p);
                 if tile.dug.is_some() {
@@ -468,11 +487,55 @@ pub(crate) fn apply_drag(
     if let Some(soil) = too_wide {
         messages.push(width_message(soil, width_bonus(&progress)));
     }
+    if unexplored {
+        messages.push("Dieses Land gehört euch noch nicht. Kauft es mit „Land kaufen“ (6) dazu.");
+    }
     sounds.play(Sound::Build);
     if short {
         let price = tool.kind.cost_label().unwrap_or_default();
         messages.push(format!("Für {} reicht es nicht ganz ({price}).", tool.kind.label()));
     }
+}
+
+/// Was das nächste Grundstück kostet: jedes zugekaufte etwas mehr.
+fn plot_price(grid: &Grid) -> f32 {
+    cost::PLOT_EARTH * (grid.owned.len() + 1 - Plot::starting().len()) as f32
+}
+
+/// Warum dieses Grundstück gerade nicht zu kaufen ist, oder `None`, wenn es geht.
+fn plot_blocked(plot: Plot, grid: &Grid, colony: &Colony, progress: &Progress) -> Option<String> {
+    if grid.owned.contains(&plot) {
+        return Some("Dieses Land gehört euch schon.".into());
+    }
+    if !grid.can_buy(plot) {
+        return Some("Kaufen lässt sich nur Land direkt neben eurem.".into());
+    }
+    if grid.owned.len() >= progress.plots_allowed() {
+        return Some(match progress.stage.next() {
+            Some(next) => format!("Mehr Land gibt es erst ab der Stufe „{}“.", next.label()),
+            None => "Ihr habt schon alles Land.".into(),
+        });
+    }
+    let price = plot_price(grid);
+    (colony.earth < price).then(|| format!("Dafür fehlt noch Erde: {price:.0} nötig, {:.0} da.", colony.earth))
+}
+
+fn buy_plot(
+    plot: Plot,
+    grid: &mut Grid,
+    colony: &mut Colony,
+    progress: &Progress,
+    messages: &mut Messages,
+    sounds: &mut Sounds,
+) {
+    if let Some(reason) = plot_blocked(plot, grid, colony, progress) {
+        messages.push(reason);
+        return;
+    }
+    colony.earth -= plot_price(grid);
+    grid.owned.push(plot);
+    sounds.play(Sound::Research);
+    messages.push("Neues Land gekauft! Hier kann die Familie jetzt grasen und bauen.");
 }
 
 /// Mit Stützwurzeln trägt jeder Boden einen Gang mehr in der Breite.
@@ -524,6 +587,35 @@ fn draw_preview(
     // Beim Zeigen gibt es nichts zu markieren.
     if tool.kind == ToolKind::Point {
         selection.0 = None;
+        return;
+    }
+    // Beim Landkauf: kaufbare Grundstücke gelb umrandet, über dem Zeiger Preis oder Hinderungsgrund.
+    if tool.kind == ToolKind::Land {
+        let Some(cursor) = cursor.0 else {
+            selection.0 = None;
+            return;
+        };
+        let hovered = Plot::of(TilePos::from_world_clamped(cursor));
+        for plot in Plot::all() {
+            if grid.owned.contains(&plot) {
+                continue;
+            }
+            let buyable = plot_blocked(plot, &grid, &colony, &progress).is_none();
+            let color = match (buyable, plot == hovered) {
+                (true, true) => Color::srgb(1.0, 0.95, 0.5),
+                (true, false) => Color::srgba(0.98, 0.82, 0.3, 0.8),
+                (false, _) => Color::srgba(0.6, 0.6, 0.6, 0.5),
+            };
+            let half = TILE_SIZE / 2.0;
+            gizmo_rect(&mut gizmos, plot.first_tile().center() - half + 4.0, plot.last_tile().center() + half - 4.0, 0.0, color);
+        }
+        let info = match plot_blocked(hovered, &grid, &colony, &progress) {
+            None => format!("Land kaufen: {:.0} Erde (vorhanden: {:.0}).", plot_price(&grid), colony.earth),
+            Some(reason) => reason,
+        };
+        if selection.0.as_ref() != Some(&info) {
+            selection.0 = Some(info);
+        }
         return;
     }
     let dragging = buttons.pressed(MouseButton::Left) && drag.start.is_some();

@@ -228,10 +228,16 @@ fn spawn_martens(
         2 => Vec2::new(along * half.x, -half.y),
         _ => Vec2::new(along * half.x, half.y),
     };
-    let start = Node::new(Layer::Surface, TilePos::from_world_clamped(position));
-    let Some(steps) = find_path(&grid, start, |node| node.layer == Layer::Underground) else {
+    // Von draußen kommt er bis an den Rand des eigenen Landes; von dort sucht er den Eingang.
+    let edge = Grid::positions()
+        .filter(|p| grid.on_border(*p))
+        .min_by(|a, b| a.center().distance(position).total_cmp(&b.center().distance(position)))
+        .unwrap_or(TilePos::from_world_clamped(position));
+    let start = Node::new(Layer::Surface, edge);
+    let Some(mut steps) = find_path(&grid, start, |node| node.layer == Layer::Underground) else {
         return;
     };
+    steps.insert(0, start);
     let marten = commands
         .spawn((Sky, CarryPoint::default(), Marten {
             hunt: Hunt::Approaching,

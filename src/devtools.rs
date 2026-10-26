@@ -24,6 +24,7 @@
 //! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
 //! - `menue`: nach zwei Sekunden das Pausenmenü öffnen
+//! - `landkauf`: das Werkzeug „Land kaufen“ mit 50 Erde wählen
 //! - `kapitel=N`: gleich mit Kapitel N beginnen
 //! - `kapitelwahl`: auf dem Titelbild die Kapitelwahl öffnen
 //! - `titel`: auf dem Titelbild bleiben
@@ -459,6 +460,8 @@ fn skip_intro(
     mut view: ResMut<ViewLayer>,
     mut clock: ResMut<DayClock>,
     mut progress: ResMut<Progress>,
+    mut tool: ResMut<Tool>,
+    mut colony: ResMut<Colony>,
     mut done: Local<(bool, bool)>,
 ) {
     if script.has("ziel") {
@@ -501,6 +504,10 @@ fn skip_intro(
     }
     if let Some(wisdom) = script.value("weisheit") {
         progress.wisdom = wisdom;
+    }
+    if script.has("landkauf") {
+        tool.kind = ToolKind::Land;
+        colony.earth = 50.0;
     }
     commands.run_system_cached(start_playing);
 }

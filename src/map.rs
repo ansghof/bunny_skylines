@@ -345,7 +345,50 @@ pub struct Grid {
     /// Solange ein Marder im Bau ist, sind alle Erdpfropfen zu.
     #[serde(skip)]
     pub plugs_closed: bool,
+    /// Die Grundstücke, die der Familie gehören; nur dort wird gegrast und gebaut.
+    #[serde(default = "Plot::all")]
+    pub owned: Vec<Plot>,
 }
+
+/// Seitenlänge eines Grundstücks in Feldern.
+pub const PLOT_SIZE: i32 = 10;
+const PLOTS_X: i32 = MAP_WIDTH / PLOT_SIZE;
+const PLOTS_Y: i32 = MAP_HEIGHT / PLOT_SIZE;
+
+/// Ein Grundstück der Karte, wie in Cities: Skylines: Man kauft es zum Land der Familie dazu.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Plot {
+    pub x: i32,
+    pub y: i32,
+}
+
+impl Plot {
+    pub fn of(p: TilePos) -> Self {
+        Self { x: p.x.div_euclid(PLOT_SIZE), y: p.y.div_euclid(PLOT_SIZE) }
+    }
+
+    pub fn all() -> Vec<Plot> {
+        (0..PLOTS_Y).flat_map(|y| (0..PLOTS_X).map(move |x| Plot { x, y })).collect()
+    }
+
+    /// Die zwei Grundstücke in der Mitte, auf denen jedes Kapitel beginnt.
+    pub fn starting() -> Vec<Plot> {
+        vec![Plot { x: 1, y: 1 }, Plot { x: 2, y: 1 }]
+    }
+
+    pub fn first_tile(self) -> TilePos {
+        TilePos::new(self.x * PLOT_SIZE, self.y * PLOT_SIZE)
+    }
+
+    pub fn last_tile(self) -> TilePos {
+        TilePos::new(self.x * PLOT_SIZE + PLOT_SIZE - 1, self.y * PLOT_SIZE + PLOT_SIZE - 1)
+    }
+
+    fn touches(self, other: Plot) -> bool {
+        (self.x - other.x).abs() + (self.y - other.y).abs() == 1
+    }
+}
+
 
 impl Grid {
     fn index(p: TilePos) -> usize {
@@ -375,6 +418,7 @@ impl Grid {
 
     pub fn walkable(&self, layer: Layer, p: TilePos) -> bool {
         p.in_bounds()
+            && self.owns(p)
             && match layer {
                 Layer::Surface => true,
                 Layer::Underground => {
@@ -386,6 +430,22 @@ impl Grid {
 
     /// Ob hier ein Gang hinpasst. Gibt sonst den Boden zurück, der für die Breite zu schwach ist:
     /// Ein offenes Quadrat darf nicht breiter werden, als sein lockerster Boden trägt.
+    /// Gehört das Feld der Familie?
+    pub fn owns(&self, p: TilePos) -> bool {
+        self.owned.contains(&Plot::of(p))
+    }
+
+    /// Ein Grundstück lässt sich kaufen, wenn es noch niemandem gehört und an eigenes Land grenzt.
+    pub fn can_buy(&self, plot: Plot) -> bool {
+        !self.owned.contains(&plot) && self.owned.iter().any(|o| o.touches(plot))
+    }
+
+    /// Liegt das Feld am Rand des eigenen Landes? Dort verschwinden Fortziehende.
+    pub fn on_border(&self, p: TilePos) -> bool {
+        self.owns(p)
+            && (!p.in_bounds() || p.neighbors().any(|q| !q.in_bounds() || !self.owns(q)))
+    }
+
     #[cfg(test)]
     pub fn too_wide(&self, p: TilePos) -> Option<Soil> {
         self.too_wide_with(p, 0)
@@ -504,6 +564,7 @@ impl Grid {
             underground: vec![UndergroundTile::default(); count],
             snow: 0.0,
             plugs_closed: false,
+            owned: Plot::starting(),
         };
         for p in Self::positions() {
             let tile = grid.surface_mut(p);
@@ -666,7 +727,7 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     if grid.snow > 0.0 {
         rgb = mix(rgb, [checker, checker, 1.0], grid.snow * 0.88);
     }
-    Color::srgb(rgb[0], rgb[1], rgb[2])
+    Color::srgb_from_array(unexplored_haze(grid, p, rgb))
 }
 
 /// Farbe eines Untergrund-Feldes: Erde, Gang je nach Tiefe, Aufträge und Kammern.
@@ -713,7 +774,16 @@ pub fn underground_color(grid: &Grid, p: TilePos) -> Color {
         let closed = if grid.plugs_closed { 0.85 } else { 0.55 };
         rgb = mix(rgb, [0.22, 0.14, 0.08], closed);
     }
-    Color::srgb(rgb[0], rgb[1], rgb[2])
+    Color::srgb_from_array(unexplored_haze(grid, p, rgb))
+}
+
+/// Land, das der Familie noch nicht gehört, ist blasser und dunkler, damit man die Grenze sieht.
+fn unexplored_haze(grid: &Grid, p: TilePos, rgb: [f32; 3]) -> [f32; 3] {
+    if grid.owns(p) {
+        rgb
+    } else {
+        mix(rgb, [0.36, 0.38, 0.36], 0.6)
+    }
 }
 
 fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
