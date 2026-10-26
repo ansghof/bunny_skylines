@@ -17,6 +17,8 @@
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
 //! - `speichern=S`: nach S Sekunden speichern; `laden`: nach einer Sekunde den Spielstand laden
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
+//! - `menue`: nach zwei Sekunden das Pausenmenü öffnen
+//! - `titel`: auf dem Titelbild bleiben
 //! - `intro`: die Einleitung des Kapitels offen lassen (sonst wird sie gleich geschlossen)
 //! - `ziel`: Ziele des Kapitels sofort erfüllen, damit der Siegbildschirm erscheint
 //! - `infos`: nach zwei Sekunden echt auf Schneeflocke klicken, damit das Infofeld aufgeht
@@ -47,6 +49,7 @@ use crate::behavior::{Activity, Reserved};
 use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit};
 use crate::inspect::{RABBIT_HEIGHT, pick_rabbit};
 use crate::overlay::MapOverlay;
+use crate::menu::{OpenMenu, TitleScreen, new_game};
 use crate::save::{load_game, save_game};
 use crate::scenario::{Chapter, Scenario, Stage, Target, start_playing};
 use crate::ground::{floor_y, to_world3};
@@ -341,8 +344,18 @@ static EASY_CHAPTER: Chapter = Chapter {
     targets: &[Target::Rabbits(2), Target::Food(5.0)],
 };
 
-fn save_and_load(script: Res<TestScript>, time: Res<Time<Real>>, mut commands: Commands, mut done: Local<(bool, bool)>) {
+fn save_and_load(
+    script: Res<TestScript>,
+    time: Res<Time<Real>>,
+    mut commands: Commands,
+    mut menu: ResMut<OpenMenu>,
+    mut done: Local<(bool, bool, bool)>,
+) {
     let now = time.elapsed_secs();
+    if !done.2 && script.has("menue") && now >= 2.0 {
+        done.2 = true;
+        menu.0 = true;
+    }
     if !done.0 && script.value("speichern").is_some_and(|at| now >= at) {
         done.0 = true;
         commands.run_system_cached(save_game);
@@ -354,13 +367,28 @@ fn save_and_load(script: Res<TestScript>, time: Res<Time<Real>>, mut commands: C
 }
 
 /// Testläufe sollen nicht an der Einleitung hängen bleiben.
-fn skip_intro(script: Res<TestScript>, mut scenario: ResMut<Scenario>, mut commands: Commands, mut done: Local<bool>) {
+fn skip_intro(
+    script: Res<TestScript>,
+    mut scenario: ResMut<Scenario>,
+    mut commands: Commands,
+    titles: Query<(), With<TitleScreen>>,
+    screens: Query<(), With<EndScreen>>,
+    mut done: Local<(bool, bool)>,
+) {
     if script.has("ziel") {
         scenario.chapter = &EASY_CHAPTER;
     }
-    if *done || script.has("intro") || scenario.stage != Stage::Intro {
+    // Erst das Titelbild überspringen (außer mit `titel`), dann die Einleitung (außer mit `intro`).
+    if !done.0 && !script.has("titel") {
+        done.0 = true;
+        commands.run_system_cached(new_game);
         return;
     }
+    let intro_open = titles.is_empty() && !screens.is_empty();
+    if done.1 || script.has("intro") || scenario.stage != Stage::Intro || !intro_open {
+        return;
+    }
+    let done = &mut done.1;
     *done = true;
     commands.run_system_cached(start_playing);
 }

@@ -16,7 +16,6 @@ pub struct ScenarioPlugin;
 impl Plugin for ScenarioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Scenario>()
-            .add_systems(Startup, show_intro)
             .add_systems(Update, check_goals);
     }
 }
@@ -122,8 +121,8 @@ impl Scenario {
     }
 }
 
-/// Zu Beginn: Wohin es geht und was zu tun ist. Das Spiel steht still, bis es losgeht.
-fn show_intro(mut commands: Commands, scenario: Res<Scenario>, mut time: ResMut<Time<Virtual>>) {
+/// Nach „Neues Spiel“: Wohin es geht und was zu tun ist. Das Spiel steht still, bis es losgeht.
+pub fn show_intro(mut commands: Commands, scenario: Res<Scenario>, mut time: ResMut<Time<Virtual>>) {
     if scenario.stage != Stage::Intro {
         return;
     }

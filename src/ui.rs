@@ -18,7 +18,7 @@ const HELP: &str = "Esc: Zeigen – Kaninchen anklicken, ohne zu bauen\n\
 Linke Maustaste ziehen: Bereich markieren\n\
 Mittlere Maustaste oder WASD: verschieben\n\
 Rechte Maustaste: drehen und neigen · Mausrad: Zoom\n\
-F5: speichern · F9: laden";
+F5: speichern · F9: laden · F10: Menü";
 
 pub struct UiPlugin;
 

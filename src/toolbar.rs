@@ -11,6 +11,7 @@ use crate::behavior::Priorities;
 use crate::colony::Messages;
 use crate::danger::{ALARM_COOLDOWN_SECONDS, AlarmButton};
 use crate::map::{Depth, Layer, ViewLayer};
+use crate::menu::OpenMenu;
 use crate::overlay::MapOverlay;
 use crate::progress::{Blocked, Branch, Progress, Tech};
 use crate::tools::{TOOLS, Tool, ToolKind, depth_available, locked_message, select};
@@ -62,6 +63,8 @@ pub(crate) enum Action {
     Research,
     /// Eine Übersichtskarte ein- oder ausschalten.
     Overlay(MapOverlay),
+    /// Das Pausenmenü öffnen.
+    Menu,
 }
 
 #[derive(Component)]
@@ -112,6 +115,7 @@ impl Action {
             Action::View(Layer::Surface) => "ansicht_oben",
             Action::View(Layer::Underground) => "ansicht_unten",
             Action::Research => "forschung",
+            Action::Menu => "menue",
             Action::Overlay(MapOverlay::Mood) => "karte_stimmung",
             Action::Overlay(_) => "karte_weide",
             Action::Speed(_) => return None,
@@ -168,6 +172,8 @@ impl Action {
             Action::Speed(None) => "Pause  [Leertaste]".into(),
             Action::Speed(Some(speed)) => format!("Tempo {speed}×  [{speed}]"),
             Action::View(layer) => format!("Ansicht: {}  [Tab]", layer.label()),
+            Action::Menu => "Menü  [F10]
+Pause, speichern, laden, neu beginnen oder beenden.".into(),
             Action::Overlay(overlay) => format!(
                 "Übersichtskarte: {}  [Q]
 {}",
@@ -229,7 +235,7 @@ fn spawn_toolbar(mut commands: Commands, asset_server: Res<AssetServer>) {
         ],
         vec![Action::View(Layer::Surface), Action::View(Layer::Underground)],
         vec![Action::Overlay(MapOverlay::Pasture), Action::Overlay(MapOverlay::Mood)],
-        vec![Action::Research],
+        vec![Action::Research, Action::Menu],
     ];
 
     let row = centered_row(&mut commands, 12.0);
@@ -381,6 +387,7 @@ struct ActionTargets<'w> {
     progress: Res<'w, Progress>,
     messages: ResMut<'w, Messages>,
     overlay: ResMut<'w, MapOverlay>,
+    menu: ResMut<'w, OpenMenu>,
 }
 
 impl ActionTargets<'_> {
@@ -411,6 +418,7 @@ impl ActionTargets<'_> {
             }
             Action::View(layer) => self.view.0 = layer,
             Action::Research => self.research.0 = !self.research.0,
+            Action::Menu => self.menu.0 = true,
             Action::Overlay(which) => {
                 self.overlay.toggle(which);
                 // Die Weide sieht man nur von oben.
@@ -459,6 +467,7 @@ fn highlight_buttons(
             Action::View(layer) => (view.0 == layer, false),
             Action::Research => (research.0, false),
             Action::Overlay(which) => (*overlay == which, false),
+            Action::Menu => (false, false),
         };
         let fill = match (hovered.0, dimmed) {
             (true, _) => BUTTON_HOVER,
