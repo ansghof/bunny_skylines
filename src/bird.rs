@@ -8,6 +8,7 @@ use bevy::prelude::*;
 
 use crate::behavior::{Activity, BehaviorSet, Fear, Path, Reserved, current_node, is_hidden, release, start_flight};
 use crate::camera::Orbit;
+use crate::audio::{Sound, Sounds};
 use crate::colony::{Messages, Rng};
 use crate::daynight::DayClock;
 use crate::danger::{Alarms, raise_alarm};
@@ -155,6 +156,7 @@ fn spawn_buzzards(
     mut spawner: ResMut<BuzzardSpawner>,
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
+    mut sounds: ResMut<Sounds>,
     buzzards: Query<(), With<Buzzard>>,
     rabbits: Query<(&Transform, &OnLayer), With<Rabbit>>,
 ) {
@@ -205,6 +207,7 @@ fn spawn_buzzards(
         MeshMaterial3d(assets.image.clone()),
         Transform::default(),
     ));
+    sounds.play(Sound::Buzzard);
     if spawner.warned {
         messages.push("Ein Bussard kreist über der Wiese!");
     } else {
@@ -220,6 +223,7 @@ fn fly(
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
     mut reserved: ResMut<Reserved>,
+    mut sounds: ResMut<Sounds>,
     mut buzzards: Query<(Entity, &mut Buzzard)>,
     mut rabbits: Query<
         (Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear),
@@ -252,6 +256,7 @@ fn fly(
                 match prey {
                     Some((target, _)) => {
                         bird.flight = Flight::Diving { target };
+                        sounds.play(Sound::Buzzard);
                         warn_neighbors(&grid, &mut reserved, &mut rng, &mut rabbits, target);
                     }
                     None => give_up_or_circle(&mut bird, &mut rng, &rabbits),
@@ -284,6 +289,7 @@ fn fly(
                     }
                     commands.entity(target).despawn();
                     messages.push(format!("{name} wurde vom Bussard geschnappt."));
+                    sounds.play(Sound::Caught);
                     bird.flight = Flight::Leaving;
                 }
             }

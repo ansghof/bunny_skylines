@@ -5,6 +5,7 @@
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
+use crate::audio::{Sound, Sounds};
 use crate::colony::Colony;
 use crate::daynight::DayClock;
 use crate::ending::{restart, spawn_button, spawn_overlay};
@@ -168,6 +169,7 @@ fn check_goals(
     mut time: ResMut<Time<Virtual>>,
     clock: Res<DayClock>,
     colony: Res<Colony>,
+    mut sounds: ResMut<Sounds>,
     rabbits: Query<(), With<Rabbit>>,
 ) {
     let count = rabbits.iter().count();
@@ -176,6 +178,7 @@ fn check_goals(
     }
     scenario.stage = Stage::Won;
     time.pause();
+    sounds.play(Sound::Victory);
     let chapter = scenario.chapter;
     let body = format!(
         "Die Familie Buddelberg hat sich an der {} eingelebt: {count} Kaninchen und {:.0} Futter im Vorrat, \

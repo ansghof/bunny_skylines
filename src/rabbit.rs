@@ -7,6 +7,7 @@ use bevy::prelude::*;
 
 use crate::behavior::{Activity, Carrying, DigTarget, Fear, Goal, Path, Reserved, path_to_edge, release};
 use crate::effects::{DirtAssets, throw_dirt};
+use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer};
 use crate::camera::{Orbit, figure_layer};
@@ -590,6 +591,7 @@ fn give_birth(
     asset_server: Res<AssetServer>,
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
+    mut sounds: ResMut<Sounds>,
     mut mothers: Query<(Entity, &Rabbit, &Fur, &OnLayer, &Transform, &mut Pregnant)>,
     everyone: Query<&Rabbit>,
     grid: Res<Grid>,
@@ -632,6 +634,7 @@ fn give_birth(
             names.push(name);
         }
         messages.push(format!("{} hat {count} Junge bekommen: {}.", mother.name, names.join(", ")));
+        sounds.play(Sound::Birth);
     }
 }
 

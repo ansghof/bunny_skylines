@@ -7,6 +7,7 @@ use bevy::prelude::*;
 
 use crate::bird::{BuzzardSpawner, Sky};
 use crate::behavior::{Priorities, Reserved};
+use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Messages};
 use crate::danger::AlarmButton;
 use crate::daynight::DayClock;
@@ -49,6 +50,7 @@ fn notice_extinction(
     clock: Res<DayClock>,
     mut chronicle: ResMut<Chronicle>,
     mut time: ResMut<Time<Virtual>>,
+    mut sounds: ResMut<Sounds>,
     rabbits: Query<(), With<Rabbit>>,
 ) {
     // Erst wenn es überhaupt einmal Kaninchen gab, sonst endet das Spiel vor dem ersten Bild.
@@ -57,6 +59,7 @@ fn notice_extinction(
     }
     chronicle.over = true;
     time.pause();
+    sounds.play(Sound::Extinct);
 
     let panel = spawn_overlay(
         &mut commands,
@@ -147,6 +150,7 @@ pub(crate) fn spawn_button<'a>(commands: &'a mut Commands, panel: Entity, label:
         ))
         .id();
     commands.spawn((Text::new(label), text_style(18.0), ChildOf(button)));
+    commands.entity(button).observe(|_: On<PointerClick>, mut sounds: ResMut<Sounds>| sounds.play(Sound::Click));
     commands.entity(button)
 }
 

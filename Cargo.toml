@@ -6,11 +6,11 @@ rust-version = "1.97"
 publish = false
 
 [workspace]
-members = ["tools/art_export"]
+members = ["tools/art_export", "tools/sound_gen"]
 
 [dependencies]
 # system_font_discovery: Die eingebaute Schrift hat keine Umlaute, also Systemschriften nutzen.
-bevy = { version = "0.20", features = ["file_watcher", "system_font_discovery"] }
+bevy = { version = "0.20", features = ["file_watcher", "system_font_discovery", "wav"] }
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
 

@@ -6,6 +6,7 @@ use std::f32::consts::TAU;
 use bevy::prelude::*;
 
 use crate::behavior::{Activity, BehaviorSet, Reserved, current_node, is_hidden, release};
+use crate::audio::{Sound, Sounds};
 use crate::colony::{Messages, Rng};
 use crate::daynight::{DayClock, figure_light};
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
@@ -99,6 +100,7 @@ fn spawn_foxes(
     mut spawner: ResMut<FoxSpawner>,
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
+    mut sounds: ResMut<Sounds>,
     foxes: Query<(), With<Fox>>,
     rabbits: Query<(), With<Rabbit>>,
 ) {
@@ -141,6 +143,7 @@ fn spawn_foxes(
         Visibility::default(),
     ));
     messages.push("Am Kartenrand raschelt es im Gebüsch …");
+    sounds.play(Sound::Fox);
 }
 
 fn hunt(
@@ -148,6 +151,7 @@ fn hunt(
     time: Res<Time>,
     mut messages: ResMut<Messages>,
     mut reserved: ResMut<Reserved>,
+    mut sounds: ResMut<Sounds>,
     grid: Res<Grid>,
     mut foxes: Query<(Entity, &mut Fox, &mut Transform)>,
     rabbits: Query<(Entity, &Rabbit, &Transform, &OnLayer, &Activity), Without<Fox>>,
@@ -198,6 +202,7 @@ fn hunt(
                         release(activity, &mut reserved);
                         commands.entity(rabbit).despawn();
                         messages.push(format!("{} wurde vom Fuchs erwischt.", prey.name));
+                        sounds.play(Sound::Caught);
                         fox.state = FoxState::Leaving;
                         (None, 0.0)
                     } else {

@@ -4,6 +4,7 @@
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 
+use crate::audio::{Sound, Sounds};
 use crate::camera::CursorWorld;
 use crate::colony::{Colony, Messages, cost};
 use crate::daynight::DayClock;
@@ -232,6 +233,7 @@ pub(crate) fn apply_drag(
     mut grid: ResMut<Grid>,
     mut colony: ResMut<Colony>,
     mut messages: ResMut<Messages>,
+    mut sounds: ResMut<Sounds>,
     clock: Res<DayClock>,
     toolbar: Query<&Hovered, With<Toolbar>>,
 ) {
@@ -375,6 +377,7 @@ pub(crate) fn apply_drag(
     if let Some(soil) = too_wide {
         messages.push(width_message(soil));
     }
+    sounds.play(Sound::Build);
     if short {
         let price = tool.kind.cost_label().unwrap_or_default();
         messages.push(format!("Für {} reicht es nicht ganz ({price}).", tool.kind.label()));

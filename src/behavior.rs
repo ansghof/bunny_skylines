@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::prelude::*;
 
+use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
 use crate::daynight::{DayClock, Season};
 use crate::map::{Chamber, Depth, Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TilePos};
@@ -633,6 +634,7 @@ fn work(
     mut rng: ResMut<Rng>,
     mut reserved: ResMut<Reserved>,
     mut progress: ResMut<Progress>,
+    mut sounds: ResMut<Sounds>,
     mut rabbits: Query<(
         &Rabbit,
         &Transform,
@@ -688,6 +690,7 @@ fn work(
                 }
                 let target = *target;
                 finish_digging(&mut grid, target);
+                sounds.play(Sound::Dig);
                 colony.earth += cost::EARTH_PER_TILE;
                 reserved.dig.remove(&target);
                 hunger.0 = (hunger.0 + 0.08).min(1.0);

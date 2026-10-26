@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 use crate::behavior::{Activity, BehaviorSet, Carrying, Fear, Path, Reserved, start_flight};
+use crate::audio::{Sound, Sounds};
 use crate::colony::Messages;
 use crate::ground::gizmo_circle;
 use crate::map::{Grid, Layer, TILE_SIZE};
@@ -139,6 +140,7 @@ fn alarm_button(
     mut button: ResMut<AlarmButton>,
     mut reserved: ResMut<Reserved>,
     mut messages: ResMut<Messages>,
+    mut sounds: ResMut<Sounds>,
     mut rabbits: FlightQuery,
 ) {
     button.cooldown = (button.cooldown - time.delta_secs()).max(0.0);
@@ -152,6 +154,7 @@ fn alarm_button(
     }
     button.cooldown = ALARM_COOLDOWN_SECONDS;
     messages.push("Alarm! Alle in den Bau!");
+    sounds.play(Sound::Alarm);
     for (transform, layer, mut activity, mut path, mut carrying, mut fear) in &mut rabbits {
         if start_flight(&grid, &mut reserved, transform, layer, &mut activity, &mut path, &mut fear) {
             // In der Eile bleibt getragenes Futter liegen.

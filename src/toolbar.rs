@@ -11,6 +11,7 @@ use crate::behavior::Priorities;
 use crate::colony::Messages;
 use crate::danger::{ALARM_COOLDOWN_SECONDS, AlarmButton};
 use crate::map::{Depth, Layer, ViewLayer};
+use crate::audio::{Sound, Sounds};
 use crate::menu::OpenMenu;
 use crate::overlay::MapOverlay;
 use crate::progress::{Blocked, Branch, Progress, Tech};
@@ -388,10 +389,12 @@ struct ActionTargets<'w> {
     messages: ResMut<'w, Messages>,
     overlay: ResMut<'w, MapOverlay>,
     menu: ResMut<'w, OpenMenu>,
+    sounds: ResMut<'w, Sounds>,
 }
 
 impl ActionTargets<'_> {
     fn perform(&mut self, action: Action) {
+        self.sounds.play(Sound::Click);
         if let Some(tech) = action.locked_by(&self.progress) {
             self.messages.push(locked_message(tech));
             return;
@@ -596,12 +599,18 @@ fn spawn_research_panel(mut commands: Commands) {
                     ChildOf(column),
                 ))
                 .observe(
-                    move |click: On<PointerClick>, mut progress: ResMut<Progress>, mut messages: ResMut<Messages>| {
+                    move |click: On<PointerClick>,
+                          mut progress: ResMut<Progress>,
+                          mut messages: ResMut<Messages>,
+                          mut sounds: ResMut<Sounds>| {
                         if click.button != PointerButton::Primary {
                             return;
                         }
                         if progress.research(tech) {
                             messages.push(format!("Erforscht: {}. {}", tech.label(), tech.description()));
+                            sounds.play(Sound::Research);
+                        } else {
+                            sounds.play(Sound::Click);
                         }
                     },
                 )

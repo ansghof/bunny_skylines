@@ -1,3 +1,4 @@
+mod audio;
 mod behavior;
 mod bird;
 mod camera;
@@ -76,6 +77,7 @@ fn main() {
             save::SavePlugin,
             overlay::OverlayPlugin,
             menu::MenuPlugin,
+            audio::AudioPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);
