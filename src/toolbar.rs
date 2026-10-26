@@ -15,7 +15,7 @@ use crate::audio::{Sound, Sounds};
 use crate::menu::OpenMenu;
 use crate::overlay::MapOverlay;
 use crate::progress::{Blocked, Branch, Progress, Tech};
-use crate::tools::{TOOLS, Tool, ToolKind, depth_available, locked_message, select};
+use crate::tools::{Lock, TOOLS, Tool, ToolKind, depth_available, locked_message, select};
 
 const BUTTON_SIZE: f32 = 46.0;
 const ICON_SIZE: f32 = 36.0;
@@ -107,6 +107,8 @@ impl Action {
             Action::Tool(ToolKind::Feature(Feature::SunSpot)) => "sonnenplatz",
             Action::Tool(ToolKind::Feature(Feature::Herbs)) => "kraeuter",
             Action::Tool(ToolKind::Feature(Feature::Playground)) => "spielwiese",
+            Action::Tool(ToolKind::Plug) => "erdpfropf",
+            Action::Tool(ToolKind::Watch) => "nachtwache",
             Action::Tool(ToolKind::Remove) => "entfernen",
             Action::Depth(Depth::Shallow) => "tiefe_flach",
             Action::Depth(Depth::Medium) => "tiefe_mittel",
@@ -133,14 +135,13 @@ impl Action {
         }
     }
 
-    /// Die Forschung, ohne die dieser Knopf noch gesperrt ist.
-    fn locked_by(self, progress: &Progress) -> Option<Tech> {
-        let tech = match self {
-            Action::Tool(kind) => kind.required_tech(),
-            Action::Depth(depth) if !depth_available(depth, progress) => Some(Tech::DeepTunnels),
+    /// Was diesem Knopf noch fehlt: eine Forschung oder eine Wachstumsstufe.
+    fn locked_by(self, progress: &Progress) -> Option<Lock> {
+        match self {
+            Action::Tool(kind) => kind.lock(progress),
+            Action::Depth(depth) if !depth_available(depth, progress) => Some(Lock::Tech(Tech::DeepTunnels)),
             _ => None,
-        }?;
-        (!progress.has(tech)).then_some(tech)
+        }
     }
 
     fn tooltip(self, alarm: &AlarmButton, progress: &Progress) -> String {
@@ -190,7 +191,8 @@ Pause, speichern, laden, neu beginnen oder beenden.".into(),
             ),
         };
         match self.locked_by(progress) {
-            Some(tech) => format!("{text}\nGesperrt: erst „{}“ erforschen.", tech.label()),
+            Some(Lock::Tech(tech)) => format!("{text}\nGesperrt: erst „{}“ erforschen.", tech.label()),
+            Some(Lock::Stage(stage)) => format!("{text}\nGesperrt: erst ab der Stufe „{}“.", stage.label()),
             None => text,
         }
     }
@@ -395,8 +397,8 @@ struct ActionTargets<'w> {
 impl ActionTargets<'_> {
     fn perform(&mut self, action: Action) {
         self.sounds.play(Sound::Click);
-        if let Some(tech) = action.locked_by(&self.progress) {
-            self.messages.push(locked_message(tech));
+        if let Some(lock) = action.locked_by(&self.progress) {
+            self.messages.push(locked_message(lock));
             return;
         }
         match action {

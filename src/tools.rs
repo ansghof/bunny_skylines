@@ -10,7 +10,7 @@ use crate::colony::{Colony, Messages, cost};
 use crate::daynight::DayClock;
 use crate::ground::gizmo_rect;
 use crate::map::{Chamber, Depth, Feature, Grid, Layer, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, tiles_between};
-use crate::progress::{Progress, Tech};
+use crate::progress::{Progress, Stage, Tech};
 use crate::toolbar::Toolbar;
 
 pub struct ToolsPlugin;
@@ -34,11 +34,22 @@ pub enum ToolKind {
     Post,
     Clover,
     Feature(Feature),
+    /// Erdpfropf im Gang, gegen den Marder.
+    Plug,
+    /// Platz für eine Nachtwache im Bau.
+    Watch,
     Remove,
 }
 
+/// Warum ein Werkzeug noch gesperrt ist.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Lock {
+    Tech(Tech),
+    Stage(Stage),
+}
+
 /// Alle Werkzeuge in der Reihenfolge der Werkzeugleiste, mit Taste und Tastenname.
-pub const TOOLS: [(ToolKind, KeyCode, &str); 15] = [
+pub const TOOLS: [(ToolKind, KeyCode, &str); 17] = [
     (ToolKind::Point, KeyCode::Escape, "Esc"),
     (ToolKind::Dig, KeyCode::KeyG, "G"),
     (ToolKind::Entrance, KeyCode::KeyE, "E"),
@@ -53,6 +64,8 @@ pub const TOOLS: [(ToolKind, KeyCode, &str); 15] = [
     (ToolKind::Clover, KeyCode::KeyK, "K"),
     (ToolKind::Feature(Feature::Herbs), KeyCode::KeyU, "U"),
     (ToolKind::Feature(Feature::Playground), KeyCode::KeyM, "M"),
+    (ToolKind::Watch, KeyCode::KeyI, "I"),
+    (ToolKind::Plug, KeyCode::KeyC, "C"),
     (ToolKind::Remove, KeyCode::KeyX, "X"),
 ];
 
@@ -66,6 +79,8 @@ impl ToolKind {
             ToolKind::Post => "Wachposten",
             ToolKind::Clover => "Kleefeld säen",
             ToolKind::Feature(feature) => feature.label(),
+            ToolKind::Plug => "Erdpfropf",
+            ToolKind::Watch => "Nachtwache",
             ToolKind::Remove => "Entfernen",
         }
     }
@@ -93,6 +108,14 @@ impl ToolKind {
             ToolKind::Feature(Feature::SunSpot) => "Kaninchen in der Nähe sonnen sich und werden zufriedener.",
             ToolKind::Feature(Feature::Herbs) => "Kräuter zum Fressen: Wer hier frisst, wird deutlich zufriedener.",
             ToolKind::Feature(Feature::Playground) => "Jedes Feld Spielwiese macht die ganze Familie etwas zufriedener.",
+            ToolKind::Plug => {
+                "Eine Stelle im Gang, die bei einem Marder sofort mit Erde verschlossen wird. \
+                 Was dahinter liegt, ist sicher – aber der Weg ist dann auch für die Kaninchen zu."
+            }
+            ToolKind::Watch => {
+                "Hier hält nachts ein Kaninchen Wache. Kommt ein Marder in den Bau, stampft es \
+                 und weckt alle in den verbundenen Gängen."
+            }
             ToolKind::Remove => "Aufträge, Kammern und Bauten an der Oberfläche entfernen.",
         }
     }
@@ -108,6 +131,8 @@ impl ToolKind {
             ToolKind::Feature(Feature::SunSpot) => Some((0.0, cost::SUN_SPOT_EARTH)),
             ToolKind::Feature(Feature::Herbs) => Some((cost::HERBS_FOOD, 0.0)),
             ToolKind::Feature(Feature::Playground) => Some((0.0, cost::PLAYGROUND_EARTH)),
+            ToolKind::Plug => Some((0.0, cost::PLUG_EARTH)),
+            ToolKind::Watch => Some((0.0, cost::WATCH_EARTH)),
             _ => None,
         }
     }
@@ -143,17 +168,38 @@ impl ToolKind {
         }
     }
 
+    /// Ab welcher Wachstumsstufe es das Werkzeug gibt; `None` = von Anfang an.
+    pub fn required_stage(self) -> Option<Stage> {
+        match self {
+            // Marder kommen erst zur Siedlung, und mit ihnen die Mittel gegen sie.
+            ToolKind::Plug | ToolKind::Watch => Some(Stage::Settlement),
+            _ => None,
+        }
+    }
+
+    /// Was dem Werkzeug noch fehlt, oder `None`, wenn es frei ist.
+    pub fn lock(self, progress: &Progress) -> Option<Lock> {
+        if let Some(tech) = self.required_tech().filter(|tech| !progress.has(*tech)) {
+            return Some(Lock::Tech(tech));
+        }
+        self.required_stage().filter(|stage| progress.stage < *stage).map(Lock::Stage)
+    }
+
     fn is_single(self) -> bool {
         matches!(
             self,
-            ToolKind::Entrance | ToolKind::Post | ToolKind::Feature(Feature::BoltHole | Feature::SunSpot)
+            ToolKind::Entrance
+                | ToolKind::Post
+                | ToolKind::Plug
+                | ToolKind::Watch
+                | ToolKind::Feature(Feature::BoltHole | Feature::SunSpot)
         )
     }
 
     /// Die Ansicht, in der das Werkzeug benutzt wird; `None` = beide.
     pub fn layer(self) -> Option<Layer> {
         match self {
-            ToolKind::Dig | ToolKind::Chamber(_) => Some(Layer::Underground),
+            ToolKind::Dig | ToolKind::Chamber(_) | ToolKind::Plug | ToolKind::Watch => Some(Layer::Underground),
             ToolKind::Entrance | ToolKind::Post | ToolKind::Clover | ToolKind::Feature(_) => Some(Layer::Surface),
             ToolKind::Point | ToolKind::Remove => None,
         }
@@ -174,8 +220,11 @@ pub fn select(kind: ToolKind, tool: &mut Tool, view: &mut ViewLayer) {
 }
 
 /// Meldung, wenn ein Werkzeug noch gesperrt ist.
-pub fn locked_message(tech: Tech) -> String {
-    format!("{} ist noch nicht erforscht. Öffne den Forschungsbaum mit T.", tech.label())
+pub fn locked_message(lock: Lock) -> String {
+    match lock {
+        Lock::Tech(tech) => format!("{} ist noch nicht erforscht. Öffne den Forschungsbaum mit T.", tech.label()),
+        Lock::Stage(stage) => format!("Das gibt es erst ab der Stufe „{}“.", stage.label()),
+    }
 }
 
 #[derive(Resource)]
@@ -204,8 +253,8 @@ fn select_tool(
     mut messages: ResMut<Messages>,
 ) {
     if let Some((kind, _, _)) = TOOLS.into_iter().find(|(_, key, _)| keys.just_pressed(*key)) {
-        match kind.required_tech().filter(|tech| !progress.has(*tech)) {
-            Some(tech) => messages.push(locked_message(tech)),
+        match kind.lock(&progress) {
+            Some(lock) => messages.push(locked_message(lock)),
             None => select(kind, &mut tool, &mut view),
         }
     }
@@ -258,8 +307,8 @@ pub(crate) fn apply_drag(
     if tool.kind.layer().is_some_and(|layer| layer != view.0) {
         return;
     }
-    if let Some(tech) = tool.kind.required_tech().filter(|tech| !progress.has(*tech)) {
-        messages.push(locked_message(tech));
+    if let Some(lock) = tool.kind.lock(&progress) {
+        messages.push(locked_message(lock));
         return;
     }
 
@@ -326,6 +375,28 @@ pub(crate) fn apply_drag(
                 }
                 tile.chamber = Some(chamber);
             }
+            ToolKind::Plug | ToolKind::Watch => {
+                let tile = grid.under(p);
+                // Ein Pfropf gehört in einen Gang, eine Wache in irgendein gegrabenes Feld.
+                let fits = tile.dug.is_some()
+                    && !tile.plug
+                    && !tile.watch
+                    && (tool.kind == ToolKind::Watch || (tile.chamber.is_none() && !grid.surface(p).entrance));
+                if !fits {
+                    continue;
+                }
+                let (food, earth) = tool.kind.price().unwrap_or_default();
+                if !colony.pay(food, earth) {
+                    short = true;
+                    continue;
+                }
+                let tile = grid.under_mut(p);
+                if tool.kind == ToolKind::Plug {
+                    tile.plug = true;
+                } else {
+                    tile.watch = true;
+                }
+            }
             ToolKind::Post | ToolKind::Clover | ToolKind::Feature(_) => {
                 let field = grid.surface_mut(p);
                 if !surface_free(field) {
@@ -357,6 +428,12 @@ pub(crate) fn apply_drag(
             ToolKind::Remove => {
                 let tile = grid.under_mut(p);
                 tile.planned = None;
+                if std::mem::take(&mut tile.plug) {
+                    colony.earth += cost::PLUG_EARTH;
+                }
+                if std::mem::take(&mut tile.watch) {
+                    colony.earth += cost::WATCH_EARTH;
+                }
                 if tile.chamber.take() == Some(Chamber::Sleeping) {
                     colony.food += cost::NEST_FOOD;
                 }

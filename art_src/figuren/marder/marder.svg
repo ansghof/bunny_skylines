@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80" viewBox="0 0 160 80">
+  <!-- Steinmarder von der Seite: langer Körper, buschiger Schwanz, heller Kehlfleck -->
+  <path d="M8 46 C4 34 10 22 22 24 C30 26 34 36 40 42 L36 50 C26 52 14 54 8 46 Z" fill="#5b3d26" stroke="#2c1c10" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M36 44 C48 30 96 28 118 36 C126 40 126 54 116 58 C92 64 56 64 40 58 C34 56 32 50 36 44 Z" fill="#6e4a2e" stroke="#2c1c10" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M46 58 L42 74 M58 60 L56 74 M100 60 L102 74 M110 58 L114 72" stroke="#2c1c10" stroke-width="6" stroke-linecap="round"/>
+  <path d="M112 38 C120 24 136 20 146 26 C156 30 158 40 152 44 C144 48 132 50 122 52 Z" fill="#6e4a2e" stroke="#2c1c10" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M118 46 C126 52 136 54 144 48 C138 58 124 60 116 56 Z" fill="#f2e6c8" stroke="#2c1c10" stroke-width="2"/>
+  <path d="M128 24 L130 14 L138 22 Z" fill="#6e4a2e" stroke="#2c1c10" stroke-width="2.5" stroke-linejoin="round"/>
+  <circle cx="144" cy="34" r="3" fill="#120a05"/>
+  <circle cx="156" cy="39" r="2.5" fill="#120a05"/>
+</svg>

@@ -16,8 +16,15 @@ use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
 /// Spielsekunden, bis ein Junges erwachsen ist.
 pub const ADULT_AGE: f32 = 150.0;
-/// So viel mehr Kaninchen als Schlafplätze dürfen es durch Nachwuchs werden.
-const OVERCROWDING: f32 = 1.1;
+/// Grundwahrscheinlichkeit pro Prüfung (alle 2 s), dass ein Weibchen trächtig wird.
+const PREGNANCY_CHANCE: f32 = 0.15;
+/// Jedes Kaninchen über den Schlafplätzen bremst die Fortpflanzung um so viel:
+/// 10 zu viele halbieren sie, 30 zu viele vierteln sie.
+const CROWDING_SLOWDOWN: f32 = 0.1;
+/// Mehr Kaninchen gibt es nie, auch nicht mit noch so vielen Nestern.
+pub const MAX_RABBITS: usize = 600;
+/// So groß kann ein Wurf höchstens werden.
+const MAX_LITTER: usize = 5;
 /// Lebensdauer in Spieljahren, von bis.
 const LIFESPAN_YEARS: (f32, f32) = (8.0, 9.5);
 /// Ab diesem Alter in Spieljahren gilt ein Kaninchen als alt.
@@ -566,21 +573,23 @@ fn start_pregnancies(
     if fathers.is_empty() {
         return;
     }
-    // Erwarteten Nachwuchs mitzählen. Es kommen bis zu 10 % mehr Junge, als Schlafplätze da sind:
+    // Erwarteten Nachwuchs mitzählen. Fehlen Schlafplätze, geht es trotzdem weiter, nur langsamer:
     // Wer keinen Platz findet, wird unglücklich, und es bleibt immer Druck, sich zu vergrößern.
-    let expected = all.iter().count() + pregnant.iter().count() * 3;
-    let room = (Colony::sleeping_places(&grid) as f32 * OVERCROWDING).ceil() as usize;
-    let mut free = room.saturating_sub(expected);
+    let mut expected = all.iter().count() + pregnant.iter().count() * 3;
+    let places = Colony::sleeping_places(&grid);
 
     for (entity, rabbit, hunger) in &candidates {
-        if free < 3 {
+        // Auch der größte Wurf darf die Höchstzahl nicht überschreiten.
+        if expected + MAX_LITTER > MAX_RABBITS {
             break;
         }
-        if rabbit.female && rabbit.is_adult() && hunger.0 < 0.6 && rng.chance(0.15) {
+        let crowded = expected.saturating_sub(places) as f32;
+        let chance = PREGNANCY_CHANCE / (1.0 + crowded * CROWDING_SLOWDOWN);
+        if rabbit.female && rabbit.is_adult() && hunger.0 < 0.6 && rng.chance(chance) {
             let father = fathers[rng.below(fathers.len())].to_string();
             commands.entity(entity).insert(Pregnant { left: PREGNANCY_SECONDS, father });
             messages.push(format!("{} erwartet Nachwuchs.", rabbit.name));
-            free -= 3;
+            expected += 3;
         }
     }
 }
@@ -830,6 +839,14 @@ fn animate(
             }
         }
     }
+}
+
+/// Ein zusätzliches erwachsenes Kaninchen, z. B. für Testläufe.
+#[cfg(debug_assertions)]
+pub fn spawn_extra(commands: &mut Commands, asset_server: &AssetServer, rng: &mut Rng, name: String, layer: Layer, position: Vec2) {
+    let female = rng.chance(0.5);
+    let fur = FUR_COLORS[rng.below(FUR_COLORS.len())];
+    commands.spawn(rabbit_bundle(asset_server, name, female, ADULT_AGE * 2.0, fur, layer, position, None, rng));
 }
 
 /// Ein Kaninchen, wie es im Spielstand steht. Was es gerade tut, wird nicht gespeichert:

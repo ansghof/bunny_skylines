@@ -33,7 +33,17 @@ pub fn neighbors(grid: &Grid, node: Node) -> impl Iterator<Item = Node> + '_ {
 
 /// Kürzester Weg zum nächsten Knoten, für den `is_goal` zutrifft.
 /// Der Weg enthält den Start nicht, aber das Ziel; ist der Start selbst das Ziel, ist er leer.
-pub fn find_path(grid: &Grid, start: Node, mut is_goal: impl FnMut(Node) -> bool) -> Option<Vec<Node>> {
+pub fn find_path(grid: &Grid, start: Node, is_goal: impl FnMut(Node) -> bool) -> Option<Vec<Node>> {
+    find_path_where(grid, start, |_| true, is_goal)
+}
+
+/// Wie `find_path`, betritt aber nur Knoten, für die `allowed` zutrifft, z. B. um einem Marder auszuweichen.
+pub fn find_path_where(
+    grid: &Grid,
+    start: Node,
+    allowed: impl Fn(Node) -> bool,
+    mut is_goal: impl FnMut(Node) -> bool,
+) -> Option<Vec<Node>> {
     let mut came_from: HashMap<Node, Node> = HashMap::new();
     let mut queue = VecDeque::from([start]);
     came_from.insert(start, start);
@@ -49,7 +59,7 @@ pub fn find_path(grid: &Grid, start: Node, mut is_goal: impl FnMut(Node) -> bool
             path.reverse();
             return Some(path);
         }
-        for next in neighbors(grid, node) {
+        for next in neighbors(grid, node).filter(|next| allowed(*next)) {
             if let Entry::Vacant(entry) = came_from.entry(next) {
                 entry.insert(node);
                 queue.push_back(next);

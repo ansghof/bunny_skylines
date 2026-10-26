@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="80" viewBox="0 0 128 80">
+  <!-- Ein schlaff herabhängendes Kaninchen, hell gemalt, damit das Spiel es in der Fellfarbe einfärbt -->
+  <path d="M20 40 C20 24 44 18 66 22 C88 26 104 32 106 44 C108 56 92 62 70 62 C46 62 20 56 20 40 Z" fill="#ececec" stroke="#4a3626" stroke-width="3"/>
+  <circle cx="16" cy="42" r="7" fill="#fafafa" stroke="#4a3626" stroke-width="2.5"/>
+  <path d="M38 58 C36 66 32 72 28 76 M84 60 C86 68 90 72 94 76" stroke="#4a3626" stroke-width="7" stroke-linecap="round"/>
+  <path d="M38 58 C36 66 32 72 28 76 M84 60 C86 68 90 72 94 76" stroke="#ececec" stroke-width="3.5" stroke-linecap="round"/>
+  <ellipse cx="108" cy="38" rx="15" ry="13" fill="#ececec" stroke="#4a3626" stroke-width="3"/>
+  <path d="M112 30 C118 40 120 56 116 70 C112 66 108 52 106 40 Z" fill="#ececec" stroke="#4a3626" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M102 26 C110 36 110 52 104 64 C100 58 98 44 98 32 Z" fill="#dedede" stroke="#4a3626" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M110 36 q4 3 8 0" fill="none" stroke="#2b1a0e" stroke-width="2.2" stroke-linecap="round"/>
+  <circle cx="122" cy="42" r="2" fill="#c98a8a"/>
+</svg>

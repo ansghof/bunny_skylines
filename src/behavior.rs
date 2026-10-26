@@ -9,9 +9,9 @@ use bevy::prelude::*;
 use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
 use crate::daynight::{DayClock, Season};
-use crate::map::{Chamber, Depth, Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TilePos};
+use crate::map::{Chamber, Depth, Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos};
 use crate::progress::{Progress, Tech};
-use crate::pathfinding::{Node, find_path};
+use crate::pathfinding::{Node, find_path, find_path_where};
 use crate::rabbit::{Hunger, Mood, Offset, OnLayer, Rabbit, z_for};
 
 const HUNGER_PER_SECOND: f32 = 0.012;
@@ -59,7 +59,7 @@ impl Plugin for BehaviorPlugin {
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BehaviorSet;
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub enum Activity {
     /// Wartet noch so viele Sekunden, dann entscheidet es neu.
     Idle(f32),
@@ -133,6 +133,15 @@ pub struct Reserved {
 }
 
 impl Reserved {
+    /// Ob schon jemand auf diesem Wachposten oder Nachtwachen-Platz ist oder dorthin unterwegs.
+    pub fn post_taken(&self, post: TilePos) -> bool {
+        self.posts.contains(&post)
+    }
+
+    pub fn take_post(&mut self, post: TilePos) {
+        self.posts.insert(post);
+    }
+
     fn free_bed(&mut self, bed: TilePos) {
         if let Some(count) = self.beds.get_mut(&bed) {
             *count = count.saturating_sub(1);
@@ -232,6 +241,52 @@ pub fn start_flight(
     *activity = Activity::Fleeing;
     fear.0 = FEAR_SECONDS;
     true
+}
+
+/// Flucht vor einer Gefahr im Bau: hinaus an die Oberfläche, ohne dicht an `danger` vorbeizukommen.
+/// Gibt `false` zurück, wenn es schon flüchtet oder kein Weg frei ist.
+pub fn flee_from(
+    grid: &Grid,
+    reserved: &mut Reserved,
+    transform: &Transform,
+    layer: &OnLayer,
+    activity: &mut Activity,
+    path: &mut Path,
+    fear: &mut Fear,
+    danger: Vec2,
+) -> bool {
+    let leaving = matches!(activity, Activity::Walking(Goal::Leave) | Activity::Gone);
+    if leaving || matches!(activity, Activity::Fleeing) {
+        return false;
+    }
+    let near_danger = |node: Node| node.layer == Layer::Underground && node.pos.center().distance(danger) < TILE_SIZE * 1.6;
+    let start = current_node(transform, layer);
+    let outside = find_path_where(grid, start, |node| !near_danger(node), |node| node.layer == Layer::Surface);
+    // Kein Ausgang frei: wenigstens in den Winkel, der am weitesten weg ist.
+    let Some(steps) = outside.or_else(|| farthest_corner(grid, start, danger, near_danger)) else {
+        return false;
+    };
+    release(activity, reserved);
+    path.0 = steps.into();
+    *activity = Activity::Fleeing;
+    fear.0 = FEAR_SECONDS;
+    true
+}
+
+/// Der Weg zum erreichbaren Gangfeld, das am weitesten von `danger` entfernt liegt.
+fn farthest_corner(grid: &Grid, start: Node, danger: Vec2, blocked: impl Fn(Node) -> bool) -> Option<Vec<Node>> {
+    let mut reachable = Vec::new();
+    find_path_where(grid, start, |node| !blocked(node) && node.layer == Layer::Underground, |node| {
+        reachable.push(node);
+        false
+    });
+    let goal = reachable
+        .into_iter()
+        .max_by(|a, b| a.pos.center().distance(danger).total_cmp(&b.pos.center().distance(danger)))?;
+    if goal == start {
+        return None;
+    }
+    find_path_where(grid, start, |node| !blocked(node) && node.layer == Layer::Underground, |node| node == goal)
 }
 
 /// Ein Fluchtloch an der Oberfläche versteckt ein Kaninchen vor dem Fuchs.
@@ -595,7 +650,8 @@ fn walk(
                 reserved.dig.remove(&target);
                 Activity::Idle(0.2)
             }
-            Goal::Guard(post) if grid.surface(post).post => Activity::Guarding {
+            // Wachposten oben oder Nachtwache unten.
+            Goal::Guard(post) if grid.surface(post).post || grid.under(post).watch => Activity::Guarding {
                 post,
                 left: GUARD_SHIFT_SECONDS,
             },
@@ -703,8 +759,11 @@ fn work(
                     colony.food -= 1.0;
                     hunger.0 = (hunger.0 - 0.6).max(0.0);
                 }
-                // Ist der Vorrat leer, beendet der Hunger die Schicht; Dunkelheit auch.
-                if *left > 0.0 && !clock.is_night() && hunger.0 <= HUNGRY && grid.surface(*post).post {
+                // Ist der Vorrat leer, beendet der Hunger die Schicht. Wachen oben gehen bei Dunkelheit
+                // schlafen, die Nachtwache unten bleibt bis zum Morgen.
+                let day_watch = !clock.is_night() && grid.surface(*post).post;
+                let night_watch = clock.is_night() && grid.under(*post).watch;
+                if *left > 0.0 && hunger.0 <= HUNGRY && (day_watch || night_watch) {
                     continue;
                 }
                 reserved.posts.remove(post);

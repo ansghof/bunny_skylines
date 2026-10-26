@@ -289,6 +289,12 @@ const WIDEST: i32 = 4;
 pub struct UndergroundTile {
     pub soil: Soil,
     pub dug: Option<Depth>,
+    /// Ein vorbereiteter Erdpfropf: Kommt ein Marder, wird der Gang hier verschlossen.
+    #[serde(default)]
+    pub plug: bool,
+    /// Ein Platz für die Nachtwache.
+    #[serde(default)]
+    pub watch: bool,
     /// Grabauftrag mit gewünschter Tiefe.
     pub planned: Option<Depth>,
     pub chamber: Option<Chamber>,
@@ -300,6 +306,9 @@ pub struct Grid {
     underground: Vec<UndergroundTile>,
     /// Schneedecke auf der ganzen Wiese, 0 bis 1.
     pub snow: f32,
+    /// Solange ein Marder im Bau ist, sind alle Erdpfropfen zu.
+    #[serde(skip)]
+    pub plugs_closed: bool,
 }
 
 impl Grid {
@@ -332,7 +341,10 @@ impl Grid {
         p.in_bounds()
             && match layer {
                 Layer::Surface => true,
-                Layer::Underground => self.under(p).dug.is_some(),
+                Layer::Underground => {
+                    let tile = self.under(p);
+                    tile.dug.is_some() && !(tile.plug && self.plugs_closed)
+                }
             }
     }
 
@@ -373,6 +385,7 @@ impl Grid {
             surface: vec![SurfaceTile::default(); count],
             underground: vec![UndergroundTile::default(); count],
             snow: 0.0,
+            plugs_closed: false,
         };
         for p in Self::positions() {
             let tile = grid.surface_mut(p);
@@ -555,6 +568,14 @@ pub fn underground_color(grid: &Grid, p: TilePos) -> Color {
     }
     if grid.surface(p).entrance {
         rgb = mix(rgb, [0.95, 0.90, 0.70], 0.45);
+    }
+    if tile.watch {
+        rgb = mix(rgb, [0.55, 0.62, 0.85], 0.4);
+    }
+    if tile.plug {
+        // Offen nur ein dunkler Erdwall, verschlossen fast schwarz.
+        let closed = if grid.plugs_closed { 0.85 } else { 0.55 };
+        rgb = mix(rgb, [0.22, 0.14, 0.08], closed);
     }
     Color::srgb(rgb[0], rgb[1], rgb[2])
 }

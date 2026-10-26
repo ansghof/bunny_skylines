@@ -10,8 +10,10 @@ use crate::audio::{Sound, Sounds};
 use crate::colony::{Messages, Rng};
 use crate::daynight::{DayClock, figure_light};
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
-use crate::rabbit::{OnLayer, Rabbit, z_for};
+use crate::rabbit::{Fur, OnLayer, Rabbit, z_for};
 use crate::camera::Orbit;
+use crate::carry::{CarryPoint, carry_off};
+use crate::ground::to_world3;
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
 const RIG_PATH: &str = "figuren/fuchs/fuchs.rig.ron";
@@ -37,7 +39,7 @@ impl Plugin for PredatorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FoxSpawner>()
             .add_systems(Update, (spawn_foxes, hunt).chain().after(BehaviorSet))
-            .add_systems(Update, animate_foxes.after(hunt));
+            .add_systems(Update, (animate_foxes, fox_carry_point).after(hunt));
         #[cfg(debug_assertions)]
         app.add_systems(Update, debug_summon_fox.before(spawn_foxes));
     }
@@ -79,6 +81,13 @@ impl Fox {
 #[derive(Resource)]
 pub struct FoxSpawner {
     next: f32,
+}
+
+impl FoxSpawner {
+    /// Gleich einen Fuchs schicken.
+    pub fn summon(&mut self) {
+        self.next = 0.0;
+    }
 }
 
 impl Default for FoxSpawner {
@@ -139,6 +148,7 @@ fn spawn_foxes(
             rig: asset_server.load(RIG_PATH),
             folder: RIG_FOLDER,
         },
+        CarryPoint::default(),
         Transform::from_translation(position.extend(z_for(position))),
         Visibility::default(),
     ));
@@ -154,7 +164,7 @@ fn hunt(
     mut sounds: ResMut<Sounds>,
     grid: Res<Grid>,
     mut foxes: Query<(Entity, &mut Fox, &mut Transform)>,
-    rabbits: Query<(Entity, &Rabbit, &Transform, &OnLayer, &Activity), Without<Fox>>,
+    rabbits: Query<(Entity, &Rabbit, &Transform, &OnLayer, &Activity, &Fur), Without<Fox>>,
 ) {
     let dt = time.delta_secs();
     for (fox_entity, mut fox, mut transform) in &mut foxes {
@@ -166,8 +176,8 @@ fn hunt(
 
         let nearest_outside = rabbits
             .iter()
-            .filter(|(_, _, t, layer, _)| catchable(&grid, t, layer))
-            .map(|(entity, _, t, _, _)| (entity, t.translation.truncate()))
+            .filter(|(_, _, t, layer, _, _)| catchable(&grid, t, layer))
+            .map(|(entity, _, t, _, _, _)| (entity, t.translation.truncate()))
             .min_by(|a, b| a.1.distance(position).total_cmp(&b.1.distance(position)));
 
         let (target, speed) = match fox.state {
@@ -196,11 +206,12 @@ fn hunt(
                 }
             },
             FoxState::Chasing(rabbit) => match rabbits.get(rabbit) {
-                Ok((_, prey, at, layer, activity)) if catchable(&grid, at, layer) => {
+                Ok((_, prey, at, layer, activity, fur)) if catchable(&grid, at, layer) => {
                     let at = at.translation.truncate();
                     if at.distance(position) < CATCH_DISTANCE {
                         release(activity, &mut reserved);
                         commands.entity(rabbit).despawn();
+                        carry_off(&mut commands, fox_entity, fur.0);
                         messages.push(format!("{} wurde vom Fuchs erwischt.", prey.name));
                         sounds.play(Sound::Caught);
                         fox.state = FoxState::Leaving;
@@ -236,6 +247,21 @@ fn hunt(
         };
         let next = position + fox.velocity * dt;
         transform.translation = next.extend(z_for(next));
+    }
+}
+
+/// Die Beute hängt dem Fuchs vorn aus dem Maul.
+fn fox_carry_point(orbit: Res<Orbit>, view: Res<ViewLayer>, mut foxes: Query<(&Fox, &Transform, &mut CarryPoint)>) {
+    let right = to_world3(orbit.screen_right(), 0.0);
+    for (fox, transform, mut point) in &mut foxes {
+        let sideways = fox.velocity.dot(orbit.screen_right());
+        if sideways.abs() > 0.1 {
+            point.facing = sideways.signum();
+        } else if point.facing == 0.0 {
+            point.facing = 1.0;
+        }
+        point.at = to_world3(transform.translation.truncate(), 38.0) + right * point.facing * 36.0;
+        point.visible = view.0 == Layer::Surface;
     }
 }
 

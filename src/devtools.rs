@@ -16,6 +16,11 @@
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
 //! - `speichern=S`: nach S Sekunden speichern; `laden`: nach einer Sekunde den Spielstand laden
+//! - `familie=N`: so viele erwachsene Kaninchen zusätzlich in der Schlafkammer
+//! - `fangbild` oder `fangbild=S`: 0,8 s (oder S s) nach dem ersten Fang ein Bild machen
+//! - `fuchs`: gleich einen Fuchs schicken
+//! - `marder`: in der nächsten Nacht sofort einen Marder schicken (mit `nacht` gleich)
+//! - `wachen`: Nachtwache im Startgang einrichten; `pfropf`: Erdpfropf im Startgang
 //! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
 //! - `menue`: nach zwei Sekunden das Pausenmenü öffnen
@@ -39,7 +44,7 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
 use crate::camera::{CursorWorld, Orbit, update_cursor};
-use crate::colony::Colony;
+use crate::colony::{Colony, Messages, Rng};
 use crate::daynight::{DayClock, Season};
 use crate::ending::{EndScreen, restart};
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer, tiles_between};
@@ -47,10 +52,12 @@ use crate::progress::Progress;
 use crate::toolbar::{Action, ResearchOpen, Tooltip};
 use crate::tools::{Tool, ToolKind, apply_drag};
 use crate::behavior::{Activity, Reserved};
-use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit};
+use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit, spawn_extra};
 use crate::inspect::{RABBIT_HEIGHT, pick_rabbit};
 use crate::overlay::MapOverlay;
 use crate::bird::BuzzardSpawner;
+use crate::marten::MartenSpawner;
+use crate::predator::FoxSpawner;
 use crate::menu::{OpenMenu, TitleScreen, new_game};
 use crate::save::{load_game, save_game};
 use crate::scenario::{Chapter, Scenario, Stage, Target, start_playing};
@@ -77,6 +84,8 @@ impl Plugin for DevToolsPlugin {
             .add_systems(Update, fake_press.before(apply_drag))
             .add_systems(Update, click_rabbit.before(pick_rabbit))
             .add_systems(Update, skip_intro)
+            .add_systems(Update, log_messages)
+            .add_systems(Startup, extra_family.after(prepare))
             .add_systems(Update, save_and_load)
             .add_systems(Update, take_shot);
     }
@@ -110,6 +119,8 @@ fn prepare(
     mut research: ResMut<ResearchOpen>,
     mut overlay: ResMut<MapOverlay>,
     mut buzzards: ResMut<BuzzardSpawner>,
+    mut martens: ResMut<MartenSpawner>,
+    mut foxes: ResMut<FoxSpawner>,
 ) {
     if script.has("unten") {
         view.0 = Layer::Underground;
@@ -125,6 +136,12 @@ fn prepare(
     }
     if let Some(degrees) = script.value("neigung") {
         orbit.pitch = degrees.to_radians();
+    }
+    if script.has("wachen") {
+        grid.under_mut(TilePos::new(21, 15)).watch = true;
+    }
+    if script.has("pfropf") {
+        grid.under_mut(TilePos::new(21, 15)).plug = true;
     }
     if script.has("vorrat") {
         for x in [21, 22] {
@@ -179,6 +196,12 @@ fn prepare(
     }
     if script.has("bussard") {
         buzzards.summon();
+    }
+    if script.has("fuchs") {
+        foxes.summon();
+    }
+    if script.has("marder") {
+        martens.summon();
     }
     if script.has("karte_weide") {
         *overlay = MapOverlay::Pasture;
@@ -369,6 +392,50 @@ fn save_and_load(
     if !done.1 && script.has("laden") && now >= 1.0 {
         done.1 = true;
         commands.run_system_cached(load_game);
+    }
+}
+
+/// `familie=N`: so viele erwachsene Kaninchen zusätzlich in der Schlafkammer.
+fn extra_family(script: Res<TestScript>, mut commands: Commands, asset_server: Res<AssetServer>, mut rng: ResMut<Rng>) {
+    let Some(count) = script.value("familie") else {
+        return;
+    };
+    for i in 0..count as usize {
+        let tile = TilePos::new(23 + (i % 2) as i32, 14 + (i / 2 % 3) as i32);
+        spawn_extra(&mut commands, &asset_server, &mut rng, format!("Test {}", i + 1), Layer::Underground, tile.center());
+    }
+}
+
+/// Jede neue Meldung auch ins Protokoll, damit Testläufe nachlesbar sind.
+fn log_messages(
+    mut commands: Commands,
+    script: Res<TestScript>,
+    time: Res<Time<Real>>,
+    messages: Res<Messages>,
+    mut seen: Local<Option<String>>,
+    mut caught_at: Local<Option<f32>>,
+) {
+    // `fangbild`: kurz nach dem ersten Fang ein Bild, um die weggetragene Beute zu sehen.
+    if let Some(at) = *caught_at
+        && time.elapsed_secs() > at + script.value("fangbild").unwrap_or(0.8)
+    {
+        *caught_at = Some(f32::INFINITY);
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(SHOT_PATH.to_string()));
+    }
+    if !messages.is_changed() {
+        return;
+    }
+    // Neue Meldungen stehen vorn; bis zur zuletzt gesehenen alles protokollieren.
+    let fresh: Vec<&String> = messages.0.iter().take_while(|m| Some(*m) != seen.as_ref()).collect();
+    for message in fresh.iter().rev() {
+        info!("Meldung: {message}");
+        let wanted = script.has("fangbild") || script.value("fangbild").is_some();
+        if wanted && caught_at.is_none() && message.contains(" wurde vom ") {
+            *caught_at = Some(time.elapsed_secs());
+        }
+    }
+    if let Some(first) = messages.0.front() {
+        *seen = Some(first.clone());
     }
 }
 

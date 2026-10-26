@@ -2,6 +2,7 @@ mod audio;
 mod behavior;
 mod bird;
 mod camera;
+mod carry;
 mod colony;
 mod danger;
 mod daynight;
@@ -13,6 +14,7 @@ mod furnishing;
 mod ground;
 mod inspect;
 mod map;
+mod marten;
 mod menu;
 mod overlay;
 mod pathfinding;
@@ -62,6 +64,8 @@ fn main() {
             daynight::DayNightPlugin,
             predator::PredatorPlugin,
             bird::BirdPlugin,
+            marten::MartenPlugin,
+            carry::CarryPlugin,
             danger::DangerPlugin,
         ))
         // Darstellung und Bedienung

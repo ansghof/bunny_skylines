@@ -13,6 +13,10 @@ pub const FOOD_PER_STORAGE_TILE: f32 = 10.0;
 
 /// Was das Bauen kostet. Rohstoffe sind die Währung: Futter (Gras, auch fürs Nest) und Erde.
 pub mod cost {
+    /// Ein Erdpfropf braucht Erde zum Verschließen.
+    pub const PLUG_EARTH: f32 = 2.0;
+    /// Ein Platz für die Nachtwache.
+    pub const WATCH_EARTH: f32 = 1.0;
     /// Ein Wachposten ist ein Erdhügel.
     pub const POST_EARTH: f32 = 5.0;
     /// Ein Nest pro Feld Schlafkammer, aus eingetragenem Gras.

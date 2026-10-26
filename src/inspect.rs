@@ -332,7 +332,7 @@ fn thought(
     }
     match activity {
         Activity::Digging { .. } => return "Buddeln macht Spaß!",
-        Activity::Guarding { .. } => return "Ich passe auf, dass kein Fuchs kommt.",
+        Activity::Guarding { .. } => return "Ich halte Wache. Niemand schleicht sich hier an!",
         Activity::Gathering { .. } | Activity::Walking(Goal::Store(_)) => return "Für den Winter muss der Vorrat voll sein.",
         _ => {}
     }

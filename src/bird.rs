@@ -8,6 +8,7 @@ use bevy::prelude::*;
 
 use crate::behavior::{Activity, BehaviorSet, Fear, Path, Reserved, current_node, is_hidden, release, start_flight};
 use crate::camera::Orbit;
+use crate::carry::{CarryPoint, carry_off};
 use crate::audio::{Sound, Sounds};
 use crate::colony::{Messages, Rng};
 use crate::daynight::DayClock;
@@ -15,7 +16,7 @@ use crate::danger::{Alarms, raise_alarm};
 use crate::ground::to_world3;
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, ViewLayer};
 use crate::progress::{Progress, Stage};
-use crate::rabbit::{OnLayer, Rabbit, Stomping};
+use crate::rabbit::{Fur, OnLayer, Rabbit, Stomping};
 
 const IMAGE: &str = "figuren/bussard/bussard.png";
 /// Größe des Vogels in der Welt.
@@ -70,7 +71,7 @@ enum Flight {
     Leaving,
 }
 
-/// Alles, was zum Bussard gehört, auch Bild und Schatten; wird beim Neubeginn weggeräumt.
+/// Feinde mit allem, was zu ihnen gehört (Bussard, Marder und ihre Bilder); wird beim Neubeginn weggeräumt.
 #[derive(Component)]
 pub struct Sky;
 
@@ -189,6 +190,7 @@ fn spawn_buzzards(
     let buzzard = commands
         .spawn((
             Sky,
+            CarryPoint::default(),
             Buzzard {
                 flight: Flight::Circling { left: rng.range(CIRCLING_SECONDS.0, CIRCLING_SECONDS.1) },
                 position,
@@ -226,7 +228,7 @@ fn fly(
     mut sounds: ResMut<Sounds>,
     mut buzzards: Query<(Entity, &mut Buzzard)>,
     mut rabbits: Query<
-        (Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear),
+        (Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear, &Fur),
         Without<Buzzard>,
     >,
     images: Query<(Entity, &BuzzardImage)>,
@@ -263,7 +265,7 @@ fn fly(
                 }
             }
             Flight::Diving { target } => {
-                let Ok((_, prey, at, layer, ..)) = rabbits.get(target) else {
+                let Ok((_, prey, at, layer, .., fur)) = rabbits.get(target) else {
                     give_up_or_circle(&mut bird, &mut rng, &rabbits);
                     continue;
                 };
@@ -284,10 +286,12 @@ fn fly(
                     give_up_or_circle(&mut bird, &mut rng, &rabbits);
                 } else {
                     let name = prey.name.clone();
+                    let fur = fur.0;
                     if let Ok((_, _, _, _, activity, ..)) = rabbits.get(target) {
                         release(activity, &mut reserved);
                     }
                     commands.entity(target).despawn();
+                    carry_off(&mut commands, entity, fur);
                     messages.push(format!("{name} wurde vom Bussard geschnappt."));
                     sounds.play(Sound::Caught);
                     bird.flight = Flight::Leaving;
@@ -316,14 +320,14 @@ fn warn_neighbors(
     grid: &Grid,
     reserved: &mut Reserved,
     rng: &mut Rng,
-    rabbits: &mut Query<(Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear), Without<Buzzard>>,
+    rabbits: &mut Query<(Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear, &Fur), Without<Buzzard>>,
     target: Entity,
 ) {
     let Ok((_, _, aim, ..)) = rabbits.get(target) else {
         return;
     };
     let aim = aim.translation.truncate();
-    for (_, _, transform, layer, mut activity, mut path, mut fear) in rabbits.iter_mut() {
+    for (_, _, transform, layer, mut activity, mut path, mut fear, _) in rabbits.iter_mut() {
         if transform.translation.truncate().distance(aim) < NOTICE_RADIUS && rng.chance(NOTICE_CHANCE) {
             start_flight(grid, reserved, transform, layer, &mut activity, &mut path, &mut fear);
         }
@@ -334,7 +338,7 @@ fn warn_neighbors(
 fn give_up_or_circle(
     bird: &mut Buzzard,
     rng: &mut Rng,
-    rabbits: &Query<(Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear), Without<Buzzard>>,
+    rabbits: &Query<(Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear, &Fur), Without<Buzzard>>,
 ) {
     bird.tries += 1;
     if bird.tries >= MAX_TRIES {
@@ -381,15 +385,19 @@ fn show_buzzards(
     time: Res<Time>,
     orbit: Res<Orbit>,
     view: Res<ViewLayer>,
-    buzzards: Query<&Buzzard>,
+    mut buzzards: Query<(&Buzzard, &mut CarryPoint)>,
     mut images: Query<(&BuzzardImage, &mut Transform, &mut Visibility)>,
 ) {
     let above = view.0 == Layer::Surface;
     let visibility = if above { Visibility::Inherited } else { Visibility::Hidden };
     for (image, mut transform, mut shown) in &mut images {
-        let Ok(bird) = buzzards.get(image.0) else {
+        let Ok((bird, mut point)) = buzzards.get_mut(image.0) else {
             continue;
         };
+        // Die Beute hängt in den Fängen unter ihm.
+        point.at = to_world3(bird.position, bird.height + 4.0);
+        point.facing = 1.0;
+        point.visible = above;
         // Im Sturzflug sind die Flügel angelegt, sonst schlagen sie gemächlich.
         let diving = matches!(bird.flight, Flight::Diving { .. });
         let wings = if diving { 0.55 } else { 1.0 + 0.06 * (time.elapsed_secs() * 3.0).sin() };

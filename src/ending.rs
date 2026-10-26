@@ -6,6 +6,7 @@ use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
 use crate::bird::{BuzzardSpawner, Sky};
+use crate::marten::MartenSpawner;
 use crate::behavior::{Priorities, Reserved};
 use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Messages};
@@ -165,6 +166,7 @@ pub(crate) fn clear_world(world: &mut World) {
     world.insert_resource(Reserved::default());
     world.insert_resource(FoxSpawner::default());
     world.insert_resource(BuzzardSpawner::default());
+    world.insert_resource(MartenSpawner::default());
     world.insert_resource(AlarmButton::default());
     world.insert_resource(Chronicle::default());
     world.resource_mut::<Messages>().0.clear();
