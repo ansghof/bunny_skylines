@@ -5,7 +5,7 @@ use std::f32::consts::{PI, TAU};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
-use crate::behavior::{Activity, Carrying, DigTarget, Fear, Path, Reserved, release};
+use crate::behavior::{Activity, Carrying, DigTarget, Fear, Goal, Path, Reserved, path_to_edge, release};
 use crate::effects::{DirtAssets, throw_dirt};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Grid, Layer, TilePos, ViewLayer};
@@ -21,6 +21,16 @@ const LIFESPAN_YEARS: (f32, f32) = (8.0, 9.5);
 const OLD_AGE_YEARS: f32 = 6.0;
 /// So lange hält ein völlig ausgehungertes Kaninchen durch, in Spielsekunden.
 const STARVE_SECONDS: f32 = 60.0;
+/// So zufrieden ist ein Kaninchen, wenn alles stimmt.
+const CONTENT: f32 = 0.8;
+/// Darunter zeigt es eine Regenwolke.
+const UNHAPPY: f32 = 0.35;
+/// Darunter denkt es ans Auswandern …
+const LEAVING: f32 = 0.25;
+/// … und tut es nach so vielen Spielsekunden.
+const LEAVE_AFTER_SECONDS: f32 = 45.0;
+/// So viele Sekunden braucht die Stimmung ungefähr, um sich auf eine neue Lage einzustellen.
+const MOOD_SECONDS: f32 = 30.0;
 /// Ab diesem Hunger zeigt ein Kaninchen eine Gedankenblase.
 pub const SHOW_HUNGER: f32 = 0.8;
 /// Gedankenblasen sind in vierfacher Spielgröße gemalt.
@@ -63,7 +73,7 @@ impl Plugin for RabbitPlugin {
             .add_systems(
             Update,
             (
-                (grow_up, die).chain(),
+                (grow_up, die, update_mood, emigrate, depart).chain(),
                 start_pregnancies,
                 give_birth,
                 tick_birth_cooldown,
@@ -123,6 +133,21 @@ pub struct Hunger(pub f32);
 #[derive(Component)]
 pub struct OnLayer(pub Layer);
 
+/// Stimmung 0 bis 1. Hunger, Angst und kein eigenes Nest drücken sie;
+/// wer lange unglücklich ist, zieht fort.
+#[derive(Component)]
+pub struct Mood {
+    pub value: f32,
+    /// Wie lange die Stimmung schon unter der Grenze zum Auswandern liegt.
+    gloomy_for: f32,
+}
+
+impl Mood {
+    pub fn is_unhappy(&self) -> bool {
+        self.value < UNHAPPY
+    }
+}
+
 /// Kleiner Versatz zur Feldmitte, damit nicht alle Kaninchen exakt aufeinander sitzen.
 #[derive(Component)]
 pub struct Offset(pub Vec2);
@@ -170,6 +195,10 @@ fn rabbit_bundle(
             Fur(fur),
             Hunger(rng.range(0.1, 0.3)),
             Fear::default(),
+            Mood {
+                value: CONTENT,
+                gloomy_for: 0.0,
+            },
             OnLayer(layer),
             Offset(Vec2::new(rng.range(-20.0, 20.0), rng.range(-18.0, 18.0))),
         ),
@@ -234,6 +263,7 @@ struct HungerIcons {
     mesh: Handle<Mesh>,
     hungry: Handle<StandardMaterial>,
     starving: Handle<StandardMaterial>,
+    unhappy: Handle<StandardMaterial>,
 }
 
 /// Die Gedankenblase eines Kaninchens.
@@ -262,10 +292,12 @@ fn prepare_hunger_icons(
     };
     let hungry = icon("hunger.png");
     let starving = icon("hungersnot.png");
+    let unhappy = icon("unzufrieden.png");
     commands.insert_resource(HungerIcons {
         mesh: meshes.add(Mesh::from(Rectangle::new(64.0, 72.0)).translated_by(Vec3::new(0.0, 36.0, 0.0))),
         hungry,
         starving,
+        unhappy,
     });
 }
 
@@ -276,13 +308,13 @@ fn show_hunger(
     view: Res<ViewLayer>,
     orbit: Res<Orbit>,
     icons: Res<HungerIcons>,
-    rabbits: Query<(Entity, &Rabbit, &Hunger, &OnLayer, &Anim, &AvatarLink, Option<&HungerIconLink>)>,
+    rabbits: Query<(Entity, &Rabbit, &Hunger, &Mood, &OnLayer, &Anim, &AvatarLink, Option<&HungerIconLink>)>,
     mut bubbles: Query<
         (&mut Transform, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
         With<HungerIcon>,
     >,
 ) {
-    for (entity, rabbit, hunger, layer, anim, avatar, link) in &rabbits {
+    for (entity, rabbit, hunger, mood, layer, anim, avatar, link) in &rabbits {
         let Some(link) = link else {
             let bubble = commands
                 .spawn((
@@ -305,7 +337,9 @@ fn show_hunger(
             continue;
         };
 
-        let show = hunger.0 >= SHOW_HUNGER && layer.0 == view.0;
+        // Hunger geht vor; sonst zeigt eine Regenwolke, wer unglücklich ist.
+        let hungry = hunger.0 >= SHOW_HUNGER;
+        let show = (hungry || mood.is_unhappy()) && layer.0 == view.0;
         let wanted = if show { Visibility::Inherited } else { Visibility::Hidden };
         if *visibility != wanted {
             *visibility = wanted;
@@ -315,7 +349,11 @@ fn show_hunger(
         }
 
         let starving = rabbit.is_starving();
-        let image = if starving { &icons.starving } else { &icons.hungry };
+        let image = match (hungry, starving) {
+            (_, true) => &icons.starving,
+            (true, false) => &icons.hungry,
+            (false, _) => &icons.unhappy,
+        };
         if material.0 != *image {
             material.0 = image.clone();
         }
@@ -332,6 +370,73 @@ fn show_hunger(
             rotation: orbit.billboard(),
             scale: Vec3::splat(ICON_SCALE * pulse),
         };
+    }
+}
+
+/// Die Stimmung folgt langsam dem, was ein Kaninchen gerade erlebt.
+fn update_mood(time: Res<Time>, clock: Res<DayClock>, mut rabbits: Query<(&Hunger, &Fear, &Activity, &mut Mood)>) {
+    let dt = time.delta_secs();
+    let resting_time = clock.is_resting_time();
+    for (hunger, fear, activity, mut mood) in &mut rabbits {
+        let mut target = CONTENT;
+        if hunger.0 >= SHOW_HUNGER {
+            target -= 0.5;
+        }
+        if fear.0 > 0.0 {
+            target -= 0.2;
+        }
+        // Zur Ruhezeit nicht im Nest: Es war wohl keins mehr frei.
+        let in_nest = matches!(activity, Activity::Sleeping { .. } | Activity::Walking(Goal::Sleep(_)));
+        if resting_time && !in_nest && hunger.0 < SHOW_HUNGER {
+            target -= 0.4;
+        }
+        mood.value += (target - mood.value) * (dt / MOOD_SECONDS).min(1.0);
+        mood.value = mood.value.clamp(0.0, 1.0);
+    }
+}
+
+/// Wer lange unglücklich ist, macht sich auf den Weg zum Kartenrand.
+fn emigrate(
+    time: Res<Time>,
+    grid: Res<Grid>,
+    mut reserved: ResMut<Reserved>,
+    mut messages: ResMut<Messages>,
+    mut rabbits: Query<(&Rabbit, &Transform, &OnLayer, &mut Mood, &mut Activity, &mut Path)>,
+) {
+    let dt = time.delta_secs();
+    for (rabbit, transform, layer, mut mood, mut activity, mut path) in &mut rabbits {
+        if matches!(*activity, Activity::Walking(Goal::Leave) | Activity::Gone) {
+            continue;
+        }
+        if mood.value >= LEAVING || !rabbit.is_adult() {
+            mood.gloomy_for = 0.0;
+            continue;
+        }
+        mood.gloomy_for += dt;
+        if mood.gloomy_for < LEAVE_AFTER_SECONDS {
+            continue;
+        }
+        let Some(steps) = path_to_edge(&grid, transform, layer) else {
+            continue;
+        };
+        release(&activity, &mut reserved);
+        path.0 = steps.into();
+        *activity = Activity::Walking(Goal::Leave);
+        messages.push(format!("{} ist unzufrieden und zieht fort.", rabbit.name));
+    }
+}
+
+/// Am Kartenrand angekommen, ist das Kaninchen fort.
+fn depart(
+    mut commands: Commands,
+    mut messages: ResMut<Messages>,
+    rabbits: Query<(Entity, &Rabbit, &Activity)>,
+) {
+    for (entity, rabbit, activity) in &rabbits {
+        if matches!(activity, Activity::Gone) {
+            commands.entity(entity).despawn();
+            messages.push(format!("{} hat die Wiese verlassen.", rabbit.name));
+        }
     }
 }
 

@@ -18,6 +18,21 @@ const SPRING_GROWTH_FACTOR: f32 = 1.3;
 const AUTUMN_GROWTH_FACTOR: f32 = 0.5;
 /// So schnell erfriert das Gras im Winter: nach gut anderthalb Spielminuten ist alles weg.
 const FROST_PER_SECOND: f32 = 0.01;
+/// So viel frisst ein Kaninchen mit einem Bissen.
+const BITE: f32 = 0.5;
+/// Darunter gilt ein Feld als kahlgefressen.
+const BARE: f32 = 0.05;
+/// So sehr leidet der Boden, wenn ein Feld kahlgefressen wird.
+const OVERGRAZE_DAMAGE: f32 = 0.12;
+/// So sehr düngt ein maßvoller Bissen.
+const DUNG_BONUS: f32 = 0.03;
+const MIN_FERTILITY: f32 = 0.1;
+/// Gut gedüngte Wiesen tragen mehr als eine gesunde.
+const MAX_FERTILITY: f32 = 1.3;
+/// Nach so vielen Sekunden Ruhe erholt sich ein ausgelaugtes Feld …
+const RECOVERY_AFTER_SECONDS: f32 = 40.0;
+/// … um so viel pro Sekunde: von ganz kahl bis gesund gut drei Spielminuten.
+const RECOVERY_PER_SECOND: f32 = 0.004;
 /// Klee wächst so viel schneller nach als Gras.
 const CLOVER_GROWTH_FACTOR: f32 = 2.0;
 /// Und ist so viel nahrhafter.
@@ -168,12 +183,32 @@ pub struct SurfaceTile {
     pub post: bool,
     /// Gesäter Klee: wächst schneller nach und ist nahrhafter als Gras.
     pub clover: bool,
+    /// Bodengüte: wie viel Gras höchstens wächst und wie schnell. 1 = gesunde Wiese.
+    /// Kahlfressen laugt den Boden aus, maßvolles Beweiden düngt ihn.
+    pub fertility: f32,
+    /// Sekunden seit dem letzten Bissen; ruhende Felder erholen sich.
+    rest: f32,
 }
 
 impl SurfaceTile {
     /// Wie viel ein Bissen von diesem Feld wert ist, verglichen mit Gras.
     pub fn nutrition(&self) -> f32 {
         if self.clover { CLOVER_NUTRITION } else { 1.0 }
+    }
+
+    /// Ein Kaninchen frisst oder rupft einen Bissen ab. Gibt zurück, wie viel Gras es war.
+    pub fn bite(&mut self) -> f32 {
+        let eaten = self.grass.min(BITE);
+        self.grass -= eaten;
+        self.fertility = if self.grass < BARE {
+            // Bis auf den Boden abgefressen: Die Wurzeln leiden.
+            (self.fertility - OVERGRAZE_DAMAGE).max(MIN_FERTILITY)
+        } else {
+            // Es bleibt genug stehen, und die Köttel düngen.
+            (self.fertility + DUNG_BONUS).min(MAX_FERTILITY)
+        };
+        self.rest = 0.0;
+        eaten
     }
 }
 
@@ -244,7 +279,9 @@ impl Grid {
             snow: 0.0,
         };
         for p in Self::positions() {
-            grid.surface_mut(p).grass = 0.5 + 0.5 * noise(p);
+            let tile = grid.surface_mut(p);
+            tile.grass = 0.5 + 0.5 * noise(p);
+            tile.fertility = 1.0;
         }
 
         let entrance = TilePos::new(20, 15);
@@ -309,9 +346,15 @@ fn grow_grass(time: Res<Time>, clock: Res<DayClock>, mut grid: ResMut<Grid>, mut
     };
     let growth = GRASS_GROWTH_PER_SECOND * night * season * elapsed;
     for tile in &mut grid.surface {
-        if !tile.entrance && tile.grass < 1.0 {
+        tile.rest += elapsed;
+        // Lange nicht beweidet: Der Boden erholt sich bis zur gesunden Wiese.
+        if tile.rest > RECOVERY_AFTER_SECONDS && tile.fertility < 1.0 {
+            tile.fertility = (tile.fertility + RECOVERY_PER_SECOND * elapsed).min(1.0);
+        }
+        // Ausgelaugter Boden trägt weniger Gras, und es wächst langsamer.
+        if !tile.entrance && tile.grass < tile.fertility {
             let speed = if tile.clover { CLOVER_GROWTH_FACTOR } else { 1.0 };
-            tile.grass = (tile.grass + growth * speed).min(1.0);
+            tile.grass = (tile.grass + growth * speed * tile.fertility).min(tile.fertility);
         }
     }
 }
@@ -323,7 +366,10 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
         return Color::srgb(0.29, 0.20, 0.13);
     }
     let checker = if (p.x + p.y) % 2 == 0 { 1.0 } else { 0.96 };
-    let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass).map(|c| c * checker);
+    let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass.min(1.0)).map(|c| c * checker);
+    // Ausgelaugter Boden wird zu nackter, brauner Erde.
+    let worn = (1.0 - tile.fertility).clamp(0.0, 1.0);
+    rgb = mix(rgb, [0.62 * checker, 0.47 * checker, 0.31 * checker], worn * 0.85);
     if tile.entrance_planned {
         rgb = mix(rgb, [0.95, 0.62, 0.25], 0.55);
     }

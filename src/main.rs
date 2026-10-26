@@ -23,7 +23,10 @@ use bevy::prelude::*;
 
 fn main() {
     // Automatische Testläufe sollen niemandem den Fokus wegnehmen.
-    let test_run = cfg!(debug_assertions) && std::env::var_os("BUNNY_TEST").is_some();
+    let test_script = std::env::var("BUNNY_TEST").ok().filter(|_| cfg!(debug_assertions));
+    let test_run = test_script.is_some();
+    // Lange Zeitraffer-Läufe brauchen nur das Protokoll, kein Fenster auf dem Bildschirm.
+    let hidden = test_script.is_some_and(|s| s.split(',').any(|c| c.trim() == "unsichtbar"));
 
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -31,6 +34,7 @@ fn main() {
             title: "Bunny Skylines – Bau ’nen Bau!".into(),
             resolution: (1280, 720).into(),
             focused: !test_run,
+            visible: !hidden,
             ..default()
         }),
         ..default()

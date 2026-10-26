@@ -7,8 +7,10 @@
 //! - `abstand=N`, `drehung=Grad`, `neigung=Grad`: Kamera einstellen
 //! - `vorrat`: den Gang am Startbau zur Vorratskammer machen und 15 Futter einlagern
 //! - `lager=N`: N zusätzliche Felder Vorratskammer neben dem Startbau
+//! - `nester=N`: N zusätzliche Felder Schlafkammer, je zwei Plätze
 //! - `graben`: Grabaufträge neben dem Startgang setzen
 //! - `zeiger`: Mauszeiger fest über ein ungegrabenes Feld neben dem Startbau setzen
+//! - `auswahl`: mit dem Kleefeld-Werkzeug von dort aus einen Bereich aufziehen (Maustaste bleibt gedrückt)
 //! - `alt`: Die Gründer haben nur noch 5 Spielsekunden zu leben
 //! - `hungersnot`: kein Gras, kein Vorrat, alle Kaninchen völlig ausgehungert
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
@@ -19,6 +21,8 @@
 //!
 //! Bei jedem Wechsel der Jahreszeit steht im Protokoll, wie viele Kaninchen leben und wie viel Futter da ist.
 //! - `tempo=N`: Spielgeschwindigkeit
+//! - `unsichtbar`: ohne sichtbares Fenster, für lange Läufe, die nur das Protokoll brauchen
+//! - `ende=S`: nach S Sekunden Echtzeit ohne Screenshot beenden
 //! - `bild=S`: nach S Sekunden Echtzeit einen Screenshot nach `target/test-bild.png` speichern und beenden
 //! - `serie=N`: statt eines Bildes N Bilder im Abstand von 0,12 s (`target/test-bild-0.png` …)
 
@@ -31,9 +35,9 @@ use crate::daynight::{DayClock, Season};
 use crate::ending::{EndScreen, restart};
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer, tiles_between};
 use crate::toolbar::{Action, Tooltip};
-use crate::tools::ToolKind;
+use crate::tools::{Tool, ToolKind, apply_drag};
 use crate::behavior::{Activity, Reserved};
-use crate::rabbit::{Hunger, Rabbit};
+use crate::rabbit::{Hunger, Mood, Rabbit};
 
 pub const ENV: &str = "BUNNY_TEST";
 const SHOT_PATH: &str = "target/test-bild.png";
@@ -49,8 +53,9 @@ impl Plugin for DevToolsPlugin {
         let commands: Vec<String> = script.split(',').map(|s| s.trim().to_string()).collect();
         app.insert_resource(TestScript(commands))
             .add_systems(Startup, prepare)
-            .add_systems(Update, (age_founders, famine, auto_restart, log_seasons, log_crowding))
+            .add_systems(Update, (age_founders, famine, auto_restart, log_seasons, log_crowding, quit_after))
             .add_systems(PreUpdate, fake_cursor.after(update_cursor))
+            .add_systems(Update, fake_press.before(apply_drag))
             .add_systems(Update, take_shot);
     }
 }
@@ -107,6 +112,14 @@ fn prepare(
             let tile = grid.under_mut(TilePos::new(x, 14));
             tile.dug = Some(Depth::Medium);
             tile.chamber = Some(Chamber::Storage);
+        }
+    }
+    if let Some(tiles) = script.value("nester") {
+        // Eine zweite Reihe Schlafkammer unter dem Startgang, je Feld zwei Plätze.
+        for x in 20..20 + tiles as i32 {
+            let tile = grid.under_mut(TilePos::new(x, 16));
+            tile.dug = Some(Depth::Medium);
+            tile.chamber = Some(Chamber::Sleeping);
         }
     }
     if script.has("graben") {
@@ -183,7 +196,7 @@ fn log_seasons(
     clock: Res<DayClock>,
     colony: Res<Colony>,
     grid: Res<Grid>,
-    rabbits: Query<&Rabbit>,
+    rabbits: Query<(&Rabbit, &Mood)>,
     mut last: Local<Option<Season>>,
 ) {
     let season = clock.season();
@@ -191,14 +204,20 @@ fn log_seasons(
         return;
     }
     *last = Some(season);
-    let young = rabbits.iter().filter(|r| !r.is_adult()).count();
+    let count = rabbits.iter().count();
+    let young = rabbits.iter().filter(|(r, _)| !r.is_adult()).count();
+    let mood = rabbits.iter().map(|(_, m)| m.value).sum::<f32>() / count.max(1) as f32;
+    let tiles: Vec<f32> = Grid::positions().map(|p| grid.surface(p).fertility).collect();
+    let soil = tiles.iter().sum::<f32>() / tiles.len() as f32;
+    let worn = tiles.iter().filter(|f| **f < 0.5).count();
     info!(
-        "Jahr {} {}: {} Kaninchen ({young} Junge), Futter {:.0}/{:.0}",
+        "Jahr {} {}: {count} Kaninchen ({young} Junge), Futter {:.0}/{:.0}, Stimmung {:.0} %, Boden {:.0} %, ausgelaugt {worn}",
         clock.year(),
         season.label(),
-        rabbits.iter().count(),
         colony.food,
         Colony::food_capacity(&grid),
+        mood * 100.0,
+        soil * 100.0,
     );
 }
 
@@ -216,9 +235,33 @@ fn log_crowding(time: Res<Time<Real>>, mut timer: Local<f32>, reserved: Res<Rese
     info!("Gedraenge: hoechstens {} auf einem Feld, {grazing} unterwegs oder grasend", reserved.busiest_spot());
 }
 
-fn fake_cursor(script: Res<TestScript>, mut cursor: ResMut<CursorWorld>) {
-    if script.has("zeiger") {
-        cursor.0 = Some(TilePos::new(21, 13).center());
+fn fake_cursor(script: Res<TestScript>, time: Res<Time<Real>>, mut cursor: ResMut<CursorWorld>) {
+    if !script.has("zeiger") {
+        return;
+    }
+    // Mit `auswahl` wandert der Zeiger nach dem Drücken fünf Felder weiter.
+    let dragged = script.has("auswahl") && time.elapsed_secs() > 1.5;
+    let tile = if dragged { TilePos::new(25, 12) } else { TilePos::new(21, 13) };
+    cursor.0 = Some(tile.center());
+}
+
+/// Drückt nach einer Sekunde die linke Maustaste und hält sie; läuft direkt vor dem Werkzeug,
+/// damit die Eingabeverarbeitung den Druck nicht vorher schon wieder löscht.
+fn fake_press(
+    script: Res<TestScript>,
+    time: Res<Time<Real>>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut tool: ResMut<Tool>,
+) {
+    if script.has("auswahl") && time.elapsed_secs() > 1.0 && !mouse.pressed(MouseButton::Left) {
+        tool.kind = ToolKind::Clover;
+        mouse.press(MouseButton::Left);
+    }
+}
+
+fn quit_after(script: Res<TestScript>, time: Res<Time<Real>>, mut exit: MessageWriter<AppExit>) {
+    if script.value("ende").is_some_and(|at| time.elapsed_secs() >= at) {
+        exit.write(AppExit::Success);
     }
 }
 

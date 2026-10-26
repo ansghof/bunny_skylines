@@ -14,6 +14,9 @@ pub const DAYS_PER_YEAR: u32 = 6;
 /// Ein Spieljahr in Spielsekunden, z. B. für das Alter der Kaninchen.
 pub const YEAR_LENGTH: f32 = DAY_LENGTH * DAYS_PER_YEAR as f32;
 const NIGHT_DARKNESS: f32 = 0.45;
+/// Die milden Stunden eines Wintertags, als Anteil des Tages.
+const MILD_FROM: f32 = 0.28;
+const MILD_UNTIL: f32 = 0.55;
 const SUN_DAY: f32 = 2400.0;
 const SUN_NIGHT: f32 = 700.0;
 const AMBIENT_DAY: f32 = 330.0;
@@ -146,6 +149,21 @@ impl DayClock {
 
     pub fn is_night(&self) -> bool {
         self.phase() == Phase::Night
+    }
+
+    /// Zeit für das Nest: nachts, und im Winter außer zur milden Mittagszeit.
+    pub fn is_resting_time(&self) -> bool {
+        self.is_night() || (self.season() == Season::Winter && !self.is_mild_winter_hours())
+    }
+
+    /// Mittags im Winter sind die Kaninchen ein paar Stunden wach.
+    pub fn is_mild_winter_hours(&self) -> bool {
+        self.season() == Season::Winter && (MILD_FROM..MILD_UNTIL).contains(&self.time)
+    }
+
+    /// Im Winter ist flache Erde gefroren.
+    pub fn is_ground_frozen(&self) -> bool {
+        self.season() == Season::Winter
     }
 
     pub fn is_twilight(&self) -> bool {

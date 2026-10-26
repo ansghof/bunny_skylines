@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use crate::camera::CursorWorld;
 use crate::toolbar::Toolbar;
 use crate::colony::{Colony, Messages, cost};
+use crate::daynight::DayClock;
 use crate::ground::gizmo_rect;
 use crate::map::{Chamber, Depth, Grid, Layer, TILE_SIZE, TilePos, ViewLayer, tiles_between};
 
@@ -16,6 +17,7 @@ impl Plugin for ToolsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Tool { kind: ToolKind::Dig, depth: Depth::Medium })
             .init_resource::<Drag>()
+            .init_resource::<SelectionCost>()
             .add_systems(Update, (select_tool, apply_drag, draw_preview).chain());
     }
 }
@@ -61,7 +63,7 @@ impl ToolKind {
             ToolKind::Chamber(Chamber::Sleeping) => "Gegrabene Felder zur Schlafkammer machen. Mehr Nester, mehr Nachwuchs.",
             ToolKind::Chamber(Chamber::Storage) => "Gegrabene Felder zur Vorratskammer machen. Hier lagert das Futter.",
             ToolKind::Post => "Ein Erdhügel, von dem aus eine Wache Füchse entdeckt.",
-            ToolKind::Clover => "Klee wächst doppelt so schnell nach und ist nahrhafter als Gras.",
+            ToolKind::Clover => "Klee wächst doppelt so schnell nach, ist nahrhafter als Gras und macht ausgelaugten Boden wieder gesund.",
             ToolKind::Remove => "Aufträge, Kammern, Posten und Klee entfernen.",
         }
     }
@@ -105,7 +107,7 @@ pub struct Tool {
 }
 
 #[derive(Resource, Default)]
-struct Drag {
+pub(crate) struct Drag {
     start: Option<TilePos>,
 }
 
@@ -118,7 +120,7 @@ fn select_tool(keys: Res<ButtonInput<KeyCode>>, mut tool: ResMut<Tool>, mut view
     }
 }
 
-fn apply_drag(
+pub(crate) fn apply_drag(
     buttons: Res<ButtonInput<MouseButton>>,
     cursor: Res<CursorWorld>,
     tool: Res<Tool>,
@@ -127,6 +129,7 @@ fn apply_drag(
     mut grid: ResMut<Grid>,
     mut colony: ResMut<Colony>,
     mut messages: ResMut<Messages>,
+    clock: Res<DayClock>,
     toolbar: Query<&Hovered, With<Toolbar>>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
@@ -149,6 +152,10 @@ fn apply_drag(
     }
 
     let end = TilePos::from_world_clamped(cursor);
+    let frozen_work = tool.kind == ToolKind::Entrance || (tool.kind == ToolKind::Dig && tool.depth == Depth::Shallow);
+    if frozen_work && clock.is_ground_frozen() {
+        messages.push("Der Boden ist gefroren: Eingänge und flache Gänge werden erst im Frühling gegraben.");
+    }
     // Eingänge und Posten immer einzeln, ein ganzer Bereich davon ergibt keinen Sinn.
     if tool.kind.is_single() {
         let tile = grid.surface_mut(end);
@@ -205,6 +212,8 @@ fn apply_drag(
                 // Frisch gesät: erst einmal kurz.
                 field.clover = true;
                 field.grass = field.grass.min(0.15);
+                // Klee bindet Stickstoff: Ausgelaugter Boden wird wieder gesund.
+                field.fertility = field.fertility.max(1.0);
             }
             ToolKind::Remove => {
                 let tile = grid.under_mut(p);
@@ -236,6 +245,32 @@ fn apply_drag(
     }
 }
 
+/// Was der gerade aufgezogene Bereich kosten würde, für die Anzeige über der Werkzeugleiste.
+#[derive(Resource, Default)]
+pub struct SelectionCost(pub Option<String>);
+
+/// Wie viele Felder im Bereich das Werkzeug wirklich bezahlen müsste, und zu welchem Preis pro Feld.
+fn priced_tiles(grid: &Grid, kind: ToolKind, start: TilePos, end: TilePos) -> Option<(usize, f32)> {
+    let price = match kind {
+        ToolKind::Clover => cost::CLOVER_FOOD,
+        ToolKind::Chamber(Chamber::Sleeping) => cost::NEST_FOOD,
+        _ => return None,
+    };
+    let count = tiles_between(start, end)
+        .filter(|p| match kind {
+            ToolKind::Clover => {
+                let field = grid.surface(*p);
+                !field.entrance && !field.post && !field.clover
+            }
+            _ => {
+                let tile = grid.under(*p);
+                (tile.dug.is_some() || tile.planned.is_some()) && tile.chamber != Some(Chamber::Sleeping)
+            }
+        })
+        .count();
+    Some((count, price))
+}
+
 fn draw_preview(
     mut gizmos: Gizmos,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -243,14 +278,36 @@ fn draw_preview(
     tool: Res<Tool>,
     view: Res<ViewLayer>,
     drag: Res<Drag>,
+    grid: Res<Grid>,
+    colony: Res<Colony>,
+    mut selection: ResMut<SelectionCost>,
     toolbar: Query<&Hovered, With<Toolbar>>,
 ) {
-    let Some(cursor) = cursor.0 else {
+    let dragging = buttons.pressed(MouseButton::Left) && drag.start.is_some();
+    let (Some(cursor), false) = (cursor.0, toolbar.iter().any(|hovered| hovered.0)) else {
+        // Über der Werkzeugleiste keine Vorschau in der Welt darunter.
+        selection.0 = None;
         return;
     };
-    // Über der Werkzeugleiste keine Vorschau in der Welt darunter.
-    if toolbar.iter().any(|hovered| hovered.0) {
-        return;
+    let info = drag.start.filter(|_| dragging).and_then(|start| {
+        let end = TilePos::from_world_clamped(cursor);
+        let (count, price) = priced_tiles(&grid, tool.kind, start, end)?;
+        let total = count as f32 * price;
+        let affordable = (colony.food / price).floor() as usize;
+        let shortfall = if affordable < count {
+            format!(" Reicht nur für {affordable}.")
+        } else {
+            String::new()
+        };
+        let fields = if count == 1 { "Feld" } else { "Felder" };
+        Some(format!(
+            "{count} {fields} {}: {total:.0} Futter (vorhanden: {:.0}).{shortfall}",
+            tool.kind.label(),
+            colony.food
+        ))
+    });
+    if selection.0 != info {
+        selection.0 = info;
     }
     let wrong_view = tool.kind.layer().is_some_and(|layer| layer != view.0);
     let color = if wrong_view {

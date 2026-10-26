@@ -8,7 +8,7 @@ use bevy::prelude::*;
 
 use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
 use crate::daynight::{DayClock, Season};
-use crate::map::{Chamber, Depth, Grid, Layer, TilePos};
+use crate::map::{Chamber, Depth, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TilePos};
 use crate::pathfinding::{Node, find_path};
 use crate::rabbit::{Hunger, Offset, OnLayer, Rabbit, z_for};
 
@@ -55,6 +55,8 @@ pub enum Activity {
     Guarding { post: TilePos, left: f32 },
     /// Schläft im Nest auf diesem Feld der Schlafkammer.
     Sleeping { bed: TilePos },
+    /// Hat die Karte verlassen; wird gleich entfernt.
+    Gone,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -69,6 +71,8 @@ pub enum Goal {
     EatFromStore(TilePos),
     Sleep(TilePos),
     Wander,
+    /// Unzufrieden: zum Kartenrand und fort.
+    Leave,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -184,7 +188,9 @@ pub fn start_flight(
     path: &mut Path,
     fear: &mut Fear,
 ) -> bool {
-    if layer.0 != Layer::Surface || matches!(activity, Activity::Fleeing) {
+    // Wer auswandert, lässt sich nicht mehr aufhalten.
+    let leaving = matches!(activity, Activity::Walking(Goal::Leave) | Activity::Gone);
+    if layer.0 != Layer::Surface || leaving || matches!(activity, Activity::Fleeing) {
         return false;
     }
     let start = current_node(transform, layer);
@@ -225,8 +231,10 @@ struct Situation<'a> {
     hunger: f32,
     afraid: bool,
     night: bool,
-    /// Im Winter halten die Kaninchen Winterruhe in ihren Nestern.
+    /// Im Winter halten die Kaninchen Winterruhe in ihren Nestern, außer zur Mittagszeit.
     winter: bool,
+    /// Flache Erde ist gefroren und lässt sich nicht graben.
+    frozen: bool,
     /// Im Herbst geht Sammeln vor Graben.
     autumn: bool,
     /// Der Spieler will Vorräte anlegen.
@@ -263,7 +271,8 @@ fn decide(
             hunger: hunger.0,
             afraid: fear.0 > 0.0,
             night: clock.is_night(),
-            winter: clock.season() == Season::Winter,
+            winter: clock.is_resting_time() && !clock.is_night(),
+            frozen: clock.is_ground_frozen(),
             autumn: clock.season() == Season::Autumn,
             gather_first: priorities.gather_first,
             food_space,
@@ -348,7 +357,7 @@ fn choose(
             return Some((Goal::Gather(tile), steps));
         }
         if !s.gather_first
-            && let Some((target, steps)) = find_dig_job(grid, &reserved.dig, start, s.afraid)
+            && let Some((target, steps)) = find_dig_job(grid, &reserved.dig, start, s.afraid, s.frozen)
         {
             reserved.dig.insert(target);
             return Some((Goal::Dig(target), steps));
@@ -418,22 +427,26 @@ fn find_free_post(grid: &Grid, taken: &HashSet<TilePos>, start: Node) -> Option<
 
 /// Sucht den nächsten freien Grabauftrag: Eingänge betritt man, Gänge gräbt man vom Nachbarfeld aus.
 /// Mit Angst nur Aufträge unter der Erde.
+/// Bei gefrorenem Boden keine Eingänge und keine flachen Gänge.
 fn find_dig_job(
     grid: &Grid,
     taken: &HashSet<DigTarget>,
     start: Node,
     underground_only: bool,
+    frozen: bool,
 ) -> Option<(DigTarget, Vec<Node>)> {
     let mut found = None;
     let steps = find_path(grid, start, |node| {
         found = match node.layer {
-            Layer::Surface if underground_only => None,
+            // Eingänge führen durch die flache, im Winter gefrorene Erde.
+            Layer::Surface if underground_only || frozen => None,
             Layer::Surface => Some(DigTarget::Entrance(node.pos))
                 .filter(|target| grid.surface(node.pos).entrance_planned && !taken.contains(target)),
             Layer::Underground => node.pos.neighbors().map(DigTarget::Tunnel).find(|target| {
                 let DigTarget::Tunnel(p) = *target else { unreachable!() };
                 let tile = grid.under(p);
-                tile.dug.is_none() && tile.planned.is_some() && !taken.contains(target)
+                let thawed = !frozen || tile.planned != Some(Depth::Shallow);
+                tile.dug.is_none() && tile.planned.is_some() && thawed && !taken.contains(target)
             }),
         };
         found.is_some()
@@ -549,6 +562,7 @@ fn walk(
             }
             Goal::Sleep(bed) => Activity::Sleeping { bed },
             Goal::Wander => Activity::Idle(rng.range(1.0, 3.5)),
+            Goal::Leave => Activity::Gone,
         };
     }
 }
@@ -572,8 +586,7 @@ fn work(
                 }
                 reserved.free_spot(*tile);
                 let field = grid.surface_mut(*tile);
-                let eaten = field.grass.min(0.5);
-                field.grass -= eaten;
+                let eaten = field.bite();
                 hunger.0 = (hunger.0 - eaten * 1.3 * field.nutrition()).max(0.0);
                 Activity::Idle(0.4)
             }
@@ -584,8 +597,7 @@ fn work(
                 }
                 reserved.free_spot(*tile);
                 let field = grid.surface_mut(*tile);
-                let taken = field.grass.min(0.5);
-                field.grass -= taken;
+                let taken = field.bite();
                 // Eingelagert und getrocknet ist Gras mehr wert als frisch gefressen.
                 carrying.0 += taken * FOOD_PER_GATHERED_GRASS * field.nutrition();
                 match find_storage(&grid, &reserved, current_node(transform, layer)) {
@@ -625,8 +637,7 @@ fn work(
             }
             Activity::Sleeping { bed } => {
                 // Hunger weckt jeden, sonst schlafen sie die Nacht und den Winter durch.
-                let resting_time = clock.is_night() || clock.season() == Season::Winter;
-                if resting_time && hunger.0 <= HUNGRY {
+                if clock.is_resting_time() && hunger.0 <= HUNGRY {
                     continue;
                 }
                 reserved.free_bed(*bed);
@@ -637,7 +648,7 @@ fn work(
                     Activity::Idle(rng.range(0.0, 4.0))
                 }
             }
-            Activity::Idle(_) | Activity::Walking(_) | Activity::Fleeing => continue,
+            Activity::Idle(_) | Activity::Walking(_) | Activity::Fleeing | Activity::Gone => continue,
         };
         *activity = next;
     }
@@ -662,4 +673,12 @@ fn finish_digging(grid: &mut Grid, target: DigTarget) {
             tile.planned = None;
         }
     }
+}
+
+/// Weg zum nächsten Feld am Kartenrand, für Kaninchen, die fortziehen.
+pub fn path_to_edge(grid: &Grid, transform: &Transform, layer: &OnLayer) -> Option<Vec<Node>> {
+    find_path(grid, current_node(transform, layer), |node| {
+        let p = node.pos;
+        node.layer == Layer::Surface && (p.x == 0 || p.y == 0 || p.x == MAP_WIDTH - 1 || p.y == MAP_HEIGHT - 1)
+    })
 }
