@@ -86,6 +86,7 @@ impl Action {
     fn icon(self) -> Option<&'static str> {
         use crate::map::{Chamber, Feature};
         Some(match self {
+            Action::Tool(ToolKind::Point) => "zeigen",
             Action::Tool(ToolKind::Dig) => "graben",
             Action::Tool(ToolKind::Entrance) => "eingang",
             Action::Tool(ToolKind::Chamber(Chamber::Sleeping)) => "schlafkammer",

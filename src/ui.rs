@@ -14,7 +14,8 @@ use crate::toolbar::TOOLBAR_HEIGHT;
 use crate::tools::{SelectionCost, Tool, ToolKind};
 
 /// Werkzeuge stehen in der Werkzeugleiste; hier nur noch die Kamera und das Markieren.
-const HELP: &str = "Linke Maustaste ziehen: Bereich markieren\n\
+const HELP: &str = "Esc: Zeigen – Kaninchen anklicken, ohne zu bauen\n\
+Linke Maustaste ziehen: Bereich markieren\n\
 Mittlere Maustaste oder WASD: verschieben\n\
 Rechte Maustaste: drehen und neigen · Mausrad: Zoom\n\
 F5: speichern · F9: laden";

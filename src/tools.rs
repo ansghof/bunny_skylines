@@ -16,7 +16,7 @@ pub struct ToolsPlugin;
 
 impl Plugin for ToolsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Tool { kind: ToolKind::Dig, depth: Depth::Medium })
+        app.insert_resource(Tool { kind: ToolKind::Point, depth: Depth::Medium })
             .init_resource::<Drag>()
             .init_resource::<SelectionCost>()
             .add_systems(Update, (select_tool, apply_drag, draw_preview).chain());
@@ -25,6 +25,8 @@ impl Plugin for ToolsPlugin {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToolKind {
+    /// Nur anklicken und ansehen, nichts bauen.
+    Point,
     Dig,
     Entrance,
     Chamber(Chamber),
@@ -35,7 +37,8 @@ pub enum ToolKind {
 }
 
 /// Alle Werkzeuge in der Reihenfolge der Werkzeugleiste, mit Taste und Tastenname.
-pub const TOOLS: [(ToolKind, KeyCode, &str); 14] = [
+pub const TOOLS: [(ToolKind, KeyCode, &str); 15] = [
+    (ToolKind::Point, KeyCode::Escape, "Esc"),
     (ToolKind::Dig, KeyCode::KeyG, "G"),
     (ToolKind::Entrance, KeyCode::KeyE, "E"),
     (ToolKind::Chamber(Chamber::Sleeping), KeyCode::KeyN, "N"),
@@ -55,6 +58,7 @@ pub const TOOLS: [(ToolKind, KeyCode, &str); 14] = [
 impl ToolKind {
     pub fn label(self) -> &'static str {
         match self {
+            ToolKind::Point => "Zeigen",
             ToolKind::Dig => "Graben",
             ToolKind::Entrance => "Eingang",
             ToolKind::Chamber(chamber) => chamber.label(),
@@ -68,6 +72,7 @@ impl ToolKind {
     /// Ein Satz dazu, was das Werkzeug tut, für den Tooltip.
     pub fn description(self) -> &'static str {
         match self {
+            ToolKind::Point => "Kaninchen anklicken und ansehen, ohne etwas zu bauen. Esc wechselt jederzeit hierher.",
             ToolKind::Dig => "Gänge und Kammern ausheben lassen. Bringt Erde.",
             ToolKind::Entrance => "Einen Eingang von der Wiese in den Bau graben lassen.",
             ToolKind::Chamber(Chamber::Sleeping) => "Gegrabene Felder zur Schlafkammer machen. Mehr Nester, mehr Nachwuchs.",
@@ -149,7 +154,7 @@ impl ToolKind {
         match self {
             ToolKind::Dig | ToolKind::Chamber(_) => Some(Layer::Underground),
             ToolKind::Entrance | ToolKind::Post | ToolKind::Clover | ToolKind::Feature(_) => Some(Layer::Surface),
-            ToolKind::Remove => None,
+            ToolKind::Point | ToolKind::Remove => None,
         }
     }
 }
@@ -245,6 +250,9 @@ pub(crate) fn apply_drag(
     let (Some(start), Some(cursor)) = (drag.start.take(), cursor.0) else {
         return;
     };
+    if tool.kind == ToolKind::Point {
+        return;
+    }
     if tool.kind.layer().is_some_and(|layer| layer != view.0) {
         return;
     }
@@ -269,6 +277,8 @@ pub(crate) fn apply_drag(
     let mut too_wide = None;
     for p in tiles {
         match tool.kind {
+            // Schon oben abgefangen: Zeigen baut nichts.
+            ToolKind::Point => {}
             ToolKind::Dig => {
                 let tile = grid.under(p);
                 if tile.dug.is_some() {
@@ -408,6 +418,11 @@ fn draw_preview(
     mut selection: ResMut<SelectionCost>,
     toolbar: Query<&Hovered, With<Toolbar>>,
 ) {
+    // Beim Zeigen gibt es nichts zu markieren.
+    if tool.kind == ToolKind::Point {
+        selection.0 = None;
+        return;
+    }
     let dragging = buttons.pressed(MouseButton::Left) && drag.start.is_some();
     let (Some(cursor), false) = (cursor.0, toolbar.iter().any(|hovered| hovered.0)) else {
         // Über der Werkzeugleiste keine Vorschau in der Welt darunter.
