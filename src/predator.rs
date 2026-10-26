@@ -42,10 +42,10 @@ impl Plugin for PredatorPlugin {
     }
 }
 
-/// Nur zum Testen: F9 schickt sofort einen Fuchs.
+/// Nur zum Testen: F8 schickt sofort einen Fuchs (F9 ist Laden).
 #[cfg(debug_assertions)]
 fn debug_summon_fox(keys: Res<ButtonInput<KeyCode>>, mut spawner: ResMut<FoxSpawner>) {
-    if keys.just_pressed(KeyCode::F9) {
+    if keys.just_pressed(KeyCode::F8) {
         spawner.next = 0.0;
     }
 }

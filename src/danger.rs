@@ -44,7 +44,12 @@ struct Alarm {
 }
 
 #[derive(Resource, Default)]
-struct Alarms(Vec<Alarm>);
+pub(crate) struct Alarms(Vec<Alarm>);
+
+/// Eine Wache stampft hier: Alle in diesem Umkreis flüchten und geben die Warnung weiter.
+pub(crate) fn raise_alarm(alarms: &mut Alarms, position: Vec2, radius: f32) {
+    alarms.0.push(Alarm { position, radius, relay: true });
+}
 
 #[derive(Resource, Default)]
 pub struct AlarmButton {

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="96" viewBox="0 0 192 96">
+  <!-- Bussard von schräg unten: ausgebreitete Schwingen, heller gebänderter Bauch -->
+  <path d="M96 40 C78 30 56 22 30 22 C18 22 8 26 2 34 C12 34 18 38 22 42 C14 44 10 48 8 54 C20 50 30 50 40 54 C34 58 32 62 32 66 C48 58 70 54 88 54 Z" fill="#7a5233" stroke="#3e2716" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M96 40 C114 30 136 22 162 22 C174 22 184 26 190 34 C180 34 174 38 170 42 C178 44 182 48 184 54 C172 50 162 50 152 54 C158 58 160 62 160 66 C144 58 122 54 104 54 Z" fill="#7a5233" stroke="#3e2716" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M30 26 C50 26 70 32 88 44 M162 26 C142 26 122 32 104 44" fill="none" stroke="#c9a77a" stroke-width="3" opacity="0.7"/>
+  <path d="M84 52 L80 84 C88 90 104 90 112 84 L108 52 Z" fill="#8a603c" stroke="#3e2716" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M84 70 H108 M83 78 H109" stroke="#e8d6b4" stroke-width="2.5"/>
+  <ellipse cx="96" cy="46" rx="15" ry="18" fill="#efe2c6" stroke="#3e2716" stroke-width="3"/>
+  <path d="M86 42 H106 M85 50 H107 M88 57 H104" stroke="#a87c50" stroke-width="2.5"/>
+  <circle cx="96" cy="26" r="10" fill="#8a603c" stroke="#3e2716" stroke-width="3"/>
+  <path d="M92 31 L96 39 L100 31 Z" fill="#f0c040" stroke="#3e2716" stroke-width="1.5"/>
+  <circle cx="91" cy="24" r="2" fill="#1d120a"/><circle cx="101" cy="24" r="2" fill="#1d120a"/>
+</svg>

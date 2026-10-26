@@ -304,7 +304,7 @@ fn thought(
         return "Mir ist ganz schwach vor Hunger …";
     }
     if scared {
-        return "Ein Fuchs! Schnell in den Bau!";
+        return "Gefahr! Schnell in Deckung!";
     }
     if hungry {
         return if season == Season::Winter {

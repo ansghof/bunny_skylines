@@ -16,6 +16,7 @@
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
 //! - `speichern=S`: nach S Sekunden speichern; `laden`: nach einer Sekunde den Spielstand laden
+//! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
 //! - `menue`: nach zwei Sekunden das Pausenmenü öffnen
 //! - `titel`: auf dem Titelbild bleiben
@@ -49,6 +50,7 @@ use crate::behavior::{Activity, Reserved};
 use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit};
 use crate::inspect::{RABBIT_HEIGHT, pick_rabbit};
 use crate::overlay::MapOverlay;
+use crate::bird::BuzzardSpawner;
 use crate::menu::{OpenMenu, TitleScreen, new_game};
 use crate::save::{load_game, save_game};
 use crate::scenario::{Chapter, Scenario, Stage, Target, start_playing};
@@ -107,6 +109,7 @@ fn prepare(
     mut progress: ResMut<Progress>,
     mut research: ResMut<ResearchOpen>,
     mut overlay: ResMut<MapOverlay>,
+    mut buzzards: ResMut<BuzzardSpawner>,
 ) {
     if script.has("unten") {
         view.0 = Layer::Underground;
@@ -173,6 +176,9 @@ fn prepare(
     }
     if script.has("baum") {
         research.0 = true;
+    }
+    if script.has("bussard") {
+        buzzards.summon();
     }
     if script.has("karte_weide") {
         *overlay = MapOverlay::Pasture;

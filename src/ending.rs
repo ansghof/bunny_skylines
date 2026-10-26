@@ -5,6 +5,7 @@ use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
+use crate::bird::{BuzzardSpawner, Sky};
 use crate::behavior::{Priorities, Reserved};
 use crate::colony::{Colony, Messages};
 use crate::danger::AlarmButton;
@@ -152,13 +153,14 @@ pub(crate) fn spawn_button<'a>(commands: &'a mut Commands, panel: Entity, label:
 /// Räumt Figuren, Fenster und alles Flüchtige weg und lässt die Zeit wieder laufen.
 /// Neubeginn und Laden setzen danach ihren eigenen Stand ein.
 pub(crate) fn clear_world(world: &mut World) {
-    let mut doomed = world.query_filtered::<Entity, Or<(With<Rabbit>, With<Fox>, With<EndScreen>)>>();
+    let mut doomed = world.query_filtered::<Entity, Or<(With<Rabbit>, With<Fox>, With<EndScreen>, With<Sky>)>>();
     let doomed: Vec<Entity> = doomed.iter(world).collect();
     for entity in doomed {
         world.despawn(entity);
     }
     world.insert_resource(Reserved::default());
     world.insert_resource(FoxSpawner::default());
+    world.insert_resource(BuzzardSpawner::default());
     world.insert_resource(AlarmButton::default());
     world.insert_resource(Chronicle::default());
     world.resource_mut::<Messages>().0.clear();

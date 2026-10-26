@@ -1,4 +1,5 @@
 mod behavior;
+mod bird;
 mod camera;
 mod colony;
 mod danger;
@@ -59,6 +60,7 @@ fn main() {
             behavior::BehaviorPlugin,
             daynight::DayNightPlugin,
             predator::PredatorPlugin,
+            bird::BirdPlugin,
             danger::DangerPlugin,
         ))
         // Darstellung und Bedienung
