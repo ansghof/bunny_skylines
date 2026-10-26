@@ -379,6 +379,7 @@ static EASY_CHAPTER: Chapter = Chapter {
     known: &[],
     relatives: 0,
     start_earth: 0.0,
+    night_tools: false,
 };
 
 fn save_and_load(
@@ -455,6 +456,8 @@ fn skip_intro(
     titles: Query<(), With<TitleScreen>>,
     screens: Query<(), With<EndScreen>>,
     time: Res<Time<Real>>,
+    mut view: ResMut<ViewLayer>,
+    mut clock: ResMut<DayClock>,
     mut done: Local<(bool, bool)>,
 ) {
     if script.has("ziel") {
@@ -478,12 +481,20 @@ fn skip_intro(
         commands.run_system_cached_with(start_chapter, number);
         return;
     }
+    // Der Kapitelstart setzt die Ansicht zurück; `unten` gilt danach wieder.
+    if done.0 && script.has("unten") && view.0 != Layer::Underground && titles.is_empty() {
+        view.0 = Layer::Underground;
+    }
     let intro_open = titles.is_empty() && !screens.is_empty();
     if done.1 || script.has("intro") || scenario.stage != Stage::Intro || !intro_open {
         return;
     }
     let done = &mut done.1;
     *done = true;
+    // Auch die Uhr hat der Kapitelstart zurückgesetzt.
+    if script.has("nacht") {
+        clock.time = 0.74;
+    }
     commands.run_system_cached(start_playing);
 }
 

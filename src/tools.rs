@@ -182,6 +182,10 @@ impl ToolKind {
         if let Some(tech) = self.required_tech().filter(|tech| !progress.has(*tech)) {
             return Some(Lock::Tech(tech));
         }
+        // Kennt die Familie Nachtwache und Erdpfropf schon aus früheren Kapiteln, gibt es sie gleich.
+        if matches!(self, ToolKind::Plug | ToolKind::Watch) && progress.night_tools {
+            return None;
+        }
         self.required_stage().filter(|stage| progress.stage < *stage).map(Lock::Stage)
     }
 
@@ -462,6 +466,9 @@ pub(crate) fn apply_drag(
 }
 
 fn width_message(soil: Soil) -> String {
+    if soil == Soil::Rock {
+        return "Hier ist Fels, da kann man nicht graben.".into();
+    }
     let width = match soil.max_width() {
         1 => "1 Feld".to_string(),
         n => format!("{n} Felder"),
@@ -537,7 +544,10 @@ fn draw_preview(
         let digging = view.0 == Layer::Underground && matches!(tool.kind, ToolKind::Dig | ToolKind::Chamber(_));
         let soil = grid.under(TilePos::from_world_clamped(cursor)).soil;
         let width = soil.max_width();
-        digging.then(|| format!("Boden: {}, Gänge bis {width} breit.", soil.label()))
+        digging.then(|| match soil {
+            Soil::Rock => "Boden: Fels, hier kann man nicht graben.".to_string(),
+            _ => format!("Boden: {}, Gänge bis {width} breit.", soil.label()),
+        })
     });
     if selection.0 != info {
         selection.0 = info;

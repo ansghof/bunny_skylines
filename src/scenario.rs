@@ -67,6 +67,8 @@ pub enum Terrain {
     Meadow,
     /// Wald am oberen Rand; von dort kommen die Füchse.
     ForestEdge,
+    /// Ein alter Steinwall mit Fels darunter; darin wohnen Marder.
+    StoneWall,
 }
 
 impl Terrain {
@@ -74,6 +76,7 @@ impl Terrain {
         match self {
             Terrain::Meadow => Grid::starting_meadow(),
             Terrain::ForestEdge => Grid::forest_edge(),
+            Terrain::StoneWall => Grid::stone_wall(),
         }
     }
 }
@@ -105,6 +108,8 @@ pub struct Chapter {
     pub relatives: usize,
     /// Erde, die die Familie mitbringt.
     pub start_earth: f32,
+    /// Nachtwache und Erdpfropf gibt es von Anfang an.
+    pub night_tools: bool,
 }
 
 const THE_HEDGE: Chapter = Chapter {
@@ -121,6 +126,7 @@ const THE_HEDGE: Chapter = Chapter {
     known: &[],
     relatives: 0,
     start_earth: 0.0,
+    night_tools: false,
 };
 
 const THE_FOREST_EDGE: Chapter = Chapter {
@@ -138,9 +144,29 @@ const THE_FOREST_EDGE: Chapter = Chapter {
     known: &[Tech::Posts, Tech::Hedges, Tech::Clover],
     relatives: 4,
     start_earth: 15.0,
+    night_tools: false,
 };
 
-pub const CHAPTERS: [&Chapter; 2] = [&THE_HEDGE, &THE_FOREST_EDGE];
+const THE_STONE_WALL: Chapter = Chapter {
+    number: 3,
+    title: "Der alte Steinwall",
+    story: "Hinter dem Wald liegt eine geschützte Wiese an einem alten Steinwall. Füchse kommen \
+            selten hierher – doch in den Ritzen des Walls wohnen Marder, und nachts schleichen sie \
+            in den Bau.\n\n\
+            Setzt Nachtwachen ein, verschließt Gänge mit Erdpfropfen und grabt Rundgänge mit \
+            mehreren Ausgängen, damit niemand in der Falle sitzt. Unter dem Wall ist Fels, \
+            dort kann man nicht graben.",
+    targets: &[Target::Rabbits(20), Target::Year(2)],
+    max_losses: Some(4),
+    terrain: Terrain::StoneWall,
+    dangers: Dangers { first_fox: 400.0, fox_pace: 0.7, buzzard_from_start: false, marten_from_start: true },
+    known: &[Tech::Posts, Tech::Hedges, Tech::Clover, Tech::Claws, Tech::DeepTunnels],
+    relatives: 6,
+    start_earth: 20.0,
+    night_tools: true,
+};
+
+pub const CHAPTERS: [&Chapter; 3] = [&THE_HEDGE, &THE_FOREST_EDGE, &THE_STONE_WALL];
 
 /// Das Kapitel mit dieser Nummer; unbekannte Nummern ergeben das erste.
 pub fn chapter(number: u32) -> &'static Chapter {
@@ -319,6 +345,7 @@ fn check_goals(
     let feat = match chapter.terrain {
         Terrain::Meadow => "sich an der Hecke eingelebt",
         Terrain::ForestEdge => "das Jahr am Waldrand überstanden",
+        Terrain::StoneWall => "den Winter am Steinwall ohne große Verluste überstanden",
     };
     let body = format!(
         "Die Familie Buddelberg hat {feat}: {} Kaninchen und {:.0} Futter im Vorrat, im {} von Jahr {}.\n\n{outlook}",

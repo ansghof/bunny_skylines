@@ -217,10 +217,12 @@ fn spawn_martens(
     spawner.next = rng.range(60.0, 150.0);
     spawner.forced = false;
 
-    // Von einem zufälligen Punkt am Rand aus zum nächsten Eingang.
+    // Von einem zufälligen Punkt am Rand aus zum nächsten Eingang; am Steinwall aus dem Wall.
     let half = half_extent() - TILE_SIZE * 0.5;
     let along = rng.range(-1.0, 1.0);
+    let wall = grid.wall_tiles();
     let position = match rng.below(4) {
+        _ if !wall.is_empty() => wall[rng.below(wall.len())].center(),
         0 => Vec2::new(-half.x, along * half.y),
         1 => Vec2::new(half.x, along * half.y),
         2 => Vec2::new(along * half.x, -half.y),
@@ -252,7 +254,9 @@ fn spawn_martens(
         figure_layer(),
     ));
     sounds.play(Sound::Fox);
-    if spawner.warned {
+    if !wall.is_empty() {
+        messages.push("Aus dem alten Steinwall schleicht ein Marder …");
+    } else if spawner.warned {
         messages.push("Etwas schleicht nachts um den Bau …");
     } else {
         spawner.warned = true;

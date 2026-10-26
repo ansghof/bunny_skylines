@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="104" viewBox="0 0 128 104">
+  <!-- Ein Stück alter Steinwall: aufgeschichtete Feldsteine mit Moos und dunklen Ritzen -->
+  <path d="M6 102 C4 84 10 74 22 72 C34 70 40 78 42 102 Z" fill="#9c988c" stroke="#3c3a34" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M40 102 C40 80 50 70 64 70 C80 70 88 80 88 102 Z" fill="#aaa598" stroke="#3c3a34" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M86 102 C86 82 96 74 108 76 C120 78 124 88 122 102 Z" fill="#938f84" stroke="#3c3a34" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M16 74 C14 56 24 46 38 46 C52 46 58 58 56 72 C46 70 30 70 16 74 Z" fill="#a39f93" stroke="#3c3a34" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M56 72 C56 52 68 42 82 44 C96 46 102 58 100 76 C88 72 70 70 56 72 Z" fill="#9a968a" stroke="#3c3a34" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M34 46 C36 30 48 22 62 24 C76 26 80 38 78 46 C66 42 48 42 34 46 Z" fill="#b0ab9e" stroke="#3c3a34" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M40 30 C48 24 58 24 64 28 M60 46 C70 42 80 44 86 48 M20 74 C28 70 34 70 40 74" stroke="#6f9a46" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <ellipse cx="62" cy="86" rx="6" ry="4" fill="#2c2a26"/>
+</svg>

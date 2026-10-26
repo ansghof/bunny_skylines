@@ -10,6 +10,8 @@ pub const MAP_WIDTH: i32 = 40;
 pub const MAP_HEIGHT: i32 = 30;
 /// Ab dieser Zeile beginnt in Waldrand-Karten der Wald.
 pub const FOREST_FROM: i32 = 24;
+/// In dieser Spalte beginnt der alte Steinwall.
+const WALL_X: i32 = 31;
 
 /// Von abgefressen bis voll dauert es gut eine Spielminute, etwa ein Viertel des Tages.
 const GRASS_GROWTH_PER_SECOND: f32 = 0.014;
@@ -235,6 +237,9 @@ pub struct SurfaceTile {
     /// Hier steht ein Baum (nur Zierde, man kann darunter hindurch).
     #[serde(default)]
     pub tree: bool,
+    /// Ein alter, halb verfallener Steinwall; darin wohnen Marder.
+    #[serde(default)]
+    pub stones: bool,
 }
 
 impl SurfaceTile {
@@ -269,6 +274,8 @@ pub enum Soil {
     Earth,
     /// Von Wurzeln zusammengehalten: Hier halten auch breite Kammern.
     Roots,
+    /// Fels: Hier lässt sich gar nicht graben.
+    Rock,
 }
 
 impl Soil {
@@ -277,6 +284,7 @@ impl Soil {
             Soil::Sand => "Sand",
             Soil::Earth => "Erde",
             Soil::Roots => "Wurzelerde",
+            Soil::Rock => "Fels",
         }
     }
 
@@ -286,6 +294,7 @@ impl Soil {
             Soil::Sand => 1,
             Soil::Earth => 2,
             Soil::Roots => 4,
+            Soil::Rock => 0,
         }
     }
 }
@@ -359,6 +368,10 @@ impl Grid {
     /// Ob hier ein Gang hinpasst. Gibt sonst den Boden zurück, der für die Breite zu schwach ist:
     /// Ein offenes Quadrat darf nicht breiter werden, als sein lockerster Boden trägt.
     pub fn too_wide(&self, p: TilePos) -> Option<Soil> {
+        // In Fels geht gar nichts, auch kein einzelner Gang.
+        if self.under(p).soil == Soil::Rock {
+            return Some(Soil::Rock);
+        }
         let open = |q: TilePos| q == p || (q.in_bounds() && (self.under(q).dug.is_some() || self.under(q).planned.is_some()));
         for size in 2..=WIDEST + 1 {
             for top in p.y - size + 1..=p.y {
@@ -403,6 +416,32 @@ impl Grid {
             }
         }
         grid
+    }
+
+    /// Die Wiese mit einem alten Steinwall am rechten Rand. Unter dem Wall und in ein paar
+    /// Flecken ringsum ist Fels; im Wall wohnen Marder.
+    pub fn stone_wall() -> Self {
+        let mut grid = Self::starting_meadow();
+        for p in Self::positions() {
+            let wall = (WALL_X..WALL_X + 2).contains(&p.x) && (3..MAP_HEIGHT - 3).contains(&p.y);
+            if wall {
+                let tile = grid.surface_mut(p);
+                tile.stones = true;
+                tile.fertility = 0.2;
+                tile.grass = 0.1;
+            }
+            let near_wall = (p.x - WALL_X).abs() <= 3 && noise(TilePos::new(p.x, p.y + 57)) > 0.55;
+            let patch = (p.x - 22).abs() + (p.y - 15).abs() > 5 && smooth_noise(p, 5, 333) > 0.72;
+            if wall || near_wall || patch {
+                grid.under_mut(p).soil = Soil::Rock;
+            }
+        }
+        grid
+    }
+
+    /// Alle Felder unter dem Steinwall, z. B. um Marder dort auftauchen zu lassen.
+    pub fn wall_tiles(&self) -> Vec<TilePos> {
+        Self::positions().filter(|p| self.surface(*p).stones).collect()
     }
 
     /// Wiese mit leicht ungleichmäßigem Gras und einem kleinen Startbau:
@@ -530,7 +569,9 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     }
     let checker = if (p.x + p.y) % 2 == 0 { 1.0 } else { 0.96 };
     let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass.min(1.0)).map(|c| c * checker);
-    if tile.forest {
+    if tile.stones {
+        rgb = mix(rgb, [0.58 * checker, 0.57 * checker, 0.52 * checker], 0.8);
+    } else if tile.forest {
         // Waldboden: Moos und Laub im Schatten der Bäume.
         rgb = mix(rgb, [0.30 * checker, 0.40 * checker, 0.22 * checker], 0.7);
     } else {
@@ -577,6 +618,7 @@ pub fn underground_color(grid: &Grid, p: TilePos) -> Color {
             Soil::Sand => [0.86, 0.73, 0.48],
             Soil::Earth => [0.73, 0.54, 0.33],
             Soil::Roots => [0.60, 0.52, 0.30],
+            Soil::Rock => [0.55, 0.55, 0.54],
         },
         Some(Depth::Shallow) => [0.55, 0.39, 0.25],
         Some(Depth::Medium) => [0.43, 0.30, 0.18],

@@ -185,6 +185,7 @@ pub(crate) fn restart(world: &mut World) {
     for tech in chapter.known {
         progress.grant(*tech);
     }
+    progress.night_tools = chapter.night_tools;
     world.insert_resource(progress);
     world.insert_resource(FoxSpawner::starting(chapter.dangers.first_fox));
     world.insert_resource(Losses::default());

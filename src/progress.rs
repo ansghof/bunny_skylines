@@ -207,6 +207,9 @@ pub struct Progress {
     pub wisdom: f32,
     pub winters_survived: u32,
     unlocked: HashSet<Tech>,
+    /// Nachtwache und Erdpfropf sind schon bekannt, nicht erst ab der Siedlung.
+    #[serde(default)]
+    pub night_tools: bool,
 }
 
 impl Default for Progress {
@@ -216,6 +219,7 @@ impl Default for Progress {
             wisdom: 0.0,
             winters_survived: 0,
             unlocked: HashSet::new(),
+            night_tools: false,
         }
     }
 }
