@@ -458,6 +458,7 @@ fn skip_intro(
     time: Res<Time<Real>>,
     mut view: ResMut<ViewLayer>,
     mut clock: ResMut<DayClock>,
+    mut progress: ResMut<Progress>,
     mut done: Local<(bool, bool)>,
 ) {
     if script.has("ziel") {
@@ -491,9 +492,15 @@ fn skip_intro(
     }
     let done = &mut done.1;
     *done = true;
-    // Auch die Uhr hat der Kapitelstart zurückgesetzt.
+    // Auch Uhr und Forschung hat der Kapitelstart zurückgesetzt.
     if script.has("nacht") {
         clock.time = 0.74;
+    }
+    if script.has("forschung") {
+        progress.unlock_all();
+    }
+    if let Some(wisdom) = script.value("weisheit") {
+        progress.wisdom = wisdom;
     }
     commands.run_system_cached(start_playing);
 }

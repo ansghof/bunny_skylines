@@ -106,10 +106,14 @@ pub enum Tech {
     SunSpots,
     Nursery,
     Playground,
+    SupportRoots,
+    Carrots,
+    ThornWall,
+    Festival,
 }
 
 impl Tech {
-    pub const ALL: [Tech; 12] = [
+    pub const ALL: [Tech; 16] = [
         Tech::Claws,
         Tech::DeepTunnels,
         Tech::WideTunnels,
@@ -122,23 +126,28 @@ impl Tech {
         Tech::SunSpots,
         Tech::Nursery,
         Tech::Playground,
+        Tech::SupportRoots,
+        Tech::Carrots,
+        Tech::ThornWall,
+        Tech::Festival,
     ];
 
     pub fn branch(self) -> Branch {
         match self {
-            Tech::Claws | Tech::DeepTunnels | Tech::WideTunnels => Branch::Digging,
-            Tech::Clover | Tech::DriedHay | Tech::Herbs => Branch::Food,
-            Tech::Posts | Tech::Hedges | Tech::BoltHoles => Branch::Safety,
-            Tech::SunSpots | Tech::Nursery | Tech::Playground => Branch::Community,
+            Tech::Claws | Tech::DeepTunnels | Tech::WideTunnels | Tech::SupportRoots => Branch::Digging,
+            Tech::Clover | Tech::DriedHay | Tech::Herbs | Tech::Carrots => Branch::Food,
+            Tech::Posts | Tech::Hedges | Tech::BoltHoles | Tech::ThornWall => Branch::Safety,
+            Tech::SunSpots | Tech::Nursery | Tech::Playground | Tech::Festival => Branch::Community,
         }
     }
 
-    /// Stufe im Ast, 1 bis 3.
+    /// Stufe im Ast, 1 bis 4.
     pub fn tier(self) -> u8 {
         match self {
             Tech::Claws | Tech::Clover | Tech::Posts | Tech::SunSpots => 1,
             Tech::DeepTunnels | Tech::DriedHay | Tech::Hedges | Tech::Nursery => 2,
             Tech::WideTunnels | Tech::Herbs | Tech::BoltHoles | Tech::Playground => 3,
+            Tech::SupportRoots | Tech::Carrots | Tech::ThornWall | Tech::Festival => 4,
         }
     }
 
@@ -156,6 +165,10 @@ impl Tech {
             Tech::SunSpots => "Sonnenplatz",
             Tech::Nursery => "Kinderstube",
             Tech::Playground => "Spielwiese",
+            Tech::SupportRoots => "Stützwurzeln",
+            Tech::Carrots => "Möhrenbeet",
+            Tech::ThornWall => "Dornenwall",
+            Tech::Festival => "Festplatz",
         }
     }
 
@@ -173,6 +186,10 @@ impl Tech {
             Tech::SunSpots => "Sonnenplatz anlegen: Kaninchen in der Nähe werden zufriedener.",
             Tech::Nursery => "Kinderstube einrichten: Junge wachsen doppelt so schnell, Würfe werden größer.",
             Tech::Playground => "Spielwiese anlegen: Die ganze Familie ist zufriedener.",
+            Tech::SupportRoots => "Wurzeln stützen die Decke: Jeder Boden trägt einen Gang mehr in der Breite.",
+            Tech::Carrots => "Möhrenbeet anlegen: wächst langsam, macht aber dreimal so satt wie Gras.",
+            Tech::ThornWall => "Dornenwall: Ein Fuchs, der in eine Hecke läuft, gibt auf und zieht ab.",
+            Tech::Festival => "Festplatz anlegen: Wer kein Nest hat, ist weniger unglücklich und bleibt länger.",
         }
     }
 
@@ -180,7 +197,8 @@ impl Tech {
         match self.tier() {
             1 => 10.0,
             2 => 25.0,
-            _ => 50.0,
+            3 => 50.0,
+            _ => 100.0,
         }
     }
 
@@ -189,7 +207,8 @@ impl Tech {
         match self.tier() {
             1 => Stage::Burrow,
             2 => Stage::Warren,
-            _ => Stage::Settlement,
+            3 => Stage::Settlement,
+            _ => Stage::Town,
         }
     }
 

@@ -41,6 +41,10 @@ const RECOVERY_PER_SECOND: f32 = 0.004;
 const CLOVER_GROWTH_FACTOR: f32 = 2.0;
 /// Und ist so viel nahrhafter.
 const CLOVER_NUTRITION: f32 = 1.5;
+/// Möhren machen dreimal so satt wie Gras …
+const CARROT_NUTRITION: f32 = 3.0;
+/// … wachsen aber nur halb so schnell.
+const CARROT_GROWTH_FACTOR: f32 = 0.5;
 
 pub struct MapPlugin;
 
@@ -196,6 +200,10 @@ pub enum Feature {
     Herbs,
     /// Spielwiese: macht die ganze Familie zufriedener.
     Playground,
+    /// Möhrenbeet: wächst langsam, macht aber sehr satt.
+    Carrots,
+    /// Festplatz: Kaninchen ohne Nest bleiben länger zufrieden.
+    Festival,
 }
 
 impl Feature {
@@ -206,12 +214,14 @@ impl Feature {
             Feature::SunSpot => "Sonnenplatz",
             Feature::Herbs => "Kräutergarten",
             Feature::Playground => "Spielwiese",
+            Feature::Carrots => "Möhrenbeet",
+            Feature::Festival => "Festplatz",
         }
     }
 
     /// Ob auf dem Feld weiter Gras zum Fressen wächst.
     pub fn keeps_grass(self) -> bool {
-        matches!(self, Feature::Herbs | Feature::SunSpot | Feature::Playground)
+        matches!(self, Feature::Herbs | Feature::SunSpot | Feature::Playground | Feature::Carrots)
     }
 }
 
@@ -248,7 +258,13 @@ pub struct SurfaceTile {
 impl SurfaceTile {
     /// Wie viel ein Bissen von diesem Feld wert ist, verglichen mit Gras.
     pub fn nutrition(&self) -> f32 {
-        if self.clover { CLOVER_NUTRITION } else { 1.0 }
+        if self.feature == Some(Feature::Carrots) {
+            CARROT_NUTRITION
+        } else if self.clover {
+            CLOVER_NUTRITION
+        } else {
+            1.0
+        }
     }
 
     /// Ein Kaninchen frisst oder rupft einen Bissen ab. Gibt zurück, wie viel Gras es war.
@@ -370,13 +386,19 @@ impl Grid {
 
     /// Ob hier ein Gang hinpasst. Gibt sonst den Boden zurück, der für die Breite zu schwach ist:
     /// Ein offenes Quadrat darf nicht breiter werden, als sein lockerster Boden trägt.
+    #[cfg(test)]
     pub fn too_wide(&self, p: TilePos) -> Option<Soil> {
+        self.too_wide_with(p, 0)
+    }
+
+    /// Wie `too_wide`, aber jeder Boden trägt `bonus` Felder mehr in der Breite (Stützwurzeln).
+    pub fn too_wide_with(&self, p: TilePos, bonus: i32) -> Option<Soil> {
         // In Fels geht gar nichts, auch kein einzelner Gang.
         if self.under(p).soil == Soil::Rock {
             return Some(Soil::Rock);
         }
         let open = |q: TilePos| q == p || (q.in_bounds() && (self.under(q).dug.is_some() || self.under(q).planned.is_some()));
-        for size in 2..=WIDEST + 1 {
+        for size in 2..=WIDEST + bonus + 1 {
             for top in p.y - size + 1..=p.y {
                 for left in p.x - size + 1..=p.x {
                     let corner = TilePos::new(left, top);
@@ -385,7 +407,7 @@ impl Grid {
                         continue;
                     }
                     let weakest = tiles_between(corner, far).map(|q| self.under(q).soil).min_by_key(|soil| soil.max_width());
-                    if let Some(soil) = weakest.filter(|soil| size > soil.max_width()) {
+                    if let Some(soil) = weakest.filter(|soil| size > soil.max_width() + bonus) {
                         return Some(soil);
                     }
                 }
@@ -584,7 +606,13 @@ fn grow_grass(time: Res<Time>, clock: Res<DayClock>, mut grid: ResMut<Grid>, mut
         }
         // Ausgelaugter Boden trägt weniger Gras, und es wächst langsamer.
         if !tile.entrance && tile.grass < tile.fertility {
-            let speed = if tile.clover { CLOVER_GROWTH_FACTOR } else { 1.0 };
+            let speed = if tile.feature == Some(Feature::Carrots) {
+                CARROT_GROWTH_FACTOR
+            } else if tile.clover {
+                CLOVER_GROWTH_FACTOR
+            } else {
+                1.0
+            };
             tile.grass = (tile.grass + growth * speed * tile.fertility).min(tile.fertility);
         }
     }
@@ -626,6 +654,8 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
         Some(Feature::SunSpot) => rgb = mix(rgb, [0.95, 0.85, 0.50], 0.45),
         Some(Feature::Herbs) => rgb = mix(rgb, [0.45, 0.62, 0.40], 0.4),
         Some(Feature::Playground) => rgb = mix(rgb, [0.70, 0.82, 0.45], 0.4),
+        Some(Feature::Carrots) => rgb = mix(rgb, [0.52, 0.40, 0.24], 0.45),
+        Some(Feature::Festival) => rgb = mix(rgb, [0.86, 0.74, 0.52], 0.5),
         None => {}
     }
     // Gänge darunter scheinen leicht durch.
@@ -731,6 +761,27 @@ mod tests {
         assert!(dig_block(&mut grid_of(Soil::Earth), 3) < 9);
         assert_eq!(dig_block(&mut grid_of(Soil::Roots), 4), 16);
         assert!(dig_block(&mut grid_of(Soil::Roots), 5) < 25);
+    }
+
+    #[test]
+    fn support_roots_widen_every_soil() {
+        let mut grid = grid_of(Soil::Sand);
+        for p in tiles_between(TilePos::new(5, 5), TilePos::new(6, 6)) {
+            assert_eq!(grid.too_wide_with(p, 1), None);
+            grid.under_mut(p).dug = Some(Depth::Medium);
+        }
+        assert_eq!(grid.too_wide_with(TilePos::new(7, 5), 1), None);
+        // Ein 3×3-Quadrat ist auch mit Stützwurzeln zu viel für Sand.
+        for (x, y) in [(7, 5), (7, 6), (5, 7), (6, 7)] {
+            grid.under_mut(TilePos::new(x, y)).dug = Some(Depth::Medium);
+        }
+        assert_eq!(grid.too_wide_with(TilePos::new(7, 7), 1), Some(Soil::Sand));
+    }
+
+    #[test]
+    fn rock_never_digs() {
+        let grid = grid_of(Soil::Rock);
+        assert_eq!(grid.too_wide_with(TilePos::new(5, 5), 3), Some(Soil::Rock));
     }
 
     #[test]

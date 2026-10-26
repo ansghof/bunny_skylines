@@ -205,7 +205,7 @@ fn show_info(
     match mood.bad_nights {
         0 if mood.slept_badly => lines.push("   − fand keinen Schlafplatz".into()),
         0 => {}
-        1 => lines.push("   − eine Nacht ohne Nest (nach der zweiten zieht es fort)".into()),
+        1 => lines.push("   − eine Nacht ohne Nest (bald zieht es fort)".into()),
         n => lines.push(format!("   − {n} Nächte ohne Nest")),
     }
 

@@ -12,6 +12,7 @@ use crate::daynight::{DayClock, figure_light};
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
 use crate::rabbit::{Fur, OnLayer, Rabbit, z_for};
 use crate::scenario::{Scenario, Terrain};
+use crate::progress::{Progress, Tech};
 use crate::camera::Orbit;
 use crate::carry::{CarryPoint, carry_off};
 use crate::ground::to_world3;
@@ -182,6 +183,7 @@ fn hunt(
     mut reserved: ResMut<Reserved>,
     mut sounds: ResMut<Sounds>,
     grid: Res<Grid>,
+    progress: Res<Progress>,
     mut foxes: Query<(Entity, &mut Fox, &mut Transform)>,
     rabbits: Query<(Entity, &Rabbit, &Transform, &OnLayer, &Activity, &Fur), Without<Fox>>,
 ) {
@@ -256,9 +258,13 @@ fn hunt(
             }
         };
 
-        // Durch Dornenhecken kommt der Fuchs nur mühsam.
+        // Durch Dornenhecken kommt der Fuchs nur mühsam; mit Dornenwall gibt er dort ganz auf.
         let in_hedge = TilePos::from_world(position)
             .is_some_and(|p| grid.surface(p).feature == Some(Feature::Hedge));
+        if in_hedge && progress.has(Tech::ThornWall) && fox.state != FoxState::Leaving {
+            fox.state = FoxState::Leaving;
+            messages.push("Der Fuchs hat sich im Dornenwall verfangen und gibt auf.");
+        }
         let speed = if in_hedge { speed * HEDGE_SLOWDOWN } else { speed };
         fox.velocity = match target {
             Some(target) if target.distance(position) > 1.0 => (target - position).normalize() * speed,

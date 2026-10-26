@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Festplatz von oben: ein runder, festgetretener Platz mit Wimpelkette und Blumen -->
+  <circle cx="64" cy="64" r="54" fill="#d9c08a" stroke="#8a6a3a" stroke-width="3"/>
+  <circle cx="64" cy="64" r="34" fill="#e6d2a2"/>
+  <path d="M14 40 Q64 70 114 40" stroke="#5a3a22" stroke-width="2.5" fill="none"/>
+  <path d="M24 46 l5 12 l5 -10 Z" fill="#e8873a"/><path d="M42 53 l5 12 l5 -11 Z" fill="#f4cf45"/><path d="M60 56 l5 11 l5 -11 Z" fill="#6fae5a"/><path d="M78 54 l5 11 l5 -12 Z" fill="#7aa8e0"/><path d="M96 48 l5 10 l5 -12 Z" fill="#d96a8a"/>
+  <circle cx="30" cy="92" r="5" fill="#f2b8b0"/><circle cx="98" cy="96" r="5" fill="#f4e7a0"/><circle cx="64" cy="104" r="5" fill="#b98ad9"/>
+</svg>

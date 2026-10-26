@@ -107,6 +107,8 @@ impl Action {
             Action::Tool(ToolKind::Feature(Feature::SunSpot)) => "sonnenplatz",
             Action::Tool(ToolKind::Feature(Feature::Herbs)) => "kraeuter",
             Action::Tool(ToolKind::Feature(Feature::Playground)) => "spielwiese",
+            Action::Tool(ToolKind::Feature(Feature::Carrots)) => "moehrenbeet",
+            Action::Tool(ToolKind::Feature(Feature::Festival)) => "festplatz",
             Action::Tool(ToolKind::Plug) => "erdpfropf",
             Action::Tool(ToolKind::Watch) => "nachtwache",
             Action::Tool(ToolKind::Remove) => "entfernen",
@@ -541,7 +543,8 @@ struct TechButton(Tech);
 struct TechText(Tech);
 
 fn spawn_research_panel(mut commands: Commands) {
-    let row = centered_row(&mut commands, TOOLBAR_HEIGHT + 20.0);
+    // Vier Stufen hoch: dicht über der Leiste und breiter, damit oben die Zielzeile frei bleibt.
+    let row = centered_row(&mut commands, TOOLBAR_HEIGHT + 8.0);
     let panel = commands
         .spawn((
             ResearchPanel,
@@ -550,8 +553,8 @@ fn spawn_research_panel(mut commands: Commands) {
             Node {
                 display: Display::None,
                 flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(10.0),
-                padding: UiRect::all(Val::Px(14.0)),
+                row_gap: Val::Px(6.0),
+                padding: UiRect::all(Val::Px(10.0)),
                 border_radius: BorderRadius::all(Val::Px(10.0)),
                 ..default()
             },
@@ -576,8 +579,8 @@ fn spawn_research_panel(mut commands: Commands) {
             .spawn((
                 Node {
                     flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(6.0),
-                    width: Val::Px(210.0),
+                    row_gap: Val::Px(4.0),
+                    width: Val::Px(250.0),
                     ..default()
                 },
                 Pickable::IGNORE,
@@ -591,7 +594,7 @@ fn spawn_research_panel(mut commands: Commands) {
                     TechButton(tech),
                     Hovered::default(),
                     Node {
-                        padding: UiRect::all(Val::Px(8.0)),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
                         border: UiRect::all(Val::Px(2.0)),
                         border_radius: BorderRadius::all(Val::Px(8.0)),
                         ..default()

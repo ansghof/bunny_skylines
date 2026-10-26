@@ -45,8 +45,17 @@ const UNHAPPY: f32 = 0.35;
 const LEAVING: f32 = UNHAPPY;
 /// … und tut es nach so vielen Spielsekunden am Stück, z. B. bei langem Hunger.
 const LEAVE_AFTER_SECONDS: f32 = 90.0;
-/// Nach so vielen Nächten hintereinander ohne Nest zieht ein Kaninchen fort.
+/// Nach so vielen Nächten hintereinander ohne Nest zieht ein Kaninchen fort …
 const LEAVE_AFTER_BAD_NIGHTS: u32 = 2;
+/// … mit Festplatz erst nach so vielen.
+const LEAVE_AFTER_BAD_NIGHTS_FESTIVAL: u32 = 4;
+/// So sehr drückt eine Nacht ohne Nest die Stimmung, ohne und mit Festplatz.
+const NO_NEST_MOOD: f32 = 0.5;
+const NO_NEST_MOOD_FESTIVAL: f32 = 0.3;
+
+fn has_festival(grid: &Grid) -> bool {
+    Grid::positions().any(|p| grid.surface(p).feature == Some(Feature::Festival))
+}
 /// Sonnenplatz in der Nähe und Spielwiesen heben die Stimmung.
 const SUN_SPOT_MOOD: f32 = 0.15;
 const PLAYGROUND_MOOD: f32 = 0.05;
@@ -447,6 +456,8 @@ fn update_mood(
     let content = CONTENT + (playgrounds as f32 * PLAYGROUND_MOOD).min(PLAYGROUND_MOOD_MAX);
     // Gibt es mehr Kaninchen als Schlafplätze, fehlt manchen ein Nest, auch wenn sie gerade fressen.
     let crowded = rabbits.iter().count() > Colony::sleeping_places(&grid);
+    // Mit Festplatz trösten die Feste über ein fehlendes Nest hinweg.
+    let no_nest_penalty = if has_festival(&grid) { NO_NEST_MOOD_FESTIVAL } else { NO_NEST_MOOD };
     for (hunger, fear, activity, transform, layer, mut mood) in &mut rabbits {
         let mut target = content;
         if layer.0 == Layer::Surface && near_sun_spot(&grid, transform) {
@@ -462,7 +473,7 @@ fn update_mood(
         // ist, zählt nicht, es sei denn, die Nester reichen ohnehin nicht für alle.
         let in_nest = matches!(activity, Activity::Sleeping { .. } | Activity::Walking(Goal::Sleep(_)));
         if resting_time && !in_nest && (hunger.0 < SHOW_HUNGER || crowded) {
-            target -= 0.5;
+            target -= no_nest_penalty;
             mood.slept_badly = true;
             // Jede Nacht (im Winter: jeder Ruhetag) zählt nur einmal.
             if mood.bad_night_day != clock.day {
@@ -499,6 +510,7 @@ fn emigrate(
     mut messages: ResMut<Messages>,
     mut rabbits: Query<(&Rabbit, &Transform, &OnLayer, &mut Mood, &mut Activity, &mut Path)>,
 ) {
+    let bad_nights_limit = if has_festival(&grid) { LEAVE_AFTER_BAD_NIGHTS_FESTIVAL } else { LEAVE_AFTER_BAD_NIGHTS };
     let dt = time.delta_secs();
     for (rabbit, transform, layer, mut mood, mut activity, mut path) in &mut rabbits {
         if matches!(*activity, Activity::Walking(Goal::Leave) | Activity::Gone) {
@@ -513,7 +525,7 @@ fn emigrate(
         } else {
             mood.gloomy_for += dt;
         }
-        let homeless = mood.bad_nights >= LEAVE_AFTER_BAD_NIGHTS;
+        let homeless = mood.bad_nights >= bad_nights_limit;
         if mood.gloomy_for < LEAVE_AFTER_SECONDS && !homeless {
             continue;
         }

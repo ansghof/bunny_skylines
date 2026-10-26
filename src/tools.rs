@@ -49,7 +49,7 @@ pub enum Lock {
 }
 
 /// Alle Werkzeuge in der Reihenfolge der Werkzeugleiste, mit Taste und Tastenname.
-pub const TOOLS: [(ToolKind, KeyCode, &str); 17] = [
+pub const TOOLS: [(ToolKind, KeyCode, &str); 19] = [
     (ToolKind::Point, KeyCode::Escape, "Esc"),
     (ToolKind::Dig, KeyCode::KeyG, "G"),
     (ToolKind::Entrance, KeyCode::KeyE, "E"),
@@ -64,6 +64,8 @@ pub const TOOLS: [(ToolKind, KeyCode, &str); 17] = [
     (ToolKind::Clover, KeyCode::KeyK, "K"),
     (ToolKind::Feature(Feature::Herbs), KeyCode::KeyU, "U"),
     (ToolKind::Feature(Feature::Playground), KeyCode::KeyM, "M"),
+    (ToolKind::Feature(Feature::Carrots), KeyCode::Digit4, "4"),
+    (ToolKind::Feature(Feature::Festival), KeyCode::Digit5, "5"),
     (ToolKind::Watch, KeyCode::KeyI, "I"),
     (ToolKind::Plug, KeyCode::KeyC, "C"),
     (ToolKind::Remove, KeyCode::KeyX, "X"),
@@ -108,6 +110,10 @@ impl ToolKind {
             ToolKind::Feature(Feature::SunSpot) => "Kaninchen in der Nähe sonnen sich und werden zufriedener.",
             ToolKind::Feature(Feature::Herbs) => "Kräuter zum Fressen: Wer hier frisst, wird deutlich zufriedener.",
             ToolKind::Feature(Feature::Playground) => "Jedes Feld Spielwiese macht die ganze Familie etwas zufriedener.",
+            ToolKind::Feature(Feature::Carrots) => "Möhren wachsen langsam, machen aber dreimal so satt wie Gras.",
+            ToolKind::Feature(Feature::Festival) => {
+                "Hier feiert die Familie: Wer kein Nest hat, ist weniger unglücklich und zieht erst nach vier Nächten fort."
+            }
             ToolKind::Plug => {
                 "Eine Stelle im Gang, die bei einem Marder sofort mit Erde verschlossen wird. \
                  Was dahinter liegt, ist sicher – aber der Weg ist dann auch für die Kaninchen zu."
@@ -131,6 +137,8 @@ impl ToolKind {
             ToolKind::Feature(Feature::SunSpot) => Some((0.0, cost::SUN_SPOT_EARTH)),
             ToolKind::Feature(Feature::Herbs) => Some((cost::HERBS_FOOD, 0.0)),
             ToolKind::Feature(Feature::Playground) => Some((0.0, cost::PLAYGROUND_EARTH)),
+            ToolKind::Feature(Feature::Carrots) => Some((cost::CARROTS_FOOD, 0.0)),
+            ToolKind::Feature(Feature::Festival) => Some((0.0, cost::FESTIVAL_EARTH)),
             ToolKind::Plug => Some((0.0, cost::PLUG_EARTH)),
             ToolKind::Watch => Some((0.0, cost::WATCH_EARTH)),
             _ => None,
@@ -164,6 +172,8 @@ impl ToolKind {
             ToolKind::Feature(Feature::SunSpot) => Some(Tech::SunSpots),
             ToolKind::Feature(Feature::Herbs) => Some(Tech::Herbs),
             ToolKind::Feature(Feature::Playground) => Some(Tech::Playground),
+            ToolKind::Feature(Feature::Carrots) => Some(Tech::Carrots),
+            ToolKind::Feature(Feature::Festival) => Some(Tech::Festival),
             _ => None,
         }
     }
@@ -341,7 +351,7 @@ pub(crate) fn apply_drag(
                 }
                 // Schon geplante Felder wurden beim Planen geprüft.
                 if tile.planned.is_none()
-                    && let Some(soil) = grid.too_wide(p)
+                    && let Some(soil) = grid.too_wide_with(p, width_bonus(&progress))
                 {
                     too_wide = Some(soil);
                     continue;
@@ -357,7 +367,7 @@ pub(crate) fn apply_drag(
                 let under = grid.under(p);
                 if under.dug.is_none()
                     && under.planned.is_none()
-                    && let Some(soil) = grid.too_wide(p)
+                    && let Some(soil) = grid.too_wide_with(p, width_bonus(&progress))
                 {
                     too_wide = Some(soil);
                     continue;
@@ -456,7 +466,7 @@ pub(crate) fn apply_drag(
         }
     }
     if let Some(soil) = too_wide {
-        messages.push(width_message(soil));
+        messages.push(width_message(soil, width_bonus(&progress)));
     }
     sounds.play(Sound::Build);
     if short {
@@ -465,11 +475,16 @@ pub(crate) fn apply_drag(
     }
 }
 
-fn width_message(soil: Soil) -> String {
+/// Mit Stützwurzeln trägt jeder Boden einen Gang mehr in der Breite.
+fn width_bonus(progress: &Progress) -> i32 {
+    i32::from(progress.has(Tech::SupportRoots))
+}
+
+fn width_message(soil: Soil, bonus: i32) -> String {
     if soil == Soil::Rock {
         return "Hier ist Fels, da kann man nicht graben.".into();
     }
-    let width = match soil.max_width() {
+    let width = match soil.max_width() + bonus {
         1 => "1 Feld".to_string(),
         n => format!("{n} Felder"),
     };
@@ -502,6 +517,7 @@ fn draw_preview(
     drag: Res<Drag>,
     grid: Res<Grid>,
     colony: Res<Colony>,
+    progress: Res<Progress>,
     mut selection: ResMut<SelectionCost>,
     toolbar: Query<&Hovered, With<Toolbar>>,
 ) {
@@ -543,7 +559,7 @@ fn draw_preview(
     let info = info.or_else(|| {
         let digging = view.0 == Layer::Underground && matches!(tool.kind, ToolKind::Dig | ToolKind::Chamber(_));
         let soil = grid.under(TilePos::from_world_clamped(cursor)).soil;
-        let width = soil.max_width();
+        let width = soil.max_width() + width_bonus(&progress);
         digging.then(|| match soil {
             Soil::Rock => "Boden: Fels, hier kann man nicht graben.".to_string(),
             _ => format!("Boden: {}, Gänge bis {width} breit.", soil.label()),

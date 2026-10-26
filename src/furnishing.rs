@@ -65,7 +65,7 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 16] = [
+const IMAGES: [(&str, Vec2); 18] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
     ("futter_klein.png", Vec2::new(80.0, 56.0)),
     ("futter_mittel.png", Vec2::new(104.0, 72.0)),
@@ -83,6 +83,8 @@ const IMAGES: [(&str, Vec2); 16] = [
     // Bäume doppelt so groß wie gezeichnet, damit sie über die Wiese ragen.
     ("baum.png", Vec2::new(320.0, 440.0)),
     ("steinwall.png", Vec2::new(140.0, 114.0)),
+    ("moehren.png", Vec2::new(128.0, 128.0)),
+    ("festplatz.png", Vec2::new(128.0, 128.0)),
 ];
 
 fn feature_image(feature: Feature) -> &'static str {
@@ -92,6 +94,8 @@ fn feature_image(feature: Feature) -> &'static str {
         Feature::SunSpot => "sonnenplatz.png",
         Feature::Herbs => "kraeuter.png",
         Feature::Playground => "spielwiese.png",
+        Feature::Carrots => "moehren.png",
+        Feature::Festival => "festplatz.png",
     }
 }
 
@@ -209,9 +213,9 @@ fn place_furnishing(
         if surface.clover && surface.grass > 0.25 {
             wanted.insert((p, Kind::Clover), "klee.png");
         }
-        // Kräuter sieht man nur, solange sie nicht abgefressen sind; alles andere immer.
+        // Kräuter und Möhren sieht man nur, solange sie nicht abgefressen sind; alles andere immer.
         if let Some(feature) = surface.feature
-            && (feature != Feature::Herbs || surface.grass > 0.25)
+            && (!matches!(feature, Feature::Herbs | Feature::Carrots) || surface.grass > 0.25)
         {
             wanted.insert((p, Kind::Built(feature)), feature_image(feature));
         }

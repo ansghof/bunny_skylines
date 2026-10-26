@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Möhrenbeet von oben: dunkle Erde in Reihen, darüber das Grün der Möhren -->
+  <rect x="10" y="14" width="108" height="100" rx="12" fill="#6e4a2c" stroke="#3a2614" stroke-width="3"/>
+  <path d="M18 38 H110 M18 64 H110 M18 90 H110" stroke="#4e3220" stroke-width="5" stroke-linecap="round"/>
+  <g fill="#4f9a3a" stroke="#2f5a24" stroke-width="2">
+    <path d="M30 38 l-6 -12 l6 6 l2 -10 l3 10 l6 -6 Z"/><path d="M62 38 l-6 -12 l6 6 l2 -10 l3 10 l6 -6 Z"/><path d="M94 38 l-6 -12 l6 6 l2 -10 l3 10 l6 -6 Z"/>
+    <path d="M44 64 l-6 -12 l6 6 l2 -10 l3 10 l6 -6 Z"/><path d="M78 64 l-6 -12 l6 6 l2 -10 l3 10 l6 -6 Z"/>
+    <path d="M30 90 l-6 -12 l6 6 l2 -10 l3 10 l6 -6 Z"/><path d="M62 90 l-6 -12 l6 6 l2 -10 l3 10 l6 -6 Z"/><path d="M94 90 l-6 -12 l6 6 l2 -10 l3 10 l6 -6 Z"/>
+  </g>
+  <circle cx="32" cy="40" r="3" fill="#ef8a2e"/><circle cx="64" cy="40" r="3" fill="#ef8a2e"/><circle cx="80" cy="66" r="3" fill="#ef8a2e"/><circle cx="96" cy="92" r="3" fill="#ef8a2e"/>
+</svg>
