@@ -18,9 +18,15 @@ use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 pub const ADULT_AGE: f32 = 150.0;
 /// Grundwahrscheinlichkeit pro Prüfung (alle 2 s), dass ein Weibchen trächtig wird.
 const PREGNANCY_CHANCE: f32 = 0.15;
-/// Jedes Kaninchen über den Schlafplätzen bremst die Fortpflanzung um so viel:
-/// 10 zu viele halbieren sie, 30 zu viele vierteln sie.
-const CROWDING_SLOWDOWN: f32 = 0.1;
+/// Jedes Kaninchen über den Schlafplätzen lässt nur so viel der Fortpflanzung übrig, bei der Chance
+/// auf Trächtigkeit und bei der Pause bis zum nächsten Wurf: 5 zu viele lassen ein Viertel,
+/// 10 zu viele nur noch ein Achtzehntel.
+const CROWDING_FACTOR: f32 = 0.75;
+
+/// Wie viel Fortpflanzung bei so vielen Kaninchen über den Schlafplätzen bleibt, 0 bis 1.
+fn crowding(rabbits: usize, places: usize) -> f32 {
+    CROWDING_FACTOR.powf(rabbits.saturating_sub(places) as f32)
+}
 /// Mehr Kaninchen gibt es nie, auch nicht mit noch so vielen Nestern.
 pub const MAX_RABBITS: usize = 600;
 /// So groß kann ein Wurf höchstens werden.
@@ -35,10 +41,12 @@ const STARVE_SECONDS: f32 = 60.0;
 const CONTENT: f32 = 0.8;
 /// Darunter zeigt es eine Regenwolke.
 const UNHAPPY: f32 = 0.35;
-/// Darunter denkt es ans Auswandern …
-const LEAVING: f32 = 0.25;
-/// … und tut es nach so vielen Spielsekunden.
-const LEAVE_AFTER_SECONDS: f32 = 45.0;
+/// Wer so unglücklich ist, denkt ans Auswandern …
+const LEAVING: f32 = UNHAPPY;
+/// … und tut es nach so vielen Spielsekunden am Stück, z. B. bei langem Hunger.
+const LEAVE_AFTER_SECONDS: f32 = 90.0;
+/// Nach so vielen Nächten hintereinander ohne Nest zieht ein Kaninchen fort.
+const LEAVE_AFTER_BAD_NIGHTS: u32 = 2;
 /// Sonnenplatz in der Nähe und Spielwiesen heben die Stimmung.
 const SUN_SPOT_MOOD: f32 = 0.15;
 const PLAYGROUND_MOOD: f32 = 0.05;
@@ -171,6 +179,10 @@ pub struct Mood {
     gloomy_for: f32,
     /// Hat zur letzten Ruhezeit kein Nest gefunden; bleibt bis zum nächsten Schlaf im Nest.
     pub slept_badly: bool,
+    /// So viele Nächte hintereinander ohne Nest.
+    pub bad_nights: u32,
+    /// Der Tag, dessen Nacht zuletzt als schlecht gezählt wurde.
+    bad_night_day: u32,
     /// Hat vor Kurzem Kräuter gefressen, noch so viele Sekunden.
     pub herbs: f32,
 }
@@ -237,6 +249,8 @@ fn rabbit_bundle(
                 value: CONTENT,
                 gloomy_for: 0.0,
                 slept_badly: false,
+                bad_nights: 0,
+                bad_night_day: 0,
                 herbs: 0.0,
             },
             OnLayer(layer),
@@ -431,6 +445,8 @@ fn update_mood(
         .filter(|p| grid.surface(*p).feature == Some(Feature::Playground))
         .count();
     let content = CONTENT + (playgrounds as f32 * PLAYGROUND_MOOD).min(PLAYGROUND_MOOD_MAX);
+    // Gibt es mehr Kaninchen als Schlafplätze, fehlt manchen ein Nest, auch wenn sie gerade fressen.
+    let crowded = rabbits.iter().count() > Colony::sleeping_places(&grid);
     for (hunger, fear, activity, transform, layer, mut mood) in &mut rabbits {
         let mut target = content;
         if layer.0 == Layer::Surface && near_sun_spot(&grid, transform) {
@@ -442,14 +458,21 @@ fn update_mood(
         if fear.0 > 0.0 {
             target -= 0.2;
         }
-        // Zur Ruhezeit nicht im Nest: Es war wohl keins mehr frei.
+        // Zur Ruhezeit nicht im Nest: Es war wohl keins mehr frei. Wer nur zum Fressen aufgestanden
+        // ist, zählt nicht, es sei denn, die Nester reichen ohnehin nicht für alle.
         let in_nest = matches!(activity, Activity::Sleeping { .. } | Activity::Walking(Goal::Sleep(_)));
-        if resting_time && !in_nest && hunger.0 < SHOW_HUNGER {
-            target -= 0.4;
+        if resting_time && !in_nest && (hunger.0 < SHOW_HUNGER || crowded) {
+            target -= 0.5;
             mood.slept_badly = true;
+            // Jede Nacht (im Winter: jeder Ruhetag) zählt nur einmal.
+            if mood.bad_night_day != clock.day {
+                mood.bad_night_day = clock.day;
+                mood.bad_nights += 1;
+            }
         }
         if matches!(activity, Activity::Sleeping { .. }) {
             mood.slept_badly = false;
+            mood.bad_nights = 0;
         }
         mood.herbs = (mood.herbs - dt).max(0.0);
         mood.value += (target - mood.value) * (dt / MOOD_SECONDS).min(1.0);
@@ -481,12 +504,17 @@ fn emigrate(
         if matches!(*activity, Activity::Walking(Goal::Leave) | Activity::Gone) {
             continue;
         }
-        if mood.value >= LEAVING || !rabbit.is_adult() {
+        if !rabbit.is_adult() {
             mood.gloomy_for = 0.0;
             continue;
         }
-        mood.gloomy_for += dt;
-        if mood.gloomy_for < LEAVE_AFTER_SECONDS {
+        if mood.value >= LEAVING {
+            mood.gloomy_for = 0.0;
+        } else {
+            mood.gloomy_for += dt;
+        }
+        let homeless = mood.bad_nights >= LEAVE_AFTER_BAD_NIGHTS;
+        if mood.gloomy_for < LEAVE_AFTER_SECONDS && !homeless {
             continue;
         }
         let Some(steps) = path_to_edge(&grid, transform, layer) else {
@@ -495,7 +523,8 @@ fn emigrate(
         release(&activity, &mut reserved);
         path.0 = steps.into();
         *activity = Activity::Walking(Goal::Leave);
-        messages.push(format!("{} ist unzufrieden und zieht fort.", rabbit.name));
+        let reason = if homeless { "findet keinen Schlafplatz" } else { "ist unzufrieden" };
+        messages.push(format!("{} {reason} und zieht fort.", rabbit.name));
     }
 }
 
@@ -583,8 +612,7 @@ fn start_pregnancies(
         if expected + MAX_LITTER > MAX_RABBITS {
             break;
         }
-        let crowded = expected.saturating_sub(places) as f32;
-        let chance = PREGNANCY_CHANCE / (1.0 + crowded * CROWDING_SLOWDOWN);
+        let chance = PREGNANCY_CHANCE * crowding(expected, places);
         if rabbit.female && rabbit.is_adult() && hunger.0 < 0.6 && rng.chance(chance) {
             let father = fathers[rng.below(fathers.len())].to_string();
             commands.entity(entity).insert(Pregnant { left: PREGNANCY_SECONDS, father });
@@ -606,15 +634,14 @@ fn give_birth(
     grid: Res<Grid>,
 ) {
     let mut taken: Vec<String> = everyone.iter().map(|r| r.name.clone()).collect();
+    // Bei Enge dauert es auch länger bis zum nächsten Wurf, im selben Maß wie die Chance sinkt.
+    let cooldown = BIRTH_COOLDOWN_SECONDS / crowding(taken.len(), Colony::sleeping_places(&grid));
     for (entity, mother, fur, layer, transform, mut pregnant) in &mut mothers {
         pregnant.left -= time.delta_secs();
         if pregnant.left > 0.0 {
             continue;
         }
-        commands
-            .entity(entity)
-            .remove::<Pregnant>()
-            .insert(BirthCooldown(BIRTH_COOLDOWN_SECONDS));
+        commands.entity(entity).remove::<Pregnant>().insert(BirthCooldown(cooldown));
 
         // In einer Kinderstube kommt ein Junges mehr zur Welt.
         let count = 2 + rng.below(3) + usize::from(grid.chamber_tiles(Chamber::Nursery) > 0);
@@ -930,6 +957,8 @@ impl SavedRabbit {
                 value: self.mood,
                 gloomy_for: 0.0,
                 slept_badly: self.slept_badly,
+                bad_nights: 0,
+                bad_night_day: 0,
                 herbs: 0.0,
             },
             Carrying(self.carrying),

@@ -48,7 +48,7 @@ impl MapOverlay {
             MapOverlay::Mood => {
                 "Übersicht: Stimmung  [Q]\n\
                  Ringe unter den Kaninchen:\n\
-                 Grün zufrieden · Gelb geht so · Orange unglücklich · Rot will fort\n\
+                 Grün zufrieden · Gelb geht so · Orange unzufrieden · Rot will fort\n\
                  Ein Klick auf ein Kaninchen zeigt den Grund."
             }
         }
@@ -135,7 +135,7 @@ fn mood_color(value: f32) -> Color {
     match value {
         v if v >= 0.75 => Color::srgb(0.35, 0.85, 0.35),
         v if v >= 0.5 => Color::srgb(0.98, 0.85, 0.30),
-        v if v >= 0.3 => Color::srgb(0.98, 0.55, 0.20),
+        v if v >= 0.35 => Color::srgb(0.98, 0.55, 0.20),
         _ => Color::srgb(0.92, 0.20, 0.18),
     }
 }

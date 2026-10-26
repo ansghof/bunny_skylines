@@ -60,7 +60,7 @@ use crate::marten::MartenSpawner;
 use crate::predator::FoxSpawner;
 use crate::menu::{OpenMenu, TitleScreen, new_game};
 use crate::save::{load_game, save_game};
-use crate::scenario::{Chapter, Scenario, Stage, Target, start_playing};
+use crate::scenario::{Chapter, Scenario, Stage, Target, play_on, start_playing};
 use crate::ground::{floor_y, to_world3};
 use crate::camera::MainCamera;
 use bevy::window::PrimaryWindow;
@@ -420,7 +420,7 @@ fn log_messages(
         && time.elapsed_secs() > at + script.value("fangbild").unwrap_or(0.8)
     {
         *caught_at = Some(f32::INFINITY);
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(SHOT_PATH.to_string()));
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(SHOT_PATH));
     }
     if !messages.is_changed() {
         return;
@@ -450,6 +450,10 @@ fn skip_intro(
 ) {
     if script.has("ziel") {
         scenario.chapter = &EASY_CHAPTER;
+    }
+    // Lange Testläufe sollen nicht am Siegbildschirm stehen bleiben (außer mit `ziel`).
+    if scenario.stage == Stage::Won && !script.has("ziel") {
+        commands.run_system_cached(play_on);
     }
     // Erst das Titelbild überspringen (außer mit `titel`), dann die Einleitung (außer mit `intro`).
     if !done.0 && !script.has("titel") {

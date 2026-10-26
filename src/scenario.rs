@@ -201,7 +201,7 @@ fn check_goals(
     });
 }
 
-fn play_on(world: &mut World) {
+pub fn play_on(world: &mut World) {
     world.resource_mut::<Scenario>().stage = Stage::Free;
     world.run_system_cached(start_playing).ok();
 }

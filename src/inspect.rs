@@ -198,11 +198,15 @@ fn show_info(
     if scared {
         reasons.push("− hat Angst");
     }
-    if mood.slept_badly {
-        reasons.push("− fand keinen Schlafplatz");
-    }
     for reason in reasons {
         lines.push(format!("   {reason}"));
+    }
+    // Ab der zweiten Nacht ohne Nest zieht es fort; das soll man kommen sehen.
+    match mood.bad_nights {
+        0 if mood.slept_badly => lines.push("   − fand keinen Schlafplatz".into()),
+        0 => {}
+        1 => lines.push("   − eine Nacht ohne Nest (nach der zweiten zieht es fort)".into()),
+        n => lines.push(format!("   − {n} Nächte ohne Nest")),
     }
 
     let thought = thought(rabbit, mood, activity, hungry, scared, sun, pregnant, clock.season());
@@ -254,8 +258,8 @@ fn mood_word(value: f32) -> &'static str {
     match value {
         v if v >= 0.75 => "zufrieden",
         v if v >= 0.5 => "geht so",
-        v if v >= 0.3 => "unglücklich",
-        _ => "will fort",
+        v if v >= 0.35 => "unzufrieden",
+        _ => "unglücklich, will fort",
     }
 }
 
