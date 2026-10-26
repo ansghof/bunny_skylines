@@ -35,6 +35,10 @@ enum Kind {
     Clover,
     /// Ein Bau an der Oberfläche: Hecke, Fluchtloch, Sonnenplatz, Kräuter, Spielwiese.
     Built(Feature),
+    /// Erdpfropf im Gang, offen oder verschlossen.
+    Plug,
+    /// Platz der Nachtwache.
+    Watch,
 }
 
 impl Kind {
@@ -42,13 +46,13 @@ impl Kind {
     fn layer(self) -> Layer {
         match self {
             Kind::Clover | Kind::Built(_) => Layer::Surface,
-            Kind::Nest | Kind::Pile | Kind::Light => Layer::Underground,
+            Kind::Nest | Kind::Pile | Kind::Light | Kind::Plug | Kind::Watch => Layer::Underground,
         }
     }
 
     /// Steht aufrecht wie eine Figur, statt flach am Boden zu liegen.
     fn upright(self) -> bool {
-        matches!(self, Kind::Pile | Kind::Built(Feature::Hedge))
+        matches!(self, Kind::Pile | Kind::Plug | Kind::Built(Feature::Hedge))
     }
 }
 
@@ -57,7 +61,7 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 11] = [
+const IMAGES: [(&str, Vec2); 14] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
     ("futter_klein.png", Vec2::new(80.0, 56.0)),
     ("futter_mittel.png", Vec2::new(104.0, 72.0)),
@@ -69,6 +73,9 @@ const IMAGES: [(&str, Vec2); 11] = [
     ("sonnenplatz.png", Vec2::new(128.0, 128.0)),
     ("kraeuter.png", Vec2::new(128.0, 128.0)),
     ("spielwiese.png", Vec2::new(128.0, 128.0)),
+    ("erdpfropf_offen.png", Vec2::new(128.0, 80.0)),
+    ("erdpfropf_zu.png", Vec2::new(128.0, 96.0)),
+    ("nachtwache.png", Vec2::new(128.0, 128.0)),
 ];
 
 fn feature_image(feature: Feature) -> &'static str {
@@ -173,6 +180,14 @@ fn place_furnishing(
                 Some(Chamber::Story | Chamber::Nursery) | None => {}
             }
         }
+        // Der Erdpfropf steht quer im Gang, damit man ihn gut sieht; geschlossen als volle Wand.
+        if tile.plug && tile.dug.is_some() {
+            let image = if grid.plugs_closed { "erdpfropf_zu.png" } else { "erdpfropf_offen.png" };
+            wanted.insert((p, Kind::Plug), image);
+        }
+        if tile.watch && tile.dug.is_some() {
+            wanted.insert((p, Kind::Watch), "nachtwache.png");
+        }
         let surface = grid.surface(p);
         if surface.entrance {
             wanted.insert((p, Kind::Light), "lichtschein.png");
@@ -221,7 +236,7 @@ fn place_furnishing(
             entity.insert((Mesh3d(assets.upright.clone()), Upright, at.with_scale(size.extend(1.0))));
             // Futterhaufen stehen in Kammern und werden mit den Figuren gezeichnet, damit sie aus
             // jedem Winkel zur Kamera schauen können, ohne in der Kammerwand zu verschwinden.
-            if kind == Kind::Pile {
+            if matches!(kind, Kind::Pile | Kind::Plug) {
                 entity.insert(figure_layer());
             }
         } else {

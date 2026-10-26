@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Platz der Nachtwache: eine kleine Strohmatte mit Glühwürmchen-Laterne -->
+  <ellipse cx="64" cy="70" rx="46" ry="34" fill="#c9a446" stroke="#7a5f22" stroke-width="3"/>
+  <ellipse cx="64" cy="70" rx="32" ry="22" fill="#e3c46a"/>
+  <path d="M40 60 L88 80 M44 80 L84 58" stroke="#a8862f" stroke-width="2"/>
+  <circle cx="100" cy="34" r="14" fill="#f4e7a0" opacity="0.5"/>
+  <rect x="93" y="26" width="14" height="18" rx="4" fill="#3a3a52" stroke="#1a1a2a" stroke-width="2.5"/>
+  <circle cx="100" cy="35" r="4" fill="#fff4a0"/>
+  <path d="M100 26 v-6" stroke="#1a1a2a" stroke-width="2.5"/>
+</svg>

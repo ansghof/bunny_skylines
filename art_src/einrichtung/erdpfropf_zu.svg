@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="96" viewBox="0 0 128 96">
+  <!-- Geschlossener Erdpfropf: eine feste Wand aus Erde, Steinen und Wurzeln quer durch den Gang -->
+  <path d="M4 94 C4 40 26 10 64 10 C102 10 124 40 124 94 Z" fill="#5e3f22" stroke="#2a1a0c" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M18 70 C34 62 52 66 64 58 C78 50 96 56 112 48" fill="none" stroke="#8a643c" stroke-width="3" stroke-linecap="round"/>
+  <path d="M30 40 C40 46 50 40 58 46 M72 30 C80 38 92 34 100 40" fill="none" stroke="#3a2614" stroke-width="2.5" stroke-linecap="round"/>
+  <ellipse cx="38" cy="82" rx="9" ry="6" fill="#9a9488" stroke="#2a1a0c" stroke-width="2"/>
+  <ellipse cx="88" cy="78" rx="11" ry="7" fill="#a8a296" stroke="#2a1a0c" stroke-width="2"/>
+  <ellipse cx="64" cy="34" rx="7" ry="5" fill="#9a9488" stroke="#2a1a0c" stroke-width="2"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="80" viewBox="0 0 128 80">
+  <!-- Offener Erdpfropf: zwei bereitliegende Erdhaufen links und rechts, ein Brett dazwischen -->
+  <path d="M2 78 C4 50 18 36 34 36 C46 36 50 52 50 78 Z" fill="#7a5532" stroke="#3a2614" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M78 78 C78 52 84 36 96 36 C112 36 126 50 126 78 Z" fill="#7a5532" stroke="#3a2614" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="22" cy="58" r="4" fill="#a07a50"/><circle cx="36" cy="66" r="3" fill="#5a3c22"/>
+  <circle cx="104" cy="56" r="4" fill="#a07a50"/><circle cx="92" cy="68" r="3" fill="#5a3c22"/>
+  <rect x="54" y="66" width="20" height="10" rx="2" fill="#c9965a" stroke="#3a2614" stroke-width="2.5" transform="rotate(-8 64 71)"/>
+</svg>
