@@ -28,7 +28,7 @@ const LEAVE_SPEED: f32 = 120.0;
 const CHASE_DISTANCE: f32 = 200.0;
 const CATCH_DISTANCE: f32 = 20.0;
 /// Bei so vielen Kaninchen kommen Füchse doppelt so oft.
-const FAMILY_PER_EXTRA_PACE: f32 = 20.0;
+const FAMILY_PER_EXTRA_PACE: f32 = 25.0;
 /// Je so viele Kaninchen darf ein Fuchs mehr gleichzeitig unterwegs sein …
 const FAMILY_PER_EXTRA_FOX: usize = 25;
 /// … aber nie mehr als so viele.

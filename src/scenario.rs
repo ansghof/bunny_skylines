@@ -134,7 +134,7 @@ const THE_FOREST_EDGE: Chapter = Chapter {
     targets: &[Target::Rabbits(15), Target::Year(2)],
     max_losses: Some(6),
     terrain: Terrain::ForestEdge,
-    dangers: Dangers { first_fox: 150.0, fox_pace: 1.3, buzzard_from_start: true, marten_from_start: false },
+    dangers: Dangers { first_fox: 150.0, fox_pace: 1.1, buzzard_from_start: true, marten_from_start: false },
     known: &[Tech::Posts, Tech::Hedges, Tech::Clover],
     relatives: 4,
     start_earth: 15.0,

@@ -40,8 +40,11 @@ const GUARD_SIGHT: f32 = TILE_SIZE * 7.0;
 /// So weit hört man das Stampfen der Wache.
 const STOMP_RADIUS: f32 = TILE_SIZE * 7.0;
 /// Wer so nah am Ziel ist, bemerkt den Sturzflug vielleicht.
-const NOTICE_RADIUS: f32 = TILE_SIZE * 3.0;
-const NOTICE_CHANCE: f32 = 0.5;
+const NOTICE_RADIUS: f32 = TILE_SIZE * 4.0;
+const NOTICE_CHANCE: f32 = 0.7;
+/// Wer im Kreisgebiet draußen ist, hört den Schrei und läuft vielleicht schon vorher in Deckung.
+const CRY_RADIUS: f32 = CIRCLE_RADIUS + TILE_SIZE * 3.0;
+const CRY_CHANCE: f32 = 0.4;
 /// Nach so vielen leeren Runden zieht er weiter.
 const MAX_TRIES: u32 = 3;
 
@@ -87,6 +90,8 @@ pub struct Buzzard {
     tries: u32,
     /// Ob die Wachen ihn schon gemeldet haben.
     spotted: bool,
+    /// Ob er über seinem jetzigen Kreis schon geschrien hat.
+    cried: bool,
 }
 
 #[derive(Component)]
@@ -203,6 +208,7 @@ fn spawn_buzzards(
                 angle: 0.0,
                 tries: 0,
                 spotted: false,
+                cried: false,
             },
         ))
         .id();
@@ -241,6 +247,18 @@ fn fly(
     for (entity, mut bird) in &mut buzzards {
         match bird.flight {
             Flight::Circling { left } => {
+                // Über seinem Kreis angekommen, schreit er einmal: Manche laufen gleich in Deckung.
+                if !bird.cried && bird.position.distance(bird.center) < CIRCLE_RADIUS * 1.5 {
+                    bird.cried = true;
+                    sounds.play(Sound::Buzzard);
+                    let center = bird.center;
+                    for (_, _, transform, layer, mut activity, mut path, mut fear, _) in rabbits.iter_mut() {
+                        let close = transform.translation.truncate().distance(center) < CRY_RADIUS;
+                        if close && rng.chance(CRY_CHANCE) {
+                            start_flight(&grid, &mut reserved, transform, layer, &mut activity, &mut path, &mut fear);
+                        }
+                    }
+                }
                 bird.angle = (bird.angle + dt * TAU / CIRCLE_SECONDS).rem_euclid(TAU);
                 let goal = bird.center + Vec2::from_angle(bird.angle) * CIRCLE_RADIUS;
                 // Gleitet auf seinen Kreis zu, statt hinzuspringen.
@@ -358,6 +376,7 @@ fn give_up_or_circle(
         bird.center = outside[rng.below(outside.len())];
     }
     bird.flight = Flight::Circling { left: rng.range(CIRCLING_SECONDS.0, CIRCLING_SECONDS.1) * 0.6 };
+    bird.cried = false;
 }
 
 /// Wachen sehen den kreisenden Bussard und stampfen; alle in Hörweite rennen in Deckung.

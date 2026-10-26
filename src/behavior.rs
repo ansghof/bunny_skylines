@@ -466,11 +466,38 @@ fn choose(
     {
         return Some((Goal::Listen(seat), steps));
     }
-    // Mit Angst nur unter der Erde.
+    // Mit Angst nur unter der Erde. Junge bleiben im Bau, sonst dicht am Eingang;
+    // Erwachsene bummeln draußen nur in der Nähe eines Eingangs, nicht quer über die Wiese.
+    let roam = if s.rabbit.is_adult() { ADULT_ROAM } else { YOUNG_ROAM };
+    let near_home = |node: Node| node.layer == Layer::Underground || near_entrance(grid, node.pos, roam);
+    let young_inside = !s.rabbit.is_adult() && grid_has_tunnels(grid);
     find_path(grid, start, |node| {
-        node != start && (!s.afraid || node.layer == Layer::Underground) && rng.chance(0.08)
+        node != start
+            && (!s.afraid || node.layer == Layer::Underground)
+            && (!young_inside || node.layer == Layer::Underground)
+            && near_home(node)
+            && rng.chance(0.08)
     })
     .map(|steps| (Goal::Wander, steps))
+}
+
+/// So viele Felder weit bummeln Kaninchen ohne Aufgabe höchstens von einem Eingang weg.
+const ADULT_ROAM: i32 = 3;
+const YOUNG_ROAM: i32 = 2;
+
+/// Liegt ein Eingang höchstens `distance` Felder entfernt?
+fn near_entrance(grid: &Grid, p: TilePos, distance: i32) -> bool {
+    (-distance..=distance).any(|dy| {
+        (-distance..=distance).any(|dx| {
+            let q = TilePos::new(p.x + dx, p.y + dy);
+            q.in_bounds() && grid.surface(q).entrance
+        })
+    })
+}
+
+/// Gibt es überhaupt gegrabene Gänge, in denen Junge spielen können?
+fn grid_has_tunnels(grid: &Grid) -> bool {
+    Grid::positions().any(|p| grid.under(p).dug.is_some())
 }
 
 fn path_end(start: Node, steps: &[Node]) -> TilePos {
