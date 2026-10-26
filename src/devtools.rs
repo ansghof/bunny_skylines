@@ -15,6 +15,8 @@
 //! - `hungersnot`: kein Gras, kein Vorrat, alle Kaninchen völlig ausgehungert
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
+//! - `intro`: die Einleitung des Kapitels offen lassen (sonst wird sie gleich geschlossen)
+//! - `ziel`: Ziele des Kapitels sofort erfüllen, damit der Siegbildschirm erscheint
 //! - `infos`: nach zwei Sekunden echt auf Schneeflocke klicken, damit das Infofeld aufgeht
 //! - `winter`: mitten im verschneiten Winter starten
 //! - `neustart`: sobald die Familie ausgestorben ist, „Neu beginnen“ drücken
@@ -42,6 +44,7 @@ use crate::tools::{Tool, ToolKind, apply_drag};
 use crate::behavior::{Activity, Reserved};
 use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit};
 use crate::inspect::{RABBIT_HEIGHT, pick_rabbit};
+use crate::scenario::{Chapter, Scenario, Stage, Target, start_playing};
 use crate::ground::{floor_y, to_world3};
 use crate::camera::MainCamera;
 use bevy::window::PrimaryWindow;
@@ -64,6 +67,7 @@ impl Plugin for DevToolsPlugin {
             .add_systems(PreUpdate, fake_cursor.after(update_cursor))
             .add_systems(Update, fake_press.before(apply_drag))
             .add_systems(Update, click_rabbit.before(pick_rabbit))
+            .add_systems(Update, skip_intro)
             .add_systems(Update, take_shot);
     }
 }
@@ -315,6 +319,26 @@ fn click_rabbit(
         }
         _ => {}
     }
+}
+
+/// Ein Kapitel, dessen Ziele schon zu Beginn erfüllt sind.
+static EASY_CHAPTER: Chapter = Chapter {
+    number: 1,
+    title: "Die Hecke",
+    story: "Testkapitel",
+    targets: &[Target::Rabbits(2), Target::Food(5.0)],
+};
+
+/// Testläufe sollen nicht an der Einleitung hängen bleiben.
+fn skip_intro(script: Res<TestScript>, mut scenario: ResMut<Scenario>, mut commands: Commands, mut done: Local<bool>) {
+    if script.has("ziel") {
+        scenario.chapter = &EASY_CHAPTER;
+    }
+    if *done || script.has("intro") || scenario.stage != Stage::Intro {
+        return;
+    }
+    *done = true;
+    commands.run_system_cached(start_playing);
 }
 
 fn quit_after(script: Res<TestScript>, time: Res<Time<Real>>, mut exit: MessageWriter<AppExit>) {

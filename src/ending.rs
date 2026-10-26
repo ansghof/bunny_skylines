@@ -1,6 +1,7 @@
 //! Das Ende einer Familie: Ist kein Kaninchen mehr übrig, hält das Spiel an und zeigt
 //! eine kleine Chronik. Ein Knopf beginnt mit neuen Gründern von vorn.
 
+use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
@@ -12,6 +13,8 @@ use crate::map::{Grid, Layer, ViewLayer};
 use crate::predator::{Fox, FoxSpawner};
 use crate::progress::Progress;
 use crate::rabbit::{Rabbit, spawn_founders};
+use crate::scenario::Scenario;
+use crate::toolbar::Toolbar;
 
 const PANEL: Color = Color::srgba(0.22, 0.15, 0.10, 0.94);
 const BUTTON: Color = Color::srgb(0.45, 0.33, 0.22);
@@ -54,16 +57,42 @@ fn notice_extinction(
     chronicle.over = true;
     time.pause();
 
-    let text = (
+    let panel = spawn_overlay(
+        &mut commands,
+        "Die Familie Buddelberg ist ausgestorben.",
+        &format!(
+            "Sie lebte bis zum {} in Jahr {}.\nIn ihrer besten Zeit waren es {} Kaninchen.",
+            clock.season().label(),
+            clock.year(),
+            chronicle.largest_family
+        ),
+    );
+    spawn_button(&mut commands, panel, "Neu beginnen").observe(|click: On<PointerClick>, mut commands: Commands| {
+        if click.button == PointerButton::Primary {
+            commands.run_system_cached(restart);
+        }
+    });
+}
+
+fn text_style(size: f32) -> impl Bundle + Clone {
+    (
         TextColor(TEXT),
         TextFont {
             font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
-            ..TextFont::from_font_size(18.0)
+            ..TextFont::from_font_size(size)
         },
-    );
+    )
+}
+
+/// Ein Fenster mitten über dem abgedunkelten Spiel, mit Überschrift und Text.
+/// Gibt das Fenster zurück, damit Knöpfe hineinkommen. Beim Neubeginn verschwindet es.
+pub(crate) fn spawn_overlay(commands: &mut Commands, title: &str, body: &str) -> Entity {
     let screen = commands
         .spawn((
             EndScreen,
+            // Klicks auf das Fenster gehen nicht an die Welt dahinter.
+            Toolbar,
+            Hovered::default(),
             Node {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
@@ -83,6 +112,7 @@ fn notice_extinction(
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 row_gap: Val::Px(14.0),
+                max_width: Val::Px(620.0),
                 padding: UiRect::all(Val::Px(28.0)),
                 border_radius: BorderRadius::all(Val::Px(12.0)),
                 ..default()
@@ -91,26 +121,18 @@ fn notice_extinction(
             ChildOf(screen),
         ))
         .id();
+    commands.spawn((Text::new(title), text_style(26.0), ChildOf(panel)));
     commands.spawn((
-        Text::new("Die Familie Buddelberg ist ausgestorben."),
-        TextColor(TEXT),
-        TextFont {
-            font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
-            ..TextFont::from_font_size(26.0)
-        },
-        ChildOf(panel),
-    ));
-    commands.spawn((
-        Text::new(format!(
-            "Sie lebte bis zum {} in Jahr {}.\nIn ihrer besten Zeit waren es {} Kaninchen.",
-            clock.season().label(),
-            clock.year(),
-            chronicle.largest_family
-        )),
+        Text::new(body),
         TextLayout::justify(Justify::Center),
-        text.clone(),
+        text_style(18.0),
         ChildOf(panel),
     ));
+    panel
+}
+
+/// Ein Knopf im Fenster; was er tut, hängt der Aufrufer mit `observe` an.
+pub(crate) fn spawn_button<'a>(commands: &'a mut Commands, panel: Entity, label: &str) -> EntityCommands<'a> {
     let button = commands
         .spawn((
             Node {
@@ -122,13 +144,9 @@ fn notice_extinction(
             BackgroundColor(BUTTON),
             ChildOf(panel),
         ))
-        .observe(|click: On<PointerClick>, mut commands: Commands| {
-            if click.button == PointerButton::Primary {
-                commands.run_system_cached(restart);
-            }
-        })
         .id();
-    commands.spawn((Text::new("Neu beginnen"), text, ChildOf(button)));
+    commands.spawn((Text::new(label), text_style(18.0), ChildOf(button)));
+    commands.entity(button)
 }
 
 /// Alles zurück auf Anfang: neue Wiese, neue Gründer, erster Frühlingstag.
@@ -148,6 +166,7 @@ pub(crate) fn restart(world: &mut World) {
     world.insert_resource(AlarmButton::default());
     world.insert_resource(Chronicle::default());
     world.insert_resource(Progress::default());
+    world.resource_mut::<Scenario>().restart();
     world.insert_resource(ViewLayer(Layer::Surface));
     world.resource_mut::<Messages>().0.clear();
     let mut time = world.resource_mut::<Time<Virtual>>();

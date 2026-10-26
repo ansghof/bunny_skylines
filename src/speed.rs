@@ -3,6 +3,8 @@
 
 use bevy::prelude::*;
 
+use crate::ending::EndScreen;
+
 pub struct SpeedPlugin;
 
 impl Plugin for SpeedPlugin {
@@ -11,7 +13,11 @@ impl Plugin for SpeedPlugin {
     }
 }
 
-fn speed_keys(keys: Res<ButtonInput<KeyCode>>, mut time: ResMut<Time<Virtual>>) {
+fn speed_keys(keys: Res<ButtonInput<KeyCode>>, mut time: ResMut<Time<Virtual>>, screens: Query<(), With<EndScreen>>) {
+    // Solange Einleitung, Sieg oder Ende offen sind, steht das Spiel still.
+    if !screens.is_empty() {
+        return;
+    }
     if keys.just_pressed(KeyCode::Space) {
         if time.is_paused() {
             time.unpause();

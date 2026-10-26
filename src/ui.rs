@@ -8,6 +8,7 @@ use crate::danger::AlarmButton;
 use crate::daynight::DayClock;
 use crate::map::{Grid, ViewLayer};
 use crate::rabbit::{Hunger, Mood, Rabbit, SHOW_HUNGER};
+use crate::scenario::Scenario;
 use crate::speed;
 use crate::toolbar::TOOLBAR_HEIGHT;
 use crate::tools::{SelectionCost, Tool, ToolKind};
@@ -76,6 +77,7 @@ fn update_status(
     colony: Res<Colony>,
     priorities: Res<Priorities>,
     rabbits: Query<(&Rabbit, &Hunger, &Mood)>,
+    scenario: Res<Scenario>,
     mut text: Single<&mut Text, With<StatusText>>,
 ) {
     let alarm = if alarm.cooldown > 0.0 {
@@ -87,7 +89,8 @@ fn update_status(
     let young = rabbits.iter().filter(|(r, _, _)| !r.is_adult()).count();
     let hungry = rabbits.iter().filter(|(_, h, _)| h.0 >= SHOW_HUNGER).count();
     let starving = rabbits.iter().filter(|(r, _, _)| r.is_starving()).count();
-    let mood = rabbits.iter().map(|(_, _, m)| m.value).sum::<f32>() / total.max(1) as f32;
+    // Eine leere Summe ist -0.0; ohne max stünde dort „-0 %“.
+    let mood = (rabbits.iter().map(|(_, _, m)| m.value).sum::<f32>() / total.max(1) as f32).max(0.0);
     let unhappy = rabbits.iter().filter(|(_, _, m)| m.is_unhappy()).count();
     let mood = match unhappy {
         0 => format!("    Stimmung: {:.0} %", mood * 100.0),
@@ -122,6 +125,10 @@ fn update_status(
         colony.food_capacity(&grid),
         colony.earth,
     );
+    if let Some(goals) = scenario.goal_line(total, colony.food) {
+        text.0 += &format!("
+{goals}");
+    }
 }
 
 fn update_selection_cost(

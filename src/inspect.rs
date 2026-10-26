@@ -47,7 +47,7 @@ fn spawn_panel(mut commands: Commands) {
                 display: Display::None,
                 position_type: PositionType::Absolute,
                 left: Val::Px(12.0),
-                top: Val::Px(112.0),
+                top: Val::Px(134.0),
                 width: Val::Px(330.0),
                 padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
                 border: UiRect::all(Val::Px(2.0)),
