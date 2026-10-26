@@ -183,6 +183,13 @@ pub(crate) struct Drag {
     start: Option<TilePos>,
 }
 
+impl Drag {
+    /// Der Klick galt etwas anderem, z. B. einem Kaninchen: kein Werkzeug anwenden.
+    pub(crate) fn cancel(&mut self) {
+        self.start = None;
+    }
+}
+
 fn select_tool(
     keys: Res<ButtonInput<KeyCode>>,
     progress: Res<Progress>,
@@ -432,7 +439,7 @@ fn draw_preview(
     });
     // Beim Graben ohne Kosten zeigen, welcher Boden unter dem Zeiger liegt.
     let info = info.or_else(|| {
-        let digging = matches!(tool.kind, ToolKind::Dig | ToolKind::Entrance | ToolKind::Chamber(_));
+        let digging = view.0 == Layer::Underground && matches!(tool.kind, ToolKind::Dig | ToolKind::Chamber(_));
         let soil = grid.under(TilePos::from_world_clamped(cursor)).soil;
         let width = soil.max_width();
         digging.then(|| format!("Boden: {}, Gänge bis {width} breit.", soil.label()))

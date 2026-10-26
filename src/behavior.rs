@@ -27,6 +27,8 @@ const CLAWS_DIG_FACTOR: f32 = 0.7;
 const WIDE_TUNNEL_SPEED: f32 = 1.25;
 /// So viel zufriedener macht ein Bissen Kräuter.
 const HERB_MOOD: f32 = 0.25;
+/// So lange denkt ein Kaninchen noch gern an die Kräuter zurück.
+const HERB_MEMORY_SECONDS: f32 = 60.0;
 /// So viele Kaninchen grasen höchstens gemeinsam auf einem Feld; am Vorrat genauso.
 const MAX_PER_TILE: usize = 2;
 /// So viel Hunger entsteht im Schlaf und in der Winterruhe im Vergleich zum Wachsein.
@@ -656,6 +658,7 @@ fn work(
                 hunger.0 = (hunger.0 - eaten * 1.3 * field.nutrition()).max(0.0);
                 if field.feature == Some(Feature::Herbs) {
                     mood.value = (mood.value + HERB_MOOD).min(1.0);
+                    mood.herbs = HERB_MEMORY_SECONDS;
                 }
                 Activity::Idle(0.4)
             }

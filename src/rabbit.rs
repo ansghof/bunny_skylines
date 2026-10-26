@@ -113,6 +113,8 @@ pub struct Rabbit {
     lifespan: f32,
     /// Wie lange es schon völlig ausgehungert ist, in Spielsekunden.
     starving: f32,
+    /// Mutter und Vater; die Gründer haben keine.
+    pub parents: Option<(String, String)>,
 }
 
 impl Rabbit {
@@ -159,6 +161,10 @@ pub struct Mood {
     pub value: f32,
     /// Wie lange die Stimmung schon unter der Grenze zum Auswandern liegt.
     gloomy_for: f32,
+    /// Hat zur letzten Ruhezeit kein Nest gefunden; bleibt bis zum nächsten Schlaf im Nest.
+    pub slept_badly: bool,
+    /// Hat vor Kurzem Kräuter gefressen, noch so viele Sekunden.
+    pub herbs: f32,
 }
 
 impl Mood {
@@ -176,7 +182,10 @@ pub struct Offset(pub Vec2);
 pub struct Stomping(pub f32);
 
 #[derive(Component)]
-struct Pregnant(f32);
+pub struct Pregnant {
+    left: f32,
+    father: String,
+}
 
 #[derive(Component)]
 struct BirthCooldown(f32);
@@ -199,6 +208,7 @@ fn rabbit_bundle(
     fur: Color,
     layer: Layer,
     position: Vec2,
+    parents: Option<(String, String)>,
     rng: &mut Rng,
 ) -> impl Bundle {
     (
@@ -210,6 +220,7 @@ fn rabbit_bundle(
                 // Nicht alle Gleichaltrigen sollen am selben Tag sterben.
                 lifespan: rng.range(LIFESPAN_YEARS.0, LIFESPAN_YEARS.1) * YEAR_LENGTH,
                 starving: 0.0,
+                parents,
             },
             Fur(fur),
             Hunger(rng.range(0.1, 0.3)),
@@ -217,6 +228,8 @@ fn rabbit_bundle(
             Mood {
                 value: CONTENT,
                 gloomy_for: 0.0,
+                slept_badly: false,
+                herbs: 0.0,
             },
             OnLayer(layer),
             Offset(Vec2::new(rng.range(-20.0, 20.0), rng.range(-18.0, 18.0))),
@@ -260,6 +273,7 @@ pub fn spawn_founders(
             fur,
             Layer::Surface,
             position,
+            None,
             &mut rng,
         ));
     }
@@ -424,14 +438,19 @@ fn update_mood(
         let in_nest = matches!(activity, Activity::Sleeping { .. } | Activity::Walking(Goal::Sleep(_)));
         if resting_time && !in_nest && hunger.0 < SHOW_HUNGER {
             target -= 0.4;
+            mood.slept_badly = true;
         }
+        if matches!(activity, Activity::Sleeping { .. }) {
+            mood.slept_badly = false;
+        }
+        mood.herbs = (mood.herbs - dt).max(0.0);
         mood.value += (target - mood.value) * (dt / MOOD_SECONDS).min(1.0);
         mood.value = mood.value.clamp(0.0, 1.0);
     }
 }
 
 /// Liegt ein Sonnenplatz höchstens zwei Felder entfernt?
-fn near_sun_spot(grid: &Grid, transform: &Transform) -> bool {
+pub fn near_sun_spot(grid: &Grid, transform: &Transform) -> bool {
     let here = TilePos::from_world_clamped(transform.translation.truncate());
     (-2..=2).any(|dy| {
         (-2..=2).any(|dx| {
@@ -542,7 +561,8 @@ fn start_pregnancies(
         return;
     }
 
-    if !all.iter().any(|r| r.is_adult() && !r.female) {
+    let fathers: Vec<&str> = all.iter().filter(|r| r.is_adult() && !r.female).map(|r| r.name.as_str()).collect();
+    if fathers.is_empty() {
         return;
     }
     // Erwarteten Nachwuchs mitzählen. Es kommen bis zu 10 % mehr Junge, als Schlafplätze da sind:
@@ -556,7 +576,8 @@ fn start_pregnancies(
             break;
         }
         if rabbit.female && rabbit.is_adult() && hunger.0 < 0.6 && rng.chance(0.15) {
-            commands.entity(entity).insert(Pregnant(PREGNANCY_SECONDS));
+            let father = fathers[rng.below(fathers.len())].to_string();
+            commands.entity(entity).insert(Pregnant { left: PREGNANCY_SECONDS, father });
             messages.push(format!("{} erwartet Nachwuchs.", rabbit.name));
             free -= 3;
         }
@@ -575,8 +596,8 @@ fn give_birth(
 ) {
     let mut taken: Vec<String> = everyone.iter().map(|r| r.name.clone()).collect();
     for (entity, mother, fur, layer, transform, mut pregnant) in &mut mothers {
-        pregnant.0 -= time.delta_secs();
-        if pregnant.0 > 0.0 {
+        pregnant.left -= time.delta_secs();
+        if pregnant.left > 0.0 {
             continue;
         }
         commands
@@ -605,6 +626,7 @@ fn give_birth(
                 fur,
                 layer.0,
                 position,
+                Some((mother.name.clone(), pregnant.father.clone())),
                 &mut rng,
             ));
             names.push(name);

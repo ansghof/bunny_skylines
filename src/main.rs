@@ -9,6 +9,7 @@ mod effects;
 mod ending;
 mod furnishing;
 mod ground;
+mod inspect;
 mod map;
 mod pathfinding;
 mod predator;
@@ -64,6 +65,7 @@ fn main() {
             toolbar::ToolbarPlugin,
             ending::EndingPlugin,
             progress::ProgressPlugin,
+            inspect::InspectPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);

@@ -15,6 +15,7 @@
 //! - `hungersnot`: kein Gras, kein Vorrat, alle Kaninchen völlig ausgehungert
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
+//! - `infos`: nach zwei Sekunden echt auf Schneeflocke klicken, damit das Infofeld aufgeht
 //! - `winter`: mitten im verschneiten Winter starten
 //! - `neustart`: sobald die Familie ausgestorben ist, „Neu beginnen“ drücken
 //! - `forschung`: alles freischalten; `weisheit=N`: so viel Weisheit zum Start; `baum`: Forschungsbaum offen
@@ -39,7 +40,11 @@ use crate::progress::Progress;
 use crate::toolbar::{Action, ResearchOpen, Tooltip};
 use crate::tools::{Tool, ToolKind, apply_drag};
 use crate::behavior::{Activity, Reserved};
-use crate::rabbit::{Hunger, Mood, Rabbit};
+use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit};
+use crate::inspect::{RABBIT_HEIGHT, pick_rabbit};
+use crate::ground::{floor_y, to_world3};
+use crate::camera::MainCamera;
+use bevy::window::PrimaryWindow;
 
 pub const ENV: &str = "BUNNY_TEST";
 const SHOT_PATH: &str = "target/test-bild.png";
@@ -58,6 +63,7 @@ impl Plugin for DevToolsPlugin {
             .add_systems(Update, (age_founders, famine, auto_restart, log_seasons, log_crowding, quit_after))
             .add_systems(PreUpdate, fake_cursor.after(update_cursor))
             .add_systems(Update, fake_press.before(apply_drag))
+            .add_systems(Update, click_rabbit.before(pick_rabbit))
             .add_systems(Update, take_shot);
     }
 }
@@ -270,6 +276,44 @@ fn fake_press(
     if script.has("auswahl") && time.elapsed_secs() > 1.0 && !mouse.pressed(MouseButton::Left) {
         tool.kind = ToolKind::Clover;
         mouse.press(MouseButton::Left);
+    }
+}
+
+/// Klickt mit der simulierten Maus auf Schneeflocke: Zeiger auf die Figur, drücken, im nächsten
+/// Bild loslassen. So wird auch die Trefferprüfung mitgetestet.
+fn click_rabbit(
+    script: Res<TestScript>,
+    time: Res<Time<Real>>,
+    grid: Res<Grid>,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+    camera: Single<(&Camera, &GlobalTransform), With<MainCamera>>,
+    rabbits: Query<(&Rabbit, &Transform, &OnLayer)>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut step: Local<u8>,
+) {
+    if !script.has("infos") || time.elapsed_secs() < 2.0 {
+        return;
+    }
+    match *step {
+        0 => {
+            let Some((_, transform, layer)) = rabbits.iter().find(|(r, _, _)| r.name == "Schneeflocke") else {
+                return;
+            };
+            let position = transform.translation.truncate();
+            let floor = floor_y(&grid, layer.0, TilePos::from_world_clamped(position));
+            let middle = to_world3(position, floor + RABBIT_HEIGHT / 2.0);
+            let (camera, camera_transform) = *camera;
+            if let Ok(screen) = camera.world_to_viewport(camera_transform, middle) {
+                window.set_cursor_position(Some(screen));
+                mouse.press(MouseButton::Left);
+                *step = 1;
+            }
+        }
+        1 => {
+            mouse.release(MouseButton::Left);
+            *step = 2;
+        }
+        _ => {}
     }
 }
 
