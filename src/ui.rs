@@ -8,7 +8,7 @@ use crate::danger::AlarmButton;
 use crate::daynight::DayClock;
 use crate::map::{Grid, ViewLayer};
 use crate::rabbit::{Hunger, Mood, Rabbit, SHOW_HUNGER};
-use crate::scenario::Scenario;
+use crate::scenario::{Losses, Scenario, Snapshot};
 use crate::speed;
 use crate::toolbar::TOOLBAR_HEIGHT;
 use crate::tools::{SelectionCost, Tool, ToolKind};
@@ -80,6 +80,7 @@ fn update_status(
     priorities: Res<Priorities>,
     rabbits: Query<(&Rabbit, &Hunger, &Mood)>,
     scenario: Res<Scenario>,
+    losses: Res<Losses>,
     mut text: Single<&mut Text, With<StatusText>>,
 ) {
     let alarm = if alarm.cooldown > 0.0 {
@@ -127,7 +128,8 @@ fn update_status(
         colony.food_capacity(&grid),
         colony.earth,
     );
-    if let Some(goals) = scenario.goal_line(total, colony.food) {
+    let now = Snapshot { rabbits: total, food: colony.food, year: clock.year() };
+    if let Some(goals) = scenario.goal_line(&now, losses.0) {
         text.0 += &format!("
 {goals}");
     }

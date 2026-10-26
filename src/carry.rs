@@ -5,6 +5,7 @@ use bevy::prelude::*;
 
 use crate::bird::Sky;
 use crate::camera::{Orbit, figure_layer};
+use crate::scenario::Losses;
 
 const IMAGE: &str = "figuren/beute/getragen.png";
 /// So groß hängt die Beute im Maul oder in den Fängen.
@@ -48,8 +49,10 @@ fn prepare_assets(mut commands: Commands, asset_server: Res<AssetServer>, mut me
 }
 
 /// Der Jäger `carrier` trägt ab jetzt ein Kaninchen mit diesem Fell davon.
+/// Zählt zugleich als Verlust durch Feinde für die Ziele des Kapitels.
 pub fn carry_off(commands: &mut Commands, carrier: Entity, fur: Color) {
     commands.queue(move |world: &mut World| {
+        world.resource_mut::<Losses>().0 += 1;
         let (quad, image) = {
             let assets = world.resource::<CarryAssets>();
             (assets.quad.clone(), assets.image.clone())

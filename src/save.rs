@@ -13,7 +13,7 @@ use crate::ending::clear_world;
 use crate::map::{Grid, Layer, ViewLayer};
 use crate::progress::Progress;
 use crate::rabbit::{BirthCooldown, Fur, Hunger, Mood, OnLayer, Pregnant, Rabbit, SavedRabbit};
-use crate::scenario::{Scenario, Stage};
+use crate::scenario::{Losses, Scenario, Stage, chapter};
 
 /// Ändert sich der Aufbau des Spielstands, wird die Zahl erhöht; alte Stände lassen sich dann nicht laden.
 const VERSION: u32 = 1;
@@ -30,6 +30,8 @@ impl Plugin for SavePlugin {
 #[derive(Serialize)]
 struct SaveRef<'a> {
     version: u32,
+    chapter: u32,
+    losses: u32,
     grid: &'a Grid,
     colony: &'a Colony,
     clock: &'a DayClock,
@@ -44,6 +46,10 @@ struct SaveRef<'a> {
 #[derive(Deserialize)]
 struct SaveGame {
     version: u32,
+    #[serde(default = "first_chapter")]
+    chapter: u32,
+    #[serde(default)]
+    losses: u32,
     grid: Grid,
     colony: Colony,
     clock: DayClock,
@@ -54,14 +60,46 @@ struct SaveGame {
     rabbits: Vec<SavedRabbit>,
 }
 
-/// Testläufe schreiben in den Build-Ordner, damit sie keinen echten Spielstand überschreiben.
-fn save_path() -> PathBuf {
+fn first_chapter() -> u32 {
+    1
+}
+
+/// Testläufe schreiben in den Build-Ordner, damit sie keine echten Spielstände überschreiben.
+fn data_path(file: &str) -> PathBuf {
     if cfg!(debug_assertions) && std::env::var_os("BUNNY_TEST").is_some() {
-        return PathBuf::from("target/test-spielstand.ron");
+        return PathBuf::from("target").join(format!("test-{file}"));
     }
     match std::env::var_os("APPDATA") {
-        Some(dir) => PathBuf::from(dir).join("BunnySkylines").join("spielstand.ron"),
-        None => PathBuf::from("spielstand.ron"),
+        Some(dir) => PathBuf::from(dir).join("BunnySkylines").join(file),
+        None => PathBuf::from(file),
+    }
+}
+
+fn save_path() -> PathBuf {
+    data_path("spielstand.ron")
+}
+
+/// Bis zu welchem Kapitel die Kampagne frei ist; das erste ist es immer.
+pub fn chapters_unlocked() -> u32 {
+    std::fs::read_to_string(data_path("kampagne.ron"))
+        .ok()
+        .and_then(|text| ron::from_str::<u32>(&text).ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
+/// Merkt sich, dass dieses Kapitel jetzt spielbar ist.
+pub fn unlock_chapter(number: u32) {
+    if number <= chapters_unlocked() {
+        return;
+    }
+    let path = data_path("kampagne.ron");
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&path, number.to_string()));
+    if let Err(error) = written {
+        warn!("Kampagnenfortschritt nicht gespeichert: {error}");
     }
 }
 
@@ -116,11 +154,13 @@ pub fn save_game(world: &mut World) {
         .collect();
     // Einleitung und Siegbildschirm sind beim Laden schon vorbei.
     let stage = match world.resource::<Scenario>().stage {
-        Stage::Intro | Stage::Playing => Stage::Playing,
+        Stage::Intro | Stage::Playing | Stage::Lost => Stage::Playing,
         Stage::Won | Stage::Free => Stage::Free,
     };
     let save = SaveRef {
         version: VERSION,
+        chapter: world.resource::<Scenario>().chapter.number,
+        losses: world.resource::<Losses>().0,
         grid: world.resource::<Grid>(),
         colony: world.resource::<Colony>(),
         clock: world.resource::<DayClock>(),
@@ -174,6 +214,8 @@ pub fn load_game(world: &mut World) {
     world.insert_resource(save.priorities);
     world.insert_resource(ViewLayer(save.view));
     world.resource_mut::<Scenario>().stage = save.stage;
+    world.resource_mut::<Scenario>().chapter = chapter(save.chapter);
+    world.insert_resource(Losses(save.losses));
     world.run_system_cached_with(spawn_saved, save.rabbits).ok();
     world.resource_mut::<Messages>().push("Spielstand geladen.");
 }

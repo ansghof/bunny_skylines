@@ -24,6 +24,8 @@
 //! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
 //! - `menue`: nach zwei Sekunden das Pausenmenü öffnen
+//! - `kapitel=N`: gleich mit Kapitel N beginnen
+//! - `kapitelwahl`: auf dem Titelbild die Kapitelwahl öffnen
 //! - `titel`: auf dem Titelbild bleiben
 //! - `intro`: die Einleitung des Kapitels offen lassen (sonst wird sie gleich geschlossen)
 //! - `ziel`: Ziele des Kapitels sofort erfüllen, damit der Siegbildschirm erscheint
@@ -58,9 +60,9 @@ use crate::overlay::MapOverlay;
 use crate::bird::BuzzardSpawner;
 use crate::marten::MartenSpawner;
 use crate::predator::FoxSpawner;
-use crate::menu::{OpenMenu, TitleScreen, new_game};
+use crate::menu::{OpenMenu, TitleScreen, close_title, new_game};
 use crate::save::{load_game, save_game};
-use crate::scenario::{Chapter, Scenario, Stage, Target, play_on, start_playing};
+use crate::scenario::{Chapter, Dangers, Scenario, Stage, Target, Terrain, play_on, start_chapter, start_playing};
 use crate::ground::{floor_y, to_world3};
 use crate::camera::MainCamera;
 use bevy::window::PrimaryWindow;
@@ -371,6 +373,12 @@ static EASY_CHAPTER: Chapter = Chapter {
     title: "Die Hecke",
     story: "Testkapitel",
     targets: &[Target::Rabbits(2), Target::Food(5.0)],
+    max_losses: None,
+    terrain: Terrain::Meadow,
+    dangers: Dangers { first_fox: 300.0, fox_pace: 1.0, buzzard_from_start: false, marten_from_start: false },
+    known: &[],
+    relatives: 0,
+    start_earth: 0.0,
 };
 
 fn save_and_load(
@@ -446,6 +454,7 @@ fn skip_intro(
     mut commands: Commands,
     titles: Query<(), With<TitleScreen>>,
     screens: Query<(), With<EndScreen>>,
+    time: Res<Time<Real>>,
     mut done: Local<(bool, bool)>,
 ) {
     if script.has("ziel") {
@@ -456,9 +465,17 @@ fn skip_intro(
         commands.run_system_cached(play_on);
     }
     // Erst das Titelbild überspringen (außer mit `titel`), dann die Einleitung (außer mit `intro`).
-    if !done.0 && !script.has("titel") {
+    // Mit `kapitel=N` geht es gleich in dieses Kapitel.
+    if script.has("kapitelwahl") && !done.0 && time.elapsed_secs() > 2.0 {
         done.0 = true;
         commands.run_system_cached(new_game);
+        return;
+    }
+    if !done.0 && !script.has("titel") && !script.has("kapitelwahl") {
+        done.0 = true;
+        commands.run_system_cached(close_title);
+        let number = script.value("kapitel").map_or(1, |n| n as u32);
+        commands.run_system_cached_with(start_chapter, number);
         return;
     }
     let intro_open = titles.is_empty() && !screens.is_empty();

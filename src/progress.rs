@@ -229,6 +229,11 @@ pub enum Blocked {
 }
 
 impl Progress {
+    /// Eine Forschung ohne Kosten freischalten, z. B. was die Familie aus früheren Kapiteln kann.
+    pub fn grant(&mut self, tech: Tech) {
+        self.unlocked.insert(tech);
+    }
+
     pub fn has(&self, tech: Tech) -> bool {
         self.unlocked.contains(&tech)
     }

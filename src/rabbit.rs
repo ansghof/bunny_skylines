@@ -868,6 +868,37 @@ fn animate(
     }
 }
 
+/// Erwachsene Kinder der Gründer, die mit umziehen: abwechselnd Töchter und Söhne,
+/// damit die Familie auch nach einem Verlust weiter wachsen kann.
+pub fn spawn_relatives(
+    In(count): In<usize>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut rng: ResMut<Rng>,
+    rabbits: Query<&Rabbit>,
+) {
+    let mut taken: Vec<String> = rabbits.iter().map(|r| r.name.clone()).collect();
+    let near_entrance = TilePos::new(19, 15).center();
+    for i in 0..count {
+        let name = unused_name(&taken, &mut rng);
+        taken.push(name.clone());
+        let position = near_entrance + Vec2::new(rng.range(-60.0, 60.0), rng.range(-50.0, 50.0));
+        let fur = FUR_COLORS[rng.below(FUR_COLORS.len())];
+        let parents = Some(("Schneeflocke".to_string(), "Lukas".to_string()));
+        commands.spawn(rabbit_bundle(
+            &asset_server,
+            name,
+            i % 2 == 0,
+            ADULT_AGE * 2.0,
+            fur,
+            Layer::Surface,
+            position,
+            parents,
+            &mut rng,
+        ));
+    }
+}
+
 /// Ein zusätzliches erwachsenes Kaninchen, z. B. für Testläufe.
 #[cfg(debug_assertions)]
 pub fn spawn_extra(commands: &mut Commands, asset_server: &AssetServer, rng: &mut Rng, name: String, layer: Layer, position: Vec2) {

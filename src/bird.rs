@@ -17,6 +17,7 @@ use crate::ground::to_world3;
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, ViewLayer};
 use crate::progress::{Progress, Stage};
 use crate::rabbit::{Fur, OnLayer, Rabbit, Stomping};
+use crate::scenario::Scenario;
 
 const IMAGE: &str = "figuren/bussard/bussard.png";
 /// Größe des Vogels in der Welt.
@@ -158,16 +159,19 @@ fn spawn_buzzards(
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
     mut sounds: ResMut<Sounds>,
+    scenario: Res<Scenario>,
     buzzards: Query<(), With<Buzzard>>,
     rabbits: Query<(&Transform, &OnLayer), With<Rabbit>>,
 ) {
     // Bussarde jagen am hellen Tag, und erst, wenn die Familie größer geworden ist.
-    let grown = progress.stage >= Stage::Warren || spawner.forced;
+    let grown = progress.stage >= Stage::Warren || spawner.forced || scenario.chapter.dangers.buzzard_from_start;
     let daylight = !clock.is_night() && !clock.is_twilight();
     if !grown || !daylight || !buzzards.is_empty() || rabbits.is_empty() {
         return;
     }
-    spawner.next -= time.delta_secs();
+    // Je größer die Familie, desto öfter lohnt sich der Besuch.
+    let family = rabbits.iter().count() as f32;
+    spawner.next -= time.delta_secs() * (1.0 + family / 20.0);
     if spawner.next > 0.0 {
         return;
     }

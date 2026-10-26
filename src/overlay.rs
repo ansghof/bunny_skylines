@@ -65,6 +65,10 @@ pub fn pasture_color(tile: &SurfaceTile) -> Color {
     if tile.entrance {
         return Color::srgb(0.29, 0.20, 0.13);
     }
+    // Wald ist keine Weide.
+    if tile.forest {
+        return Color::srgb(0.24, 0.30, 0.22);
+    }
     // Fruchtbarkeit von rot über gelb nach grün, Gras macht heller.
     let health = tile.fertility.clamp(0.0, 1.0);
     let rgb = if health < 0.5 {

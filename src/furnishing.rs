@@ -39,20 +39,22 @@ enum Kind {
     Plug,
     /// Platz der Nachtwache.
     Watch,
+    /// Ein Baum im Wald.
+    Tree,
 }
 
 impl Kind {
     /// In welcher Ansicht diese Einrichtung zu sehen ist.
     fn layer(self) -> Layer {
         match self {
-            Kind::Clover | Kind::Built(_) => Layer::Surface,
+            Kind::Clover | Kind::Built(_) | Kind::Tree => Layer::Surface,
             Kind::Nest | Kind::Pile | Kind::Light | Kind::Plug | Kind::Watch => Layer::Underground,
         }
     }
 
     /// Steht aufrecht wie eine Figur, statt flach am Boden zu liegen.
     fn upright(self) -> bool {
-        matches!(self, Kind::Pile | Kind::Plug | Kind::Built(Feature::Hedge))
+        matches!(self, Kind::Pile | Kind::Plug | Kind::Tree | Kind::Built(Feature::Hedge))
     }
 }
 
@@ -61,7 +63,7 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 14] = [
+const IMAGES: [(&str, Vec2); 15] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
     ("futter_klein.png", Vec2::new(80.0, 56.0)),
     ("futter_mittel.png", Vec2::new(104.0, 72.0)),
@@ -76,6 +78,8 @@ const IMAGES: [(&str, Vec2); 14] = [
     ("erdpfropf_offen.png", Vec2::new(128.0, 80.0)),
     ("erdpfropf_zu.png", Vec2::new(128.0, 96.0)),
     ("nachtwache.png", Vec2::new(128.0, 128.0)),
+    // Bäume doppelt so groß wie gezeichnet, damit sie über die Wiese ragen.
+    ("baum.png", Vec2::new(320.0, 440.0)),
 ];
 
 fn feature_image(feature: Feature) -> &'static str {
@@ -189,6 +193,9 @@ fn place_furnishing(
             wanted.insert((p, Kind::Watch), "nachtwache.png");
         }
         let surface = grid.surface(p);
+        if surface.tree {
+            wanted.insert((p, Kind::Tree), "baum.png");
+        }
         if surface.entrance {
             wanted.insert((p, Kind::Light), "lichtschein.png");
         }

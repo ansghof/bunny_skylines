@@ -8,6 +8,8 @@ use crate::daynight::{DayClock, Season};
 pub const TILE_SIZE: f32 = 64.0;
 pub const MAP_WIDTH: i32 = 40;
 pub const MAP_HEIGHT: i32 = 30;
+/// Ab dieser Zeile beginnt in Waldrand-Karten der Wald.
+pub const FOREST_FROM: i32 = 24;
 
 /// Von abgefressen bis voll dauert es gut eine Spielminute, etwa ein Viertel des Tages.
 const GRASS_GROWTH_PER_SECOND: f32 = 0.014;
@@ -227,6 +229,12 @@ pub struct SurfaceTile {
     /// Sekunden seit dem letzten Bissen; ruhende Felder erholen sich.
     rest: f32,
     pub feature: Option<Feature>,
+    /// Waldboden: wenig Gras, aus dem Wald kommen die Füchse.
+    #[serde(default)]
+    pub forest: bool,
+    /// Hier steht ein Baum (nur Zierde, man kann darunter hindurch).
+    #[serde(default)]
+    pub tree: bool,
 }
 
 impl SurfaceTile {
@@ -377,6 +385,26 @@ impl Grid {
             .count()
     }
 
+    /// Die Wiese mit Wald am oberen Rand: Unter den Bäumen wächst wenig Gras, dafür halten Wurzeln
+    /// den Boden zusammen. Am Waldsaum stehen ein paar natürliche Hecken.
+    pub fn forest_edge() -> Self {
+        let mut grid = Self::starting_meadow();
+        for p in Self::positions() {
+            if p.y >= FOREST_FROM {
+                let deep = (p.y - FOREST_FROM) as f32 / (MAP_HEIGHT - FOREST_FROM) as f32;
+                let tile = grid.surface_mut(p);
+                tile.forest = true;
+                tile.fertility = 0.5 - 0.2 * deep;
+                tile.grass = tile.grass.min(tile.fertility);
+                tile.tree = p.y > FOREST_FROM && noise(p) > 0.45 - 0.25 * deep;
+                grid.under_mut(p).soil = Soil::Roots;
+            } else if p.y >= FOREST_FROM - 2 && noise(TilePos::new(p.x + 101, p.y)) > 0.7 {
+                grid.surface_mut(p).feature = Some(Feature::Hedge);
+            }
+        }
+        grid
+    }
+
     /// Wiese mit leicht ungleichmäßigem Gras und einem kleinen Startbau:
     /// ein Eingang, ein kurzer Gang und eine Schlafkammer.
     pub fn starting_meadow() -> Self {
@@ -502,9 +530,14 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     }
     let checker = if (p.x + p.y) % 2 == 0 { 1.0 } else { 0.96 };
     let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass.min(1.0)).map(|c| c * checker);
-    // Ausgelaugter Boden wird zu nackter, brauner Erde.
-    let worn = (1.0 - tile.fertility).clamp(0.0, 1.0);
-    rgb = mix(rgb, [0.62 * checker, 0.47 * checker, 0.31 * checker], worn * 0.85);
+    if tile.forest {
+        // Waldboden: Moos und Laub im Schatten der Bäume.
+        rgb = mix(rgb, [0.30 * checker, 0.40 * checker, 0.22 * checker], 0.7);
+    } else {
+        // Ausgelaugter Boden wird zu nackter, brauner Erde.
+        let worn = (1.0 - tile.fertility).clamp(0.0, 1.0);
+        rgb = mix(rgb, [0.62 * checker, 0.47 * checker, 0.31 * checker], worn * 0.85);
+    }
     if tile.entrance_planned {
         rgb = mix(rgb, [0.95, 0.62, 0.25], 0.55);
     }

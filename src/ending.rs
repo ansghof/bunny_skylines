@@ -12,11 +12,11 @@ use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Messages};
 use crate::danger::AlarmButton;
 use crate::daynight::DayClock;
-use crate::map::{Grid, Layer, ViewLayer};
+use crate::map::{Layer, ViewLayer};
 use crate::predator::{Fox, FoxSpawner};
 use crate::progress::Progress;
-use crate::rabbit::{Rabbit, spawn_founders};
-use crate::scenario::Scenario;
+use crate::rabbit::{Rabbit, spawn_founders, spawn_relatives};
+use crate::scenario::{Losses, Scenario};
 use crate::toolbar::Toolbar;
 
 const PANEL: Color = Color::srgba(0.22, 0.15, 0.10, 0.94);
@@ -176,13 +176,21 @@ pub(crate) fn clear_world(world: &mut World) {
 /// Alles zurück auf Anfang: neue Wiese, neue Gründer, erster Frühlingstag.
 pub(crate) fn restart(world: &mut World) {
     clear_world(world);
-    world.insert_resource(Grid::starting_meadow());
-    world.insert_resource(Colony::default());
+    let chapter = world.resource::<Scenario>().chapter;
+    world.insert_resource(chapter.terrain.grid());
+    world.insert_resource(Colony { earth: chapter.start_earth, ..default() });
     world.insert_resource(DayClock::default());
     world.insert_resource(Priorities::default());
-    world.insert_resource(Progress::default());
+    let mut progress = Progress::default();
+    for tech in chapter.known {
+        progress.grant(*tech);
+    }
+    world.insert_resource(progress);
+    world.insert_resource(FoxSpawner::starting(chapter.dangers.first_fox));
+    world.insert_resource(Losses::default());
     world.resource_mut::<Scenario>().restart();
     world.insert_resource(ViewLayer(Layer::Surface));
     world.resource_mut::<Time<Virtual>>().set_relative_speed(1.0);
     world.run_system_cached(spawn_founders).ok();
+    world.run_system_cached_with(spawn_relatives, chapter.relatives).ok();
 }

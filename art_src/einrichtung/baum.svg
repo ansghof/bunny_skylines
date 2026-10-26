@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="220" viewBox="0 0 160 220">
+  <!-- Laubbaum am Waldrand: kräftiger Stamm, runde, wolkige Krone -->
+  <path d="M68 218 C70 180 70 150 66 120 L94 120 C90 150 90 180 92 218 Z" fill="#7a5230" stroke="#3a2614" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M80 140 C70 130 58 126 48 128 M82 132 C92 122 104 120 114 122" stroke="#3a2614" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M60 218 C64 212 70 210 74 212 M86 212 C92 210 98 212 100 218" stroke="#3a2614" stroke-width="3" fill="none"/>
+  <circle cx="80" cy="66" r="50" fill="#4f8a3e" stroke="#25451c" stroke-width="4"/>
+  <circle cx="40" cy="96" r="32" fill="#5c9a48" stroke="#25451c" stroke-width="4"/>
+  <circle cx="120" cy="96" r="32" fill="#5c9a48" stroke="#25451c" stroke-width="4"/>
+  <circle cx="58" cy="40" r="26" fill="#68a852" stroke="#25451c" stroke-width="4"/>
+  <circle cx="106" cy="44" r="24" fill="#68a852" stroke="#25451c" stroke-width="4"/>
+  <path d="M60 70 q8 -6 16 0 M92 84 q8 -6 16 0 M40 98 q6 -5 12 0" stroke="#86c068" stroke-width="3" fill="none" stroke-linecap="round"/>
+</svg>

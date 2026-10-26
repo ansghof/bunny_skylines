@@ -11,6 +11,7 @@ use crate::colony::{Messages, Rng};
 use crate::daynight::{DayClock, figure_light};
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
 use crate::rabbit::{Fur, OnLayer, Rabbit, z_for};
+use crate::scenario::{Scenario, Terrain};
 use crate::camera::Orbit;
 use crate::carry::{CarryPoint, carry_off};
 use crate::ground::to_world3;
@@ -26,6 +27,12 @@ const LEAVE_SPEED: f32 = 120.0;
 /// Ab dieser Entfernung zu einem Kaninchen beginnt die Jagd.
 const CHASE_DISTANCE: f32 = 200.0;
 const CATCH_DISTANCE: f32 = 20.0;
+/// Bei so vielen Kaninchen kommen Füchse doppelt so oft.
+const FAMILY_PER_EXTRA_PACE: f32 = 20.0;
+/// Je so viele Kaninchen darf ein Fuchs mehr gleichzeitig unterwegs sein …
+const FAMILY_PER_EXTRA_FOX: usize = 25;
+/// … aber nie mehr als so viele.
+const MAX_FOXES: usize = 3;
 /// So schnell ist der Fuchs noch in einer Dornenhecke.
 const HEDGE_SLOWDOWN: f32 = 0.35;
 /// Ein Fuchs bleibt höchstens so lange, dann gibt er auf.
@@ -84,6 +91,11 @@ pub struct FoxSpawner {
 }
 
 impl FoxSpawner {
+    /// Der erste Fuchs kommt nach so vielen Spielsekunden.
+    pub fn starting(first: f32) -> Self {
+        Self { next: first }
+    }
+
     /// Gleich einen Fuchs schicken.
     pub fn summon(&mut self) {
         self.next = 0.0;
@@ -110,6 +122,7 @@ fn spawn_foxes(
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
     mut sounds: ResMut<Sounds>,
+    scenario: Res<Scenario>,
     foxes: Query<(), With<Fox>>,
     rabbits: Query<(), With<Rabbit>>,
 ) {
@@ -121,16 +134,22 @@ fn spawn_foxes(
     } else {
         1.0
     };
+    // Eine große Familie lockt mehr Füchse an, und manche Gegenden sind fuchsreicher.
+    let family = rabbits.iter().count();
+    let pace = pace * scenario.chapter.dangers.fox_pace * (1.0 + family as f32 / FAMILY_PER_EXTRA_PACE);
+    let most = (1 + family / FAMILY_PER_EXTRA_FOX).min(MAX_FOXES);
     spawner.next -= time.delta_secs() * pace;
-    if spawner.next > 0.0 || !foxes.is_empty() || rabbits.is_empty() {
+    if spawner.next > 0.0 || foxes.iter().count() >= most || family == 0 {
         return;
     }
     spawner.next = rng.range(70.0, 130.0);
 
-    // Ein zufälliger Punkt knapp innerhalb des Kartenrands.
+    // Ein zufälliger Punkt knapp innerhalb des Kartenrands; am Waldrand aus dem Wald.
     let half = half_extent() - TILE_SIZE * 0.5;
     let along = rng.range(-1.0, 1.0);
+    let forest = scenario.chapter.terrain == Terrain::ForestEdge;
     let position = match rng.below(4) {
+        _ if forest => Vec2::new(along * half.x, half.y),
         0 => Vec2::new(-half.x, along * half.y),
         1 => Vec2::new(half.x, along * half.y),
         2 => Vec2::new(along * half.x, -half.y),
@@ -152,7 +171,7 @@ fn spawn_foxes(
         Transform::from_translation(position.extend(z_for(position))),
         Visibility::default(),
     ));
-    messages.push("Am Kartenrand raschelt es im Gebüsch …");
+    messages.push(if forest { "Im Wald raschelt es …" } else { "Am Kartenrand raschelt es im Gebüsch …" });
     sounds.play(Sound::Fox);
 }
 

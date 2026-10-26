@@ -9,8 +9,8 @@ use bevy::prelude::*;
 use crate::audio::{Sound, Sounds};
 use crate::colony::Messages;
 use crate::ending::{EndScreen, restart, spawn_button, spawn_overlay};
-use crate::save::{load_game, save_exists, save_game};
-use crate::scenario::{show_intro, start_playing};
+use crate::save::{chapters_unlocked, load_game, save_exists, save_game};
+use crate::scenario::{CHAPTERS, start_chapter, start_playing};
 use crate::toolbar::Toolbar;
 
 /// Bild für den Titel, relativ zum Ordner `assets`.
@@ -22,6 +22,8 @@ const SIDE_COLOR: Color = Color::srgb(0.16, 0.24, 0.12);
 const SHADE: Color = Color::srgba(0.06, 0.05, 0.03, 0.72);
 const BUTTON: Color = Color::srgb(0.45, 0.33, 0.22);
 const BUTTON_HOVER: Color = Color::srgb(0.58, 0.43, 0.28);
+/// Gesperrte Kapitel: grau statt braun.
+const LOCKED: Color = Color::srgb(0.32, 0.30, 0.28);
 const TEXT: Color = Color::srgb(0.98, 0.95, 0.88);
 
 pub struct MenuPlugin;
@@ -43,7 +45,7 @@ pub struct OpenMenu(pub bool);
 
 /// Das Menü auf dem Titelbild; erscheint nach dem Splash oder beim ersten Klick.
 #[derive(Component)]
-struct TitleMenu;
+pub struct TitleMenu;
 
 #[derive(Component)]
 struct MenuButton;
@@ -156,7 +158,7 @@ fn menu_button<'a>(commands: &'a mut Commands, parent: Entity, label: &str) -> E
             ChildOf(parent),
         ))
         .id();
-    commands.spawn((Text::new(label), TextColor(TEXT), font(22.0), ChildOf(button)));
+    commands.spawn((Text::new(label), TextLayout::justify(Justify::Center), TextColor(TEXT), font(22.0), ChildOf(button)));
     commands.entity(button).observe(|_: On<PointerClick>, mut sounds: ResMut<Sounds>| sounds.play(Sound::Click));
     commands.entity(button)
 }
@@ -177,15 +179,15 @@ fn reveal_menu(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut menus: Query<&mut Node, With<TitleMenu>>,
+    mut revealed: Local<bool>,
 ) {
     let early = buttons.get_just_pressed().len() > 0 || keys.get_just_pressed().len() > 0;
-    if time.elapsed_secs() < SPLASH_SECONDS && !early {
+    if *revealed || (time.elapsed_secs() < SPLASH_SECONDS && !early) {
         return;
     }
+    *revealed = true;
     for mut node in &mut menus {
-        if node.display == Display::None {
-            node.display = Display::Flex;
-        }
+        node.display = Display::Flex;
     }
 }
 
@@ -195,7 +197,7 @@ fn hover_buttons(mut buttons: Query<(&Hovered, &mut BackgroundColor), (With<Menu
     }
 }
 
-fn close_title(world: &mut World) {
+pub fn close_title(world: &mut World) {
     let mut titles = world.query_filtered::<Entity, With<TitleScreen>>();
     let titles: Vec<Entity> = titles.iter(world).collect();
     for title in titles {
@@ -203,10 +205,74 @@ fn close_title(world: &mut World) {
     }
 }
 
-/// Neues Spiel vom Titelbild: Die frische Wiese steht schon bereit, es folgt die Einleitung.
-pub fn new_game(world: &mut World) {
-    close_title(world);
-    world.run_system_cached(show_intro).ok();
+/// Die Kapitelwahl, die beim Titelbild das Hauptmenü ersetzt.
+#[derive(Component)]
+struct ChapterMenu;
+
+/// Neues Spiel vom Titelbild: Kapitel wählen. Gesperrte Kapitel sagen, was vorher zu schaffen ist.
+pub fn new_game(
+    mut commands: Commands,
+    screens: Query<Entity, With<TitleScreen>>,
+    mut menus: Query<&mut Node, With<TitleMenu>>,
+) {
+    let Some(screen) = screens.iter().next() else {
+        return;
+    };
+    for mut node in &mut menus {
+        node.display = Display::None;
+    }
+    let panel = commands
+        .spawn((
+            ChapterMenu,
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Percent(14.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(10.0),
+                padding: UiRect::axes(Val::Px(36.0), Val::Px(22.0)),
+                border_radius: BorderRadius::all(Val::Px(14.0)),
+                ..default()
+            },
+            BackgroundColor(SHADE),
+            ChildOf(screen),
+        ))
+        .id();
+    commands.spawn((Text::new("Kapitel wählen"), TextColor(TEXT), font(26.0), ChildOf(panel)));
+    let unlocked = chapters_unlocked();
+    for chapter in CHAPTERS {
+        let number = chapter.number;
+        if number <= unlocked {
+            let label = format!("Kapitel {number}: {}", chapter.title);
+            menu_button(&mut commands, panel, &label).observe(move |click: On<PointerClick>, mut commands: Commands| {
+                if click.button == PointerButton::Primary {
+                    commands.run_system_cached(close_title);
+                    commands.run_system_cached_with(start_chapter, number);
+                }
+            });
+        } else {
+            let label = format!("Kapitel {number}: {}
+(erst Kapitel {} schaffen)", chapter.title, number - 1);
+            let mut button = menu_button(&mut commands, panel, &label);
+            button.insert(BackgroundColor(LOCKED));
+            button.remove::<MenuButton>();
+        }
+    }
+    menu_button(&mut commands, panel, "Zurück").observe(on_primary(back_to_title));
+}
+
+/// Von der Kapitelwahl zurück zum Hauptmenü.
+fn back_to_title(
+    mut commands: Commands,
+    chapter_menus: Query<Entity, With<ChapterMenu>>,
+    mut menus: Query<&mut Node, With<TitleMenu>>,
+) {
+    for menu in &chapter_menus {
+        commands.entity(menu).despawn();
+    }
+    for mut node in &mut menus {
+        node.display = Display::Flex;
+    }
 }
 
 fn continue_game(world: &mut World) {

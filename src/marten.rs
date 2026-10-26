@@ -20,6 +20,7 @@ use crate::map::{Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLay
 use crate::pathfinding::{Node, find_path, neighbors};
 use crate::progress::{Progress, Stage};
 use crate::rabbit::{Fur, OnLayer, Pregnant, Rabbit, Stomping};
+use crate::scenario::Scenario;
 
 const IMAGE: &str = "figuren/marder/marder.png";
 const SIZE: Vec2 = Vec2::new(76.0, 38.0);
@@ -198,15 +199,18 @@ fn spawn_martens(
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
     mut sounds: ResMut<Sounds>,
+    scenario: Res<Scenario>,
     martens: Query<(), With<Marten>>,
     rabbits: Query<&OnLayer, With<Rabbit>>,
 ) {
-    let grown = progress.stage >= Stage::Settlement || spawner.forced;
+    let grown = progress.stage >= Stage::Settlement || spawner.forced || scenario.chapter.dangers.marten_from_start;
     let anyone_inside = rabbits.iter().any(|layer| layer.0 == Layer::Underground);
     if !grown || !clock.is_night() || !martens.is_empty() || !anyone_inside {
         return;
     }
-    spawner.next -= time.delta_secs();
+    // Ein großer Bau riecht weit.
+    let family = rabbits.iter().count() as f32;
+    spawner.next -= time.delta_secs() * (1.0 + family / 30.0);
     if spawner.next > 0.0 {
         return;
     }
