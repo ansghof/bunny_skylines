@@ -11,6 +11,7 @@ use crate::behavior::Priorities;
 use crate::colony::Messages;
 use crate::danger::{ALARM_COOLDOWN_SECONDS, AlarmButton};
 use crate::map::{Depth, Layer, ViewLayer};
+use crate::overlay::MapOverlay;
 use crate::progress::{Blocked, Branch, Progress, Tech};
 use crate::tools::{TOOLS, Tool, ToolKind, depth_available, locked_message, select};
 
@@ -59,6 +60,8 @@ pub(crate) enum Action {
     View(Layer),
     /// Den Forschungsbaum öffnen oder schließen.
     Research,
+    /// Eine Übersichtskarte ein- oder ausschalten.
+    Overlay(MapOverlay),
 }
 
 #[derive(Component)]
@@ -109,6 +112,8 @@ impl Action {
             Action::View(Layer::Surface) => "ansicht_oben",
             Action::View(Layer::Underground) => "ansicht_unten",
             Action::Research => "forschung",
+            Action::Overlay(MapOverlay::Mood) => "karte_stimmung",
+            Action::Overlay(_) => "karte_weide",
             Action::Speed(_) => return None,
         })
     }
@@ -163,6 +168,15 @@ impl Action {
             Action::Speed(None) => "Pause  [Leertaste]".into(),
             Action::Speed(Some(speed)) => format!("Tempo {speed}×  [{speed}]"),
             Action::View(layer) => format!("Ansicht: {}  [Tab]", layer.label()),
+            Action::Overlay(overlay) => format!(
+                "Übersichtskarte: {}  [Q]
+{}",
+                overlay.label(),
+                match overlay {
+                    MapOverlay::Mood => "Farbige Ringe zeigen, wie zufrieden jedes Kaninchen ist.",
+                    _ => "Zeigt, wo die Wiese gesund ist und wo sie abgefressen und ausgelaugt ist.",
+                }
+            ),
             Action::Research => format!(
                 "Forschungsbaum  [T]\nWeisheit aus der Erzählkammer in Neues stecken. Weisheit: {:.0}",
                 progress.wisdom
@@ -204,7 +218,7 @@ fn centered_row(commands: &mut Commands, bottom: f32) -> Entity {
 
 fn spawn_toolbar(mut commands: Commands, asset_server: Res<AssetServer>) {
     let tools: Vec<Action> = TOOLS.iter().map(|(kind, _, _)| Action::Tool(*kind)).collect();
-    let controls: [Vec<Action>; 5] = [
+    let controls: [Vec<Action>; 6] = [
         [Depth::Shallow, Depth::Medium, Depth::Deep].map(Action::Depth).to_vec(),
         vec![Action::GatherFirst, Action::Alarm],
         vec![
@@ -214,6 +228,7 @@ fn spawn_toolbar(mut commands: Commands, asset_server: Res<AssetServer>) {
             Action::Speed(Some(3.0)),
         ],
         vec![Action::View(Layer::Surface), Action::View(Layer::Underground)],
+        vec![Action::Overlay(MapOverlay::Pasture), Action::Overlay(MapOverlay::Mood)],
         vec![Action::Research],
     ];
 
@@ -365,6 +380,7 @@ struct ActionTargets<'w> {
     research: ResMut<'w, ResearchOpen>,
     progress: Res<'w, Progress>,
     messages: ResMut<'w, Messages>,
+    overlay: ResMut<'w, MapOverlay>,
 }
 
 impl ActionTargets<'_> {
@@ -395,6 +411,13 @@ impl ActionTargets<'_> {
             }
             Action::View(layer) => self.view.0 = layer,
             Action::Research => self.research.0 = !self.research.0,
+            Action::Overlay(which) => {
+                self.overlay.toggle(which);
+                // Die Weide sieht man nur von oben.
+                if *self.overlay == MapOverlay::Pasture {
+                    self.view.0 = Layer::Surface;
+                }
+            }
         }
     }
 }
@@ -420,6 +443,7 @@ fn highlight_buttons(
     priorities: Res<Priorities>,
     research: Res<ResearchOpen>,
     progress: Res<Progress>,
+    overlay: Res<MapOverlay>,
     mut buttons: Query<(&ActionButton, &Hovered, &Children, &mut BackgroundColor, &mut BorderColor)>,
     mut locks: Query<&mut Visibility, With<LockIcon>>,
 ) {
@@ -434,6 +458,7 @@ fn highlight_buttons(
             Action::Speed(Some(speed)) => (!time.is_paused() && time.relative_speed() == speed, false),
             Action::View(layer) => (view.0 == layer, false),
             Action::Research => (research.0, false),
+            Action::Overlay(which) => (*overlay == which, false),
         };
         let fill = match (hovered.0, dimmed) {
             (true, _) => BUTTON_HOVER,

@@ -11,6 +11,7 @@ mod furnishing;
 mod ground;
 mod inspect;
 mod map;
+mod overlay;
 mod pathfinding;
 mod predator;
 mod progress;
@@ -70,6 +71,7 @@ fn main() {
             inspect::InspectPlugin,
             scenario::ScenarioPlugin,
             save::SavePlugin,
+            overlay::OverlayPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);

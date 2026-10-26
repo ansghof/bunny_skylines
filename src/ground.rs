@@ -9,6 +9,7 @@ use bevy::light::CascadeShadowConfigBuilder;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
+use crate::overlay::{MapOverlay, pasture_color};
 use crate::map::{Depth, Grid, Layer, TILE_SIZE, TilePos, ViewLayer, surface_color, underground_color};
 
 /// Wie tief ein Eingangsloch an der Oberfläche wirkt.
@@ -20,7 +21,7 @@ pub struct GroundPlugin;
 impl Plugin for GroundPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_ground, spawn_sun))
-            .add_systems(Update, (rebuild_ground, show_view_layer));
+            .add_systems(Update, (rebuild_ground, show_view_layer, overlay_lighting));
     }
 }
 
@@ -101,7 +102,7 @@ fn spawn_ground(
     for layer in [Layer::Surface, Layer::Underground] {
         commands.spawn((
             GroundMesh(layer),
-            Mesh3d(meshes.add(build_mesh(&grid, layer))),
+            Mesh3d(meshes.add(build_mesh(&grid, layer, MapOverlay::Off))),
             MeshMaterial3d(material.clone()),
             Transform::default(),
             visibility_for(layer, view.0),
@@ -127,6 +128,22 @@ fn spawn_sun(mut commands: Commands) {
     ));
 }
 
+/// Eine Übersichtskarte soll auch nachts gut lesbar sein: Solange sie an ist, ohne Licht und Schatten.
+fn overlay_lighting(
+    overlay: Res<MapOverlay>,
+    grounds: Query<&MeshMaterial3d<StandardMaterial>, With<GroundMesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if !overlay.is_changed() {
+        return;
+    }
+    for material in &grounds {
+        if let Some(mut material) = materials.get_mut(&material.0) {
+            material.unlit = *overlay == MapOverlay::Pasture;
+        }
+    }
+}
+
 fn visibility_for(layer: Layer, view: Layer) -> Visibility {
     if layer == view {
         Visibility::Visible
@@ -144,13 +161,18 @@ fn show_view_layer(view: Res<ViewLayer>, mut grounds: Query<(&GroundMesh, &mut V
     }
 }
 
-fn rebuild_ground(grid: Res<Grid>, mut meshes: ResMut<Assets<Mesh>>, grounds: Query<(&GroundMesh, &Mesh3d)>) {
-    if !grid.is_changed() || grid.is_added() {
+fn rebuild_ground(
+    grid: Res<Grid>,
+    overlay: Res<MapOverlay>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    grounds: Query<(&GroundMesh, &Mesh3d)>,
+) {
+    if (!grid.is_changed() && !overlay.is_changed()) || grid.is_added() {
         return;
     }
     for (ground, mesh) in &grounds {
         // Schlägt nur fehl, wenn das Mesh gerade entfernt wurde.
-        let _ = meshes.insert(&mesh.0, build_mesh(&grid, ground.0));
+        let _ = meshes.insert(&mesh.0, build_mesh(&grid, ground.0, *overlay));
     }
 }
 
@@ -201,7 +223,7 @@ fn top_y(grid: &Grid, layer: Layer, p: TilePos) -> f32 {
     }
 }
 
-fn build_mesh(grid: &Grid, layer: Layer) -> Mesh {
+fn build_mesh(grid: &Grid, layer: Layer, overlay: MapOverlay) -> Mesh {
     let mut builder = MeshBuilder::default();
     let half = TILE_SIZE / 2.0;
 
@@ -209,6 +231,7 @@ fn build_mesh(grid: &Grid, layer: Layer) -> Mesh {
         let center = p.center();
         let y = top_y(grid, layer, p);
         let color = match layer {
+            Layer::Surface if overlay == MapOverlay::Pasture => rgb(pasture_color(grid.surface(p))),
             Layer::Surface => rgb(surface_color(grid, p)),
             Layer::Underground => rgb(underground_color(grid, p)),
         };

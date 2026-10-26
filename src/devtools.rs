@@ -16,6 +16,7 @@
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
 //! - `speichern=S`: nach S Sekunden speichern; `laden`: nach einer Sekunde den Spielstand laden
+//! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
 //! - `intro`: die Einleitung des Kapitels offen lassen (sonst wird sie gleich geschlossen)
 //! - `ziel`: Ziele des Kapitels sofort erfüllen, damit der Siegbildschirm erscheint
 //! - `infos`: nach zwei Sekunden echt auf Schneeflocke klicken, damit das Infofeld aufgeht
@@ -45,6 +46,7 @@ use crate::tools::{Tool, ToolKind, apply_drag};
 use crate::behavior::{Activity, Reserved};
 use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit};
 use crate::inspect::{RABBIT_HEIGHT, pick_rabbit};
+use crate::overlay::MapOverlay;
 use crate::save::{load_game, save_game};
 use crate::scenario::{Chapter, Scenario, Stage, Target, start_playing};
 use crate::ground::{floor_y, to_world3};
@@ -101,6 +103,7 @@ fn prepare(
     mut tooltip: ResMut<Tooltip>,
     mut progress: ResMut<Progress>,
     mut research: ResMut<ResearchOpen>,
+    mut overlay: ResMut<MapOverlay>,
 ) {
     if script.has("unten") {
         view.0 = Layer::Underground;
@@ -167,6 +170,12 @@ fn prepare(
     }
     if script.has("baum") {
         research.0 = true;
+    }
+    if script.has("karte_weide") {
+        *overlay = MapOverlay::Pasture;
+    }
+    if script.has("karte_stimmung") {
+        *overlay = MapOverlay::Mood;
     }
     if script.has("nacht") {
         clock.time = 0.74;
