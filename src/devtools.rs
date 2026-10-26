@@ -15,6 +15,7 @@
 //! - `hungersnot`: kein Gras, kein Vorrat, alle Kaninchen völlig ausgehungert
 //! - `klee`: ein paar Kleefelder neben dem Eingang säen
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
+//! - `speichern=S`: nach S Sekunden speichern; `laden`: nach einer Sekunde den Spielstand laden
 //! - `intro`: die Einleitung des Kapitels offen lassen (sonst wird sie gleich geschlossen)
 //! - `ziel`: Ziele des Kapitels sofort erfüllen, damit der Siegbildschirm erscheint
 //! - `infos`: nach zwei Sekunden echt auf Schneeflocke klicken, damit das Infofeld aufgeht
@@ -44,6 +45,7 @@ use crate::tools::{Tool, ToolKind, apply_drag};
 use crate::behavior::{Activity, Reserved};
 use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit};
 use crate::inspect::{RABBIT_HEIGHT, pick_rabbit};
+use crate::save::{load_game, save_game};
 use crate::scenario::{Chapter, Scenario, Stage, Target, start_playing};
 use crate::ground::{floor_y, to_world3};
 use crate::camera::MainCamera;
@@ -68,6 +70,7 @@ impl Plugin for DevToolsPlugin {
             .add_systems(Update, fake_press.before(apply_drag))
             .add_systems(Update, click_rabbit.before(pick_rabbit))
             .add_systems(Update, skip_intro)
+            .add_systems(Update, save_and_load)
             .add_systems(Update, take_shot);
     }
 }
@@ -328,6 +331,18 @@ static EASY_CHAPTER: Chapter = Chapter {
     story: "Testkapitel",
     targets: &[Target::Rabbits(2), Target::Food(5.0)],
 };
+
+fn save_and_load(script: Res<TestScript>, time: Res<Time<Real>>, mut commands: Commands, mut done: Local<(bool, bool)>) {
+    let now = time.elapsed_secs();
+    if !done.0 && script.value("speichern").is_some_and(|at| now >= at) {
+        done.0 = true;
+        commands.run_system_cached(save_game);
+    }
+    if !done.1 && script.has("laden") && now >= 1.0 {
+        done.1 = true;
+        commands.run_system_cached(load_game);
+    }
+}
 
 /// Testläufe sollen nicht an der Einleitung hängen bleiben.
 fn skip_intro(script: Res<TestScript>, mut scenario: ResMut<Scenario>, mut commands: Commands, mut done: Local<bool>) {

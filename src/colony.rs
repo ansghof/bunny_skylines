@@ -45,7 +45,7 @@ impl Plugin for ColonyPlugin {
 }
 
 /// Die Rohstoffe der Kolonie.
-#[derive(Resource)]
+#[derive(Resource, serde::Serialize, serde::Deserialize)]
 pub struct Colony {
     /// Futter im Vorrat; wird gegessen und für Nester verbraucht.
     pub food: f32,

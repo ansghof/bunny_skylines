@@ -9,6 +9,7 @@ use crate::colony::Colony;
 use crate::daynight::DayClock;
 use crate::ending::{restart, spawn_button, spawn_overlay};
 use crate::rabbit::Rabbit;
+use crate::save::{load_game, save_exists};
 
 pub struct ScenarioPlugin;
 
@@ -63,7 +64,7 @@ const THE_HEDGE: Chapter = Chapter {
     targets: &[Target::Rabbits(10), Target::Food(30.0)],
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Stage {
     /// Die Einleitung ist offen, das Spiel wartet.
     Intro,
@@ -136,7 +137,15 @@ fn show_intro(mut commands: Commands, scenario: Res<Scenario>, mut time: ResMut<
             commands.run_system_cached(start_playing);
         }
     });
+    if save_exists() {
+        spawn_button(&mut commands, panel, "Spielstand laden").observe(|click: On<PointerClick>, mut commands: Commands| {
+            if click.button == PointerButton::Primary {
+                commands.run_system_cached(load_game);
+            }
+        });
+    }
 }
+
 
 /// Schließt die Einleitung und lässt die Zeit laufen.
 pub fn start_playing(

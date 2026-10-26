@@ -188,7 +188,7 @@ pub struct Pregnant {
 }
 
 #[derive(Component)]
-struct BirthCooldown(f32);
+pub struct BirthCooldown(f32);
 
 #[derive(Component)]
 struct Anim {
@@ -825,6 +825,100 @@ fn animate(
                     light,
                 );
             }
+        }
+    }
+}
+
+/// Ein Kaninchen, wie es im Spielstand steht. Was es gerade tut, wird nicht gespeichert:
+/// Nach dem Laden entscheidet es neu.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SavedRabbit {
+    name: String,
+    female: bool,
+    age: f32,
+    lifespan: f32,
+    starving: f32,
+    parents: Option<(String, String)>,
+    fur: [f32; 4],
+    hunger: f32,
+    mood: f32,
+    slept_badly: bool,
+    layer: Layer,
+    position: (f32, f32),
+    carrying: f32,
+    pregnant: Option<(f32, String)>,
+    birth_cooldown: Option<f32>,
+}
+
+impl SavedRabbit {
+    pub fn capture(
+        rabbit: &Rabbit,
+        fur: &Fur,
+        hunger: &Hunger,
+        mood: &Mood,
+        layer: &OnLayer,
+        transform: &Transform,
+        carrying: &Carrying,
+        pregnant: Option<&Pregnant>,
+        cooldown: Option<&BirthCooldown>,
+    ) -> Self {
+        let position = transform.translation.truncate();
+        Self {
+            name: rabbit.name.clone(),
+            female: rabbit.female,
+            age: rabbit.age,
+            lifespan: rabbit.lifespan,
+            starving: rabbit.starving,
+            parents: rabbit.parents.clone(),
+            fur: fur.0.to_srgba().to_f32_array(),
+            hunger: hunger.0,
+            mood: mood.value,
+            slept_badly: mood.slept_badly,
+            layer: layer.0,
+            position: (position.x, position.y),
+            carrying: carrying.0,
+            pregnant: pregnant.map(|p| (p.left, p.father.clone())),
+            birth_cooldown: cooldown.map(|c| c.0),
+        }
+    }
+
+    pub fn spawn(self, commands: &mut Commands, asset_server: &AssetServer, rng: &mut Rng) {
+        let position = Vec2::new(self.position.0, self.position.1);
+        let fur = Color::srgba(self.fur[0], self.fur[1], self.fur[2], self.fur[3]);
+        let mut entity = commands.spawn(rabbit_bundle(
+            asset_server,
+            self.name.clone(),
+            self.female,
+            self.age,
+            fur,
+            self.layer,
+            position,
+            self.parents.clone(),
+            rng,
+        ));
+        entity.insert((
+            Rabbit {
+                name: self.name,
+                female: self.female,
+                age: self.age,
+                lifespan: self.lifespan,
+                starving: self.starving,
+                parents: self.parents,
+            },
+            Hunger(self.hunger),
+            Mood {
+                value: self.mood,
+                gloomy_for: 0.0,
+                slept_badly: self.slept_badly,
+                herbs: 0.0,
+            },
+            Carrying(self.carrying),
+        ));
+        if let Some((left, father)) = self.pregnant {
+            entity.insert(Pregnant { left, father });
+        }
+        if let Some(left) = self.birth_cooldown {
+            entity.insert(BirthCooldown(left));
         }
     }
 }

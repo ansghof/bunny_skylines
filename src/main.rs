@@ -16,6 +16,7 @@ mod predator;
 mod progress;
 mod rabbit;
 mod rig;
+mod save;
 mod scenario;
 mod speed;
 mod toolbar;
@@ -68,6 +69,7 @@ fn main() {
             progress::ProgressPlugin,
             inspect::InspectPlugin,
             scenario::ScenarioPlugin,
+            save::SavePlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);

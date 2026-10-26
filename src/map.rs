@@ -101,7 +101,7 @@ pub fn tiles_between(a: TilePos, b: TilePos) -> impl Iterator<Item = TilePos> {
     (y0..=y1).flat_map(move |y| (x0..=x1).map(move |x| TilePos::new(x, y)))
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum Layer {
     #[default]
     Surface,
@@ -124,7 +124,7 @@ impl Layer {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Depth {
     Shallow,
     Medium,
@@ -158,7 +158,7 @@ impl Depth {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Chamber {
     Sleeping,
     Storage,
@@ -180,7 +180,7 @@ impl Chamber {
 }
 
 /// Bauwerke an der Oberfläche, eins pro Feld.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Feature {
     /// Dornenhecke: Füchse kommen nur langsam hindurch.
     Hedge,
@@ -211,7 +211,7 @@ impl Feature {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub struct SurfaceTile {
     /// 0 = abgefressen, 1 = volles Gras.
     pub grass: f32,
@@ -253,7 +253,7 @@ impl SurfaceTile {
 
 /// Bodenart unter der Wiese. Sie bestimmt, wie breit Gänge und Kammern werden dürfen,
 /// damit niemand den ganzen Untergrund zu einer einzigen Halle aushöhlt.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Soil {
     /// Locker und rieselnd: nur schmale Gänge.
     Sand,
@@ -285,7 +285,7 @@ impl Soil {
 /// Breiter als das trägt kein Boden, größere Quadrate muss niemand prüfen.
 const WIDEST: i32 = 4;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub struct UndergroundTile {
     pub soil: Soil,
     pub dug: Option<Depth>,
@@ -294,7 +294,7 @@ pub struct UndergroundTile {
     pub chamber: Option<Chamber>,
 }
 
-#[derive(Resource)]
+#[derive(Resource, serde::Serialize, serde::Deserialize)]
 pub struct Grid {
     surface: Vec<SurfaceTile>,
     underground: Vec<UndergroundTile>,

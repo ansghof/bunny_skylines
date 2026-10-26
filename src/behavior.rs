@@ -114,7 +114,7 @@ pub struct Carrying(pub f32);
 pub struct Fear(pub f32);
 
 /// Was der Spieler gerade wichtig findet.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, serde::Serialize, serde::Deserialize)]
 pub struct Priorities {
     /// Alle Erwachsenen sammeln zuerst Futter; Graben und Wache haben Pause.
     pub gather_first: bool,

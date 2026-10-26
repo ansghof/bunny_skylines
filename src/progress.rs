@@ -21,7 +21,7 @@ impl Plugin for ProgressPlugin {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Stage {
     Burrow,
     Warren,
@@ -92,7 +92,7 @@ impl Branch {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Tech {
     Claws,
     DeepTunnels,
@@ -201,7 +201,7 @@ impl Tech {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, serde::Serialize, serde::Deserialize)]
 pub struct Progress {
     pub stage: Stage,
     pub wisdom: f32,

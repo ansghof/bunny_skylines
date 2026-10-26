@@ -16,7 +16,8 @@ use crate::tools::{SelectionCost, Tool, ToolKind};
 /// Werkzeuge stehen in der Werkzeugleiste; hier nur noch die Kamera und das Markieren.
 const HELP: &str = "Linke Maustaste ziehen: Bereich markieren\n\
 Mittlere Maustaste oder WASD: verschieben\n\
-Rechte Maustaste: drehen und neigen · Mausrad: Zoom";
+Rechte Maustaste: drehen und neigen · Mausrad: Zoom\n\
+F5: speichern · F9: laden";
 
 pub struct UiPlugin;
 

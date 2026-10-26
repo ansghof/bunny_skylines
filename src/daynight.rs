@@ -86,7 +86,7 @@ impl Season {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, serde::Serialize, serde::Deserialize)]
 pub struct DayClock {
     pub day: u32,
     /// Anteil des Tages, 0 = Sonnenaufgang.

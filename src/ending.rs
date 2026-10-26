@@ -149,29 +149,32 @@ pub(crate) fn spawn_button<'a>(commands: &'a mut Commands, panel: Entity, label:
     commands.entity(button)
 }
 
-/// Alles zurück auf Anfang: neue Wiese, neue Gründer, erster Frühlingstag.
-pub(crate) fn restart(world: &mut World) {
+/// Räumt Figuren, Fenster und alles Flüchtige weg und lässt die Zeit wieder laufen.
+/// Neubeginn und Laden setzen danach ihren eigenen Stand ein.
+pub(crate) fn clear_world(world: &mut World) {
     let mut doomed = world.query_filtered::<Entity, Or<(With<Rabbit>, With<Fox>, With<EndScreen>)>>();
     let doomed: Vec<Entity> = doomed.iter(world).collect();
     for entity in doomed {
         world.despawn(entity);
     }
-
-    world.insert_resource(Grid::starting_meadow());
-    world.insert_resource(Colony::default());
-    world.insert_resource(DayClock::default());
     world.insert_resource(Reserved::default());
-    world.insert_resource(Priorities::default());
     world.insert_resource(FoxSpawner::default());
     world.insert_resource(AlarmButton::default());
     world.insert_resource(Chronicle::default());
+    world.resource_mut::<Messages>().0.clear();
+    world.resource_mut::<Time<Virtual>>().unpause();
+}
+
+/// Alles zurück auf Anfang: neue Wiese, neue Gründer, erster Frühlingstag.
+pub(crate) fn restart(world: &mut World) {
+    clear_world(world);
+    world.insert_resource(Grid::starting_meadow());
+    world.insert_resource(Colony::default());
+    world.insert_resource(DayClock::default());
+    world.insert_resource(Priorities::default());
     world.insert_resource(Progress::default());
     world.resource_mut::<Scenario>().restart();
     world.insert_resource(ViewLayer(Layer::Surface));
-    world.resource_mut::<Messages>().0.clear();
-    let mut time = world.resource_mut::<Time<Virtual>>();
-    time.set_relative_speed(1.0);
-    time.unpause();
-
+    world.resource_mut::<Time<Virtual>>().set_relative_speed(1.0);
     world.run_system_cached(spawn_founders).ok();
 }
