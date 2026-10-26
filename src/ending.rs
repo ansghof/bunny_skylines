@@ -10,6 +10,7 @@ use crate::danger::AlarmButton;
 use crate::daynight::DayClock;
 use crate::map::{Grid, Layer, ViewLayer};
 use crate::predator::{Fox, FoxSpawner};
+use crate::progress::Progress;
 use crate::rabbit::{Rabbit, spawn_founders};
 
 const PANEL: Color = Color::srgba(0.22, 0.15, 0.10, 0.94);
@@ -146,6 +147,7 @@ pub(crate) fn restart(world: &mut World) {
     world.insert_resource(FoxSpawner::default());
     world.insert_resource(AlarmButton::default());
     world.insert_resource(Chronicle::default());
+    world.insert_resource(Progress::default());
     world.insert_resource(ViewLayer(Layer::Surface));
     world.resource_mut::<Messages>().0.clear();
     let mut time = world.resource_mut::<Time<Virtual>>();

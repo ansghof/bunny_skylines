@@ -12,6 +12,7 @@ mod ground;
 mod map;
 mod pathfinding;
 mod predator;
+mod progress;
 mod rabbit;
 mod rig;
 mod speed;
@@ -62,6 +63,7 @@ fn main() {
             ui::UiPlugin,
             toolbar::ToolbarPlugin,
             ending::EndingPlugin,
+            progress::ProgressPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);

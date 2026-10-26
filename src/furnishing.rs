@@ -9,9 +9,9 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::camera::{Orbit, figure_layer};
-use crate::colony::{Colony, FOOD_PER_STORAGE_TILE};
+use crate::colony::Colony;
 use crate::ground::{depth_y, to_world3};
-use crate::map::{Chamber, Grid, Layer, TilePos, ViewLayer};
+use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer};
 
 const FOLDER: &str = "einrichtung";
 /// Bilder sind in doppelter Spielgröße gemalt.
@@ -33,15 +33,22 @@ enum Kind {
     Pile,
     Light,
     Clover,
+    /// Ein Bau an der Oberfläche: Hecke, Fluchtloch, Sonnenplatz, Kräuter, Spielwiese.
+    Built(Feature),
 }
 
 impl Kind {
     /// In welcher Ansicht diese Einrichtung zu sehen ist.
     fn layer(self) -> Layer {
         match self {
-            Kind::Clover => Layer::Surface,
+            Kind::Clover | Kind::Built(_) => Layer::Surface,
             Kind::Nest | Kind::Pile | Kind::Light => Layer::Underground,
         }
+    }
+
+    /// Steht aufrecht wie eine Figur, statt flach am Boden zu liegen.
+    fn upright(self) -> bool {
+        matches!(self, Kind::Pile | Kind::Built(Feature::Hedge))
     }
 }
 
@@ -50,14 +57,29 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 6] = [
+const IMAGES: [(&str, Vec2); 11] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
     ("futter_klein.png", Vec2::new(80.0, 56.0)),
     ("futter_mittel.png", Vec2::new(104.0, 72.0)),
     ("futter_voll.png", Vec2::new(124.0, 88.0)),
     ("lichtschein.png", Vec2::new(128.0, 128.0)),
     ("klee.png", Vec2::new(128.0, 128.0)),
+    ("hecke.png", Vec2::new(128.0, 96.0)),
+    ("fluchtloch.png", Vec2::new(96.0, 64.0)),
+    ("sonnenplatz.png", Vec2::new(128.0, 128.0)),
+    ("kraeuter.png", Vec2::new(128.0, 128.0)),
+    ("spielwiese.png", Vec2::new(128.0, 128.0)),
 ];
+
+fn feature_image(feature: Feature) -> &'static str {
+    match feature {
+        Feature::Hedge => "hecke.png",
+        Feature::BoltHole => "fluchtloch.png",
+        Feature::SunSpot => "sonnenplatz.png",
+        Feature::Herbs => "kraeuter.png",
+        Feature::Playground => "spielwiese.png",
+    }
+}
 
 #[derive(Component)]
 struct Furnishing(Layer);
@@ -136,8 +158,8 @@ fn place_furnishing(
                 }
                 Some(Chamber::Storage) => {
                     // Der Vorrat füllt die Felder der Reihe nach auf.
-                    let fill = (food_left / FOOD_PER_STORAGE_TILE).clamp(0.0, 1.0);
-                    food_left -= fill * FOOD_PER_STORAGE_TILE;
+                    let fill = (food_left / colony.storage_per_tile).clamp(0.0, 1.0);
+                    food_left -= fill * colony.storage_per_tile;
                     let image = match fill {
                         f if f <= 0.0 => None,
                         f if f < 0.34 => Some("futter_klein.png"),
@@ -148,7 +170,7 @@ fn place_furnishing(
                         wanted.insert((p, Kind::Pile), image);
                     }
                 }
-                None => {}
+                Some(Chamber::Story | Chamber::Nursery) | None => {}
             }
         }
         let surface = grid.surface(p);
@@ -158,6 +180,12 @@ fn place_furnishing(
         // Abgefressener Klee ist nur noch Farbe am Boden, bis er nachwächst.
         if surface.clover && surface.grass > 0.25 {
             wanted.insert((p, Kind::Clover), "klee.png");
+        }
+        // Kräuter sieht man nur, solange sie nicht abgefressen sind; alles andere immer.
+        if let Some(feature) = surface.feature
+            && (feature != Feature::Herbs || surface.grass > 0.25)
+        {
+            wanted.insert((p, Kind::Built(feature)), feature_image(feature));
         }
     }
 
@@ -180,7 +208,7 @@ fn place_furnishing(
             Layer::Underground => grid.under(pos).dug.map_or(0.0, depth_y),
         };
         // Leicht über dem Boden, damit nichts flimmert.
-        let lift = if matches!(kind, Kind::Light | Kind::Clover) { 0.5 } else { 1.0 };
+        let lift = if matches!(kind, Kind::Light | Kind::Clover | Kind::Built(_)) { 0.5 } else { 1.0 };
         let size = image_size(image);
         let at = Transform::from_translation(to_world3(pos.center(), floor + lift));
         let mut entity = commands.spawn((
@@ -189,21 +217,17 @@ fn place_furnishing(
             NotShadowCaster,
             visibility_in(kind.layer(), view.0),
         ));
-        match kind {
-            // Futterhaufen stehen wie Figuren und werden mit ihnen gezeichnet, damit sie aus
+        if kind.upright() {
+            entity.insert((Mesh3d(assets.upright.clone()), Upright, at.with_scale(size.extend(1.0))));
+            // Futterhaufen stehen in Kammern und werden mit den Figuren gezeichnet, damit sie aus
             // jedem Winkel zur Kamera schauen können, ohne in der Kammerwand zu verschwinden.
-            Kind::Pile => entity.insert((
-                Mesh3d(assets.upright.clone()),
-                Upright,
-                figure_layer(),
-                at.with_scale(size.extend(1.0)),
-            )),
+            if kind == Kind::Pile {
+                entity.insert(figure_layer());
+            }
+        } else {
             // Flache Vierecke liegen in x-z: die Bildhöhe gehört auf z.
-            Kind::Nest | Kind::Light | Kind::Clover => entity.insert((
-                Mesh3d(assets.flat.clone()),
-                at.with_scale(Vec3::new(size.x, 1.0, size.y)),
-            )),
-        };
+            entity.insert((Mesh3d(assets.flat.clone()), at.with_scale(Vec3::new(size.x, 1.0, size.y))));
+        }
         placed.0.insert(key, (entity.id(), image));
     }
 }

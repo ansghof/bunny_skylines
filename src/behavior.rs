@@ -8,12 +8,25 @@ use bevy::prelude::*;
 
 use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
 use crate::daynight::{DayClock, Season};
-use crate::map::{Chamber, Depth, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TilePos};
+use crate::map::{Chamber, Depth, Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TilePos};
+use crate::progress::{Progress, Tech};
 use crate::pathfinding::{Node, find_path};
-use crate::rabbit::{Hunger, Offset, OnLayer, Rabbit, z_for};
+use crate::rabbit::{Hunger, Mood, Offset, OnLayer, Rabbit, z_for};
 
 const HUNGER_PER_SECOND: f32 = 0.012;
 const HUNGRY: f32 = 0.55;
+/// So lange hört ein Kaninchen in der Erzählkammer zu.
+const LISTEN_SECONDS: f32 = 20.0;
+/// Weisheit pro Sekunde Zuhören: alte Kaninchen erzählen, Junge lernen erst noch.
+const WISDOM_OLD: f32 = 0.3;
+const WISDOM_ADULT: f32 = 0.1;
+const WISDOM_YOUNG: f32 = 0.05;
+/// So viel Erde gräbt man mit Grabkrallen schneller weg.
+const CLAWS_DIG_FACTOR: f32 = 0.7;
+/// So viel schneller hoppeln alle in breiten Gängen.
+const WIDE_TUNNEL_SPEED: f32 = 1.25;
+/// So viel zufriedener macht ein Bissen Kräuter.
+const HERB_MOOD: f32 = 0.25;
 /// So viele Kaninchen grasen höchstens gemeinsam auf einem Feld; am Vorrat genauso.
 const MAX_PER_TILE: usize = 2;
 /// So viel Hunger entsteht im Schlaf und in der Winterruhe im Vergleich zum Wachsein.
@@ -57,6 +70,8 @@ pub enum Activity {
     Sleeping { bed: TilePos },
     /// Hat die Karte verlassen; wird gleich entfernt.
     Gone,
+    /// Hört in der Erzählkammer zu und sammelt Weisheit.
+    Listening { tile: TilePos, left: f32 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -73,6 +88,8 @@ pub enum Goal {
     Wander,
     /// Unzufrieden: zum Kartenrand und fort.
     Leave,
+    /// In der Erzählkammer zuhören, auf diesem Feld.
+    Listen(TilePos),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -151,7 +168,11 @@ impl Goal {
     /// Das Feld, auf dem höchstens `MAX_PER_TILE` Kaninchen gleichzeitig sein dürfen.
     fn spot(self) -> Option<TilePos> {
         match self {
-            Goal::Eat(tile) | Goal::Gather(tile) | Goal::Store(tile) | Goal::EatFromStore(tile) => Some(tile),
+            Goal::Eat(tile)
+            | Goal::Gather(tile)
+            | Goal::Store(tile)
+            | Goal::EatFromStore(tile)
+            | Goal::Listen(tile) => Some(tile),
             _ => None,
         }
     }
@@ -172,7 +193,9 @@ pub fn release(activity: &Activity, reserved: &mut Reserved) {
                 reserved.free_spot(tile);
             }
         }
-        Activity::Eating { tile, .. } | Activity::Gathering { tile, .. } => reserved.free_spot(*tile),
+        Activity::Eating { tile, .. } | Activity::Gathering { tile, .. } | Activity::Listening { tile, .. } => {
+            reserved.free_spot(*tile)
+        }
         _ => {}
     }
 }
@@ -194,7 +217,11 @@ pub fn start_flight(
         return false;
     }
     let start = current_node(transform, layer);
-    let Some(steps) = find_path(grid, start, |node| node.layer == Layer::Underground) else {
+    // Wer schon im Fluchtloch sitzt, ist versteckt.
+    if is_hidden(grid, start) {
+        return false;
+    }
+    let Some(steps) = find_path(grid, start, |node| node.layer == Layer::Underground || is_hidden(grid, node)) else {
         return false;
     };
     release(activity, reserved);
@@ -202,6 +229,11 @@ pub fn start_flight(
     *activity = Activity::Fleeing;
     fear.0 = FEAR_SECONDS;
     true
+}
+
+/// Ein Fluchtloch an der Oberfläche versteckt ein Kaninchen vor dem Fuchs.
+pub fn is_hidden(grid: &Grid, node: Node) -> bool {
+    node.layer == Layer::Surface && grid.surface(node.pos).feature == Some(Feature::BoltHole)
 }
 
 fn tick_needs(time: Res<Time>, mut rabbits: Query<(&Activity, &mut Hunger, &mut Fear)>) {
@@ -253,7 +285,7 @@ fn decide(
     mut reserved: ResMut<Reserved>,
     mut rabbits: Query<(&Rabbit, &Hunger, &Fear, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Carrying)>,
 ) {
-    let food_space = Colony::food_capacity(&grid) - colony.food;
+    let food_space = colony.food_capacity(&grid) - colony.food;
 
     for (rabbit, hunger, fear, transform, layer, mut activity, mut path, mut carrying) in &mut rabbits {
         let Activity::Idle(wait) = activity.as_mut() else {
@@ -370,7 +402,13 @@ fn choose(
         }
     }
 
-    // Nichts zu tun: ein Stück in der Nähe herumhoppeln, mit Angst nur unter der Erde.
+    // Nichts zu tun: oft in die Erzählkammer, sonst ein Stück herumhoppeln.
+    if rng.chance(0.6)
+        && let Some((seat, steps)) = find_seat(grid, reserved, start)
+    {
+        return Some((Goal::Listen(seat), steps));
+    }
+    // Mit Angst nur unter der Erde.
     find_path(grid, start, |node| {
         node != start && (!s.afraid || node.layer == Layer::Underground) && rng.chance(0.08)
     })
@@ -388,7 +426,20 @@ fn find_grass(grid: &Grid, reserved: &Reserved, start: Node) -> Option<(TilePos,
         node.layer == Layer::Surface
             && !tile.entrance
             && !tile.post
+            && tile.feature.is_none_or(|f| f.keeps_grass())
             && tile.grass >= EDIBLE_GRASS
+            && reserved.spot_free(node.pos)
+    })?;
+    Some((path_end(start, &steps), steps))
+}
+
+/// Ein freier Platz in der Erzählkammer.
+fn find_seat(grid: &Grid, reserved: &Reserved, start: Node) -> Option<(TilePos, Vec<Node>)> {
+    let steps = find_path(grid, start, |node| {
+        let tile = grid.under(node.pos);
+        node.layer == Layer::Underground
+            && tile.chamber == Some(Chamber::Story)
+            && tile.dug.is_some()
             && reserved.spot_free(node.pos)
     })?;
     Some((path_end(start, &steps), steps))
@@ -474,6 +525,7 @@ fn walk(
     mut colony: ResMut<Colony>,
     mut rng: ResMut<Rng>,
     mut reserved: ResMut<Reserved>,
+    progress: Res<Progress>,
     mut rabbits: Query<(
         &mut Transform,
         &mut OnLayer,
@@ -485,6 +537,7 @@ fn walk(
         &Rabbit,
     )>,
 ) {
+    let dig_factor = if progress.has(Tech::Claws) { CLAWS_DIG_FACTOR } else { 1.0 };
     for (mut transform, mut layer, mut path, mut activity, mut hunger, mut carrying, offset, rabbit) in &mut rabbits
     {
         let speed = match *activity {
@@ -496,6 +549,8 @@ fn walk(
         };
         // Alte Kaninchen hoppeln gemächlicher, auch auf der Flucht.
         let speed = if rabbit.is_old() { speed * 0.8 } else { speed };
+        let wide = layer.0 == Layer::Underground && progress.has(Tech::WideTunnels);
+        let speed = if wide { speed * WIDE_TUNNEL_SPEED } else { speed };
 
         let mut budget = speed * time.delta_secs();
         while budget > 0.0 {
@@ -531,7 +586,7 @@ fn walk(
             Goal::Gather(tile) => Activity::Gathering { tile, left: 2.0 },
             Goal::Dig(target) if still_planned(&grid, target) => Activity::Digging {
                 target,
-                left: dig_seconds(&grid, target),
+                left: dig_seconds(&grid, target) * dig_factor,
             },
             Goal::Dig(target) => {
                 reserved.dig.remove(&target);
@@ -547,7 +602,7 @@ fn walk(
             }
             Goal::Store(tile) => {
                 reserved.free_spot(tile);
-                let capacity = Colony::food_capacity(&grid);
+                let capacity = colony.food_capacity(&grid);
                 colony.food = (colony.food + carrying.0).min(capacity);
                 carrying.0 = 0.0;
                 Activity::Idle(0.5)
@@ -563,6 +618,7 @@ fn walk(
             Goal::Sleep(bed) => Activity::Sleeping { bed },
             Goal::Wander => Activity::Idle(rng.range(1.0, 3.5)),
             Goal::Leave => Activity::Gone,
+            Goal::Listen(tile) => Activity::Listening { tile, left: LISTEN_SECONDS },
         };
     }
 }
@@ -574,10 +630,20 @@ fn work(
     mut colony: ResMut<Colony>,
     mut rng: ResMut<Rng>,
     mut reserved: ResMut<Reserved>,
-    mut rabbits: Query<(&Transform, &OnLayer, &mut Activity, &mut Path, &mut Hunger, &mut Carrying)>,
+    mut progress: ResMut<Progress>,
+    mut rabbits: Query<(
+        &Rabbit,
+        &Transform,
+        &OnLayer,
+        &mut Activity,
+        &mut Path,
+        &mut Hunger,
+        &mut Carrying,
+        &mut Mood,
+    )>,
 ) {
     let dt = time.delta_secs();
-    for (transform, layer, mut activity, mut path, mut hunger, mut carrying) in &mut rabbits {
+    for (rabbit, transform, layer, mut activity, mut path, mut hunger, mut carrying, mut mood) in &mut rabbits {
         let next = match activity.as_mut() {
             Activity::Eating { tile, left } => {
                 *left -= dt;
@@ -588,6 +654,9 @@ fn work(
                 let field = grid.surface_mut(*tile);
                 let eaten = field.bite();
                 hunger.0 = (hunger.0 - eaten * 1.3 * field.nutrition()).max(0.0);
+                if field.feature == Some(Feature::Herbs) {
+                    mood.value = (mood.value + HERB_MOOD).min(1.0);
+                }
                 Activity::Idle(0.4)
             }
             Activity::Gathering { tile, left } => {
@@ -647,6 +716,23 @@ fn work(
                     // Nicht alle wachen gleichzeitig auf.
                     Activity::Idle(rng.range(0.0, 4.0))
                 }
+            }
+            Activity::Listening { tile, left } => {
+                *left -= dt;
+                // Alte erzählen am besten, Junge lernen erst noch.
+                let rate = if rabbit.is_old() {
+                    WISDOM_OLD
+                } else if rabbit.is_adult() {
+                    WISDOM_ADULT
+                } else {
+                    WISDOM_YOUNG
+                };
+                progress.wisdom += rate * dt;
+                if *left > 0.0 {
+                    continue;
+                }
+                reserved.free_spot(*tile);
+                Activity::Idle(0.5)
             }
             Activity::Idle(_) | Activity::Walking(_) | Activity::Fleeing | Activity::Gone => continue,
         };

@@ -8,13 +8,15 @@ use bevy::prelude::*;
 use crate::behavior::{Activity, Carrying, DigTarget, Fear, Goal, Path, Reserved, path_to_edge, release};
 use crate::effects::{DirtAssets, throw_dirt};
 use crate::colony::{Colony, Messages, Rng};
-use crate::map::{Grid, Layer, TilePos, ViewLayer};
+use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer};
 use crate::camera::{Orbit, figure_layer};
 use crate::daynight::{DayClock, Season, YEAR_LENGTH, figure_light};
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
 /// Spielsekunden, bis ein Junges erwachsen ist.
 pub const ADULT_AGE: f32 = 150.0;
+/// So viel mehr Kaninchen als Schlafplätze dürfen es durch Nachwuchs werden.
+const OVERCROWDING: f32 = 1.1;
 /// Lebensdauer in Spieljahren, von bis.
 const LIFESPAN_YEARS: (f32, f32) = (8.0, 9.5);
 /// Ab diesem Alter in Spieljahren gilt ein Kaninchen als alt.
@@ -29,6 +31,10 @@ const UNHAPPY: f32 = 0.35;
 const LEAVING: f32 = 0.25;
 /// … und tut es nach so vielen Spielsekunden.
 const LEAVE_AFTER_SECONDS: f32 = 45.0;
+/// Sonnenplatz in der Nähe und Spielwiesen heben die Stimmung.
+const SUN_SPOT_MOOD: f32 = 0.15;
+const PLAYGROUND_MOOD: f32 = 0.05;
+const PLAYGROUND_MOOD_MAX: f32 = 0.15;
 /// So viele Sekunden braucht die Stimmung ungefähr, um sich auf eine neue Lage einzustellen.
 const MOOD_SECONDS: f32 = 30.0;
 /// Ab diesem Hunger zeigt ein Kaninchen eine Gedankenblase.
@@ -57,11 +63,24 @@ const FUR_COLORS: [Color; 5] = [
     Color::srgb(0.52, 0.40, 0.32),
 ];
 
-const BABY_NAMES: [&str; 30] = [
-    "Kleeblatt", "Möhrchen", "Flocke", "Hoppel", "Wuschel", "Pünktchen", "Löwenzahn", "Krümel", "Mümmel",
-    "Stups", "Butterblume", "Haselnuss", "Distel", "Moos", "Sternchen", "Pfötchen", "Gänseblümchen",
-    "Kiesel", "Wolke", "Brombeere", "Rübchen", "Federchen", "Tupfen", "Schnuffel", "Kamille", "Eichel",
-    "Fussel", "Heidi", "Zimt", "Bommel",
+const BABY_NAMES: &[&str] = &[
+    "Kleeblatt", "Möhrchen", "Flocke", "Hoppel", "Wuschel", "Pünktchen", "Löwenzahn", "Krümel", "Mümmel", "Stups",
+    "Butterblume", "Haselnuss", "Distel", "Moos", "Sternchen", "Pfötchen", "Gänseblümchen", "Kiesel", "Wolke",
+    "Brombeere", "Rübchen", "Federchen", "Tupfen", "Schnuffel", "Kamille", "Eichel", "Fussel", "Heidi", "Zimt",
+    "Bommel", "Ahorn", "Anis", "Apfel", "Aster", "Baldrian", "Beere", "Birke", "Blümchen", "Bohne", "Brösel",
+    "Buche", "Butterkeks", "Dachs", "Dattel", "Dinkel", "Efeu", "Erbse", "Erdbeere", "Espe", "Farn", "Feige",
+    "Fenchel", "Fichte", "Fliederchen", "Flitzer", "Flöckchen", "Frieda", "Funke", "Gerste", "Ginster", "Glöckchen",
+    "Grashalm", "Graupe", "Hafer", "Hagebutte", "Halm", "Heide", "Himbeere", "Holunder", "Honig", "Hopsi", "Hummel",
+    "Igelchen", "Ingwer", "Johannisbeere", "Kakao", "Kapuze", "Karotte", "Kastanie", "Keks", "Kerbel", "Kirsche",
+    "Klee", "Knöpfchen", "Knubbel", "Knuffel", "Kohlrabi", "Kornblume", "Kräusel", "Kringel", "Kuller", "Kümmel",
+    "Lavendel", "Lerche", "Linde", "Linse", "Lupine", "Mandel", "Margerite", "Matsch", "Melisse", "Minze", "Mohn",
+    "Mohnblume", "Möhre", "Muffin", "Murmel", "Muskat", "Nebel", "Nelke", "Nougat", "Nuss", "Oregano", "Pastinake",
+    "Petersilie", "Pfeffer", "Pflaume", "Pilz", "Pimpernell", "Plüsch", "Pusteblume", "Quaste", "Quendel",
+    "Radieschen", "Raps", "Regentropfen", "Reisig", "Rosine", "Rotkehlchen", "Salbei", "Sauerampfer", "Schlehe",
+    "Schlüsselblume", "Schneebeere", "Schnupperle", "Sellerie", "Senf", "Sesam", "Sonnenschein", "Spatz",
+    "Spitzwegerich", "Stachelbeere", "Staubi", "Stöpsel", "Strubbel", "Tannenzapfen", "Tau", "Thymian", "Tröpfchen",
+    "Trüffel", "Tulpe", "Veilchen", "Vergissmeinnicht", "Wacholder", "Waldmeister", "Walnuss", "Weide", "Wicke",
+    "Wiesel", "Wirbel", "Wurzel", "Zaunkönig", "Zwiebel", "Zwirbel",
 ];
 
 pub struct RabbitPlugin;
@@ -247,10 +266,13 @@ pub fn spawn_founders(
     messages.push("Schneeflocke und Lukas gründen die Familie Buddelberg.");
 }
 
-fn grow_up(time: Res<Time>, mut rabbits: Query<&mut Rabbit>, mut messages: ResMut<Messages>) {
+fn grow_up(time: Res<Time>, grid: Res<Grid>, mut rabbits: Query<&mut Rabbit>, mut messages: ResMut<Messages>) {
+    // Mit Kinderstube wachsen Junge doppelt so schnell heran.
+    let nursery = grid.chamber_tiles(Chamber::Nursery) > 0;
     for mut rabbit in &mut rabbits {
         let was_adult = rabbit.is_adult();
-        rabbit.age += time.delta_secs();
+        let speed = if nursery && !was_adult { 2.0 } else { 1.0 };
+        rabbit.age += time.delta_secs() * speed;
         if !was_adult && rabbit.is_adult() {
             messages.push(format!("{} ist erwachsen geworden.", rabbit.name));
         }
@@ -374,11 +396,24 @@ fn show_hunger(
 }
 
 /// Die Stimmung folgt langsam dem, was ein Kaninchen gerade erlebt.
-fn update_mood(time: Res<Time>, clock: Res<DayClock>, mut rabbits: Query<(&Hunger, &Fear, &Activity, &mut Mood)>) {
+fn update_mood(
+    time: Res<Time>,
+    clock: Res<DayClock>,
+    grid: Res<Grid>,
+    mut rabbits: Query<(&Hunger, &Fear, &Activity, &Transform, &OnLayer, &mut Mood)>,
+) {
     let dt = time.delta_secs();
     let resting_time = clock.is_resting_time();
-    for (hunger, fear, activity, mut mood) in &mut rabbits {
-        let mut target = CONTENT;
+    // Jede Spielwiese hebt die Grundstimmung der ganzen Familie.
+    let playgrounds = Grid::positions()
+        .filter(|p| grid.surface(*p).feature == Some(Feature::Playground))
+        .count();
+    let content = CONTENT + (playgrounds as f32 * PLAYGROUND_MOOD).min(PLAYGROUND_MOOD_MAX);
+    for (hunger, fear, activity, transform, layer, mut mood) in &mut rabbits {
+        let mut target = content;
+        if layer.0 == Layer::Surface && near_sun_spot(&grid, transform) {
+            target += SUN_SPOT_MOOD;
+        }
         if hunger.0 >= SHOW_HUNGER {
             target -= 0.5;
         }
@@ -393,6 +428,17 @@ fn update_mood(time: Res<Time>, clock: Res<DayClock>, mut rabbits: Query<(&Hunge
         mood.value += (target - mood.value) * (dt / MOOD_SECONDS).min(1.0);
         mood.value = mood.value.clamp(0.0, 1.0);
     }
+}
+
+/// Liegt ein Sonnenplatz höchstens zwei Felder entfernt?
+fn near_sun_spot(grid: &Grid, transform: &Transform) -> bool {
+    let here = TilePos::from_world_clamped(transform.translation.truncate());
+    (-2..=2).any(|dy| {
+        (-2..=2).any(|dx| {
+            let p = TilePos::new(here.x + dx, here.y + dy);
+            p.in_bounds() && grid.surface(p).feature == Some(Feature::SunSpot)
+        })
+    })
 }
 
 /// Wer lange unglücklich ist, macht sich auf den Weg zum Kartenrand.
@@ -499,9 +545,11 @@ fn start_pregnancies(
     if !all.iter().any(|r| r.is_adult() && !r.female) {
         return;
     }
-    // Erwarteten Nachwuchs mitzählen, damit nicht mehr Junge kommen, als Platz ist.
+    // Erwarteten Nachwuchs mitzählen. Es kommen bis zu 10 % mehr Junge, als Schlafplätze da sind:
+    // Wer keinen Platz findet, wird unglücklich, und es bleibt immer Druck, sich zu vergrößern.
     let expected = all.iter().count() + pregnant.iter().count() * 3;
-    let mut free = Colony::sleeping_places(&grid).saturating_sub(expected);
+    let room = (Colony::sleeping_places(&grid) as f32 * OVERCROWDING).ceil() as usize;
+    let mut free = room.saturating_sub(expected);
 
     for (entity, rabbit, hunger) in &candidates {
         if free < 3 {
@@ -523,6 +571,7 @@ fn give_birth(
     mut messages: ResMut<Messages>,
     mut mothers: Query<(Entity, &Rabbit, &Fur, &OnLayer, &Transform, &mut Pregnant)>,
     everyone: Query<&Rabbit>,
+    grid: Res<Grid>,
 ) {
     let mut taken: Vec<String> = everyone.iter().map(|r| r.name.clone()).collect();
     for (entity, mother, fur, layer, transform, mut pregnant) in &mut mothers {
@@ -535,7 +584,8 @@ fn give_birth(
             .remove::<Pregnant>()
             .insert(BirthCooldown(BIRTH_COOLDOWN_SECONDS));
 
-        let count = 2 + rng.below(3);
+        // In einer Kinderstube kommt ein Junges mehr zur Welt.
+        let count = 2 + rng.below(3) + usize::from(grid.chamber_tiles(Chamber::Nursery) > 0);
         let mut names = Vec::new();
         for _ in 0..count {
             let name = unused_name(&taken, &mut rng);
@@ -563,7 +613,8 @@ fn give_birth(
     }
 }
 
-/// Ein Name, den noch kein Kaninchen trägt; sind alle vergeben, mit Zahl dahinter („Moos 2“).
+/// Ein Name, den noch kein Kaninchen trägt. Sind alle vergeben, gibt es Doppelnamen
+/// („Distel-Moos“), und erst wenn auch die nicht reichen, eine Zahl dahinter („Moos 2“).
 fn unused_name(taken: &[String], rng: &mut Rng) -> String {
     let free: Vec<&str> = BABY_NAMES
         .iter()
@@ -572,6 +623,14 @@ fn unused_name(taken: &[String], rng: &mut Rng) -> String {
         .collect();
     if !free.is_empty() {
         return free[rng.below(free.len())].to_string();
+    }
+    for _ in 0..50 {
+        let first = BABY_NAMES[rng.below(BABY_NAMES.len())];
+        let second = BABY_NAMES[rng.below(BABY_NAMES.len())];
+        let name = format!("{first}-{second}");
+        if first != second && !taken.contains(&name) {
+            return name;
+        }
     }
     let base = BABY_NAMES[rng.below(BABY_NAMES.len())];
     (2..)

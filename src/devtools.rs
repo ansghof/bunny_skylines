@@ -17,6 +17,7 @@
 //! - `tipp`: den Tooltip des Kleefeld-Knopfs zeigen
 //! - `winter`: mitten im verschneiten Winter starten
 //! - `neustart`: sobald die Familie ausgestorben ist, „Neu beginnen“ drücken
+//! - `forschung`: alles freischalten; `weisheit=N`: so viel Weisheit zum Start; `baum`: Forschungsbaum offen
 //! - `nacht`: kurz vor Einbruch der Nacht starten
 //!
 //! Bei jedem Wechsel der Jahreszeit steht im Protokoll, wie viele Kaninchen leben und wie viel Futter da ist.
@@ -34,7 +35,8 @@ use crate::colony::Colony;
 use crate::daynight::{DayClock, Season};
 use crate::ending::{EndScreen, restart};
 use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer, tiles_between};
-use crate::toolbar::{Action, Tooltip};
+use crate::progress::Progress;
+use crate::toolbar::{Action, ResearchOpen, Tooltip};
 use crate::tools::{Tool, ToolKind, apply_drag};
 use crate::behavior::{Activity, Reserved};
 use crate::rabbit::{Hunger, Mood, Rabbit};
@@ -84,6 +86,8 @@ fn prepare(
     mut time: ResMut<Time<Virtual>>,
     mut orbit: ResMut<Orbit>,
     mut tooltip: ResMut<Tooltip>,
+    mut progress: ResMut<Progress>,
+    mut research: ResMut<ResearchOpen>,
 ) {
     if script.has("unten") {
         view.0 = Layer::Underground;
@@ -141,6 +145,15 @@ fn prepare(
         // Tag 6 am Vormittag: tiefer Winter, die Wiese liegt unter Schnee.
         clock.day = 6;
         clock.time = 0.3;
+    }
+    if script.has("forschung") {
+        progress.unlock_all();
+    }
+    if let Some(wisdom) = script.value("weisheit") {
+        progress.wisdom = wisdom;
+    }
+    if script.has("baum") {
+        research.0 = true;
     }
     if script.has("nacht") {
         clock.time = 0.74;
@@ -211,11 +224,12 @@ fn log_seasons(
     let soil = tiles.iter().sum::<f32>() / tiles.len() as f32;
     let worn = tiles.iter().filter(|f| **f < 0.5).count();
     info!(
-        "Jahr {} {}: {count} Kaninchen ({young} Junge), Futter {:.0}/{:.0}, Stimmung {:.0} %, Boden {:.0} %, ausgelaugt {worn}",
+        "Jahr {} {}: {count} Kaninchen ({young} Junge), Plätze {}, Futter {:.0}/{:.0}, Stimmung {:.0} %, Boden {:.0} %, ausgelaugt {worn}",
         clock.year(),
         season.label(),
+        Colony::sleeping_places(&grid),
         colony.food,
-        Colony::food_capacity(&grid),
+        colony.food_capacity(&grid),
         mood * 100.0,
         soil * 100.0,
     );

@@ -1,15 +1,16 @@
 //! Bauwerkzeuge: Mit gedrückter linker Maustaste einen Bereich aufziehen.
-//! Die Kaninchen arbeiten die Aufträge danach selbst ab.
+//! Die Kaninchen arbeiten die Aufträge danach selbst ab; Bauten an der Oberfläche stehen sofort.
 
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 
 use crate::camera::CursorWorld;
-use crate::toolbar::Toolbar;
 use crate::colony::{Colony, Messages, cost};
 use crate::daynight::DayClock;
 use crate::ground::gizmo_rect;
-use crate::map::{Chamber, Depth, Grid, Layer, TILE_SIZE, TilePos, ViewLayer, tiles_between};
+use crate::map::{Chamber, Depth, Feature, Grid, Layer, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, tiles_between};
+use crate::progress::{Progress, Tech};
+use crate::toolbar::Toolbar;
 
 pub struct ToolsPlugin;
 
@@ -29,17 +30,25 @@ pub enum ToolKind {
     Chamber(Chamber),
     Post,
     Clover,
+    Feature(Feature),
     Remove,
 }
 
 /// Alle Werkzeuge in der Reihenfolge der Werkzeugleiste, mit Taste und Tastenname.
-pub const TOOLS: [(ToolKind, KeyCode, &str); 7] = [
+pub const TOOLS: [(ToolKind, KeyCode, &str); 14] = [
     (ToolKind::Dig, KeyCode::KeyG, "G"),
     (ToolKind::Entrance, KeyCode::KeyE, "E"),
     (ToolKind::Chamber(Chamber::Sleeping), KeyCode::KeyN, "N"),
     (ToolKind::Chamber(Chamber::Storage), KeyCode::KeyV, "V"),
+    (ToolKind::Chamber(Chamber::Story), KeyCode::KeyZ, "Z"),
+    (ToolKind::Chamber(Chamber::Nursery), KeyCode::KeyJ, "J"),
     (ToolKind::Post, KeyCode::KeyP, "P"),
+    (ToolKind::Feature(Feature::Hedge), KeyCode::KeyH, "H"),
+    (ToolKind::Feature(Feature::BoltHole), KeyCode::KeyL, "L"),
+    (ToolKind::Feature(Feature::SunSpot), KeyCode::KeyO, "O"),
     (ToolKind::Clover, KeyCode::KeyK, "K"),
+    (ToolKind::Feature(Feature::Herbs), KeyCode::KeyU, "U"),
+    (ToolKind::Feature(Feature::Playground), KeyCode::KeyM, "M"),
     (ToolKind::Remove, KeyCode::KeyX, "X"),
 ];
 
@@ -51,6 +60,7 @@ impl ToolKind {
             ToolKind::Chamber(chamber) => chamber.label(),
             ToolKind::Post => "Wachposten",
             ToolKind::Clover => "Kleefeld säen",
+            ToolKind::Feature(feature) => feature.label(),
             ToolKind::Remove => "Entfernen",
         }
     }
@@ -62,34 +72,91 @@ impl ToolKind {
             ToolKind::Entrance => "Einen Eingang von der Wiese in den Bau graben lassen.",
             ToolKind::Chamber(Chamber::Sleeping) => "Gegrabene Felder zur Schlafkammer machen. Mehr Nester, mehr Nachwuchs.",
             ToolKind::Chamber(Chamber::Storage) => "Gegrabene Felder zur Vorratskammer machen. Hier lagert das Futter.",
+            ToolKind::Chamber(Chamber::Story) => {
+                "Hier hören Kaninchen Geschichten und sammeln Weisheit für den Forschungsbaum. Alte erzählen am besten."
+            }
+            ToolKind::Chamber(Chamber::Nursery) => "Junge wachsen doppelt so schnell heran, und Würfe werden größer.",
             ToolKind::Post => "Ein Erdhügel, von dem aus eine Wache Füchse entdeckt.",
-            ToolKind::Clover => "Klee wächst doppelt so schnell nach, ist nahrhafter als Gras und macht ausgelaugten Boden wieder gesund.",
-            ToolKind::Remove => "Aufträge, Kammern, Posten und Klee entfernen.",
+            ToolKind::Clover => {
+                "Klee wächst doppelt so schnell nach, ist nahrhafter als Gras und macht ausgelaugten Boden wieder gesund."
+            }
+            ToolKind::Feature(Feature::Hedge) => "Füchse kommen nur langsam hindurch, Kaninchen schlüpfen einfach durch.",
+            ToolKind::Feature(Feature::BoltHole) => {
+                "Ein kleines Versteck draußen: Flüchtende verschwinden darin, der Fuchs kommt nicht ran."
+            }
+            ToolKind::Feature(Feature::SunSpot) => "Kaninchen in der Nähe sonnen sich und werden zufriedener.",
+            ToolKind::Feature(Feature::Herbs) => "Kräuter zum Fressen: Wer hier frisst, wird deutlich zufriedener.",
+            ToolKind::Feature(Feature::Playground) => "Jedes Feld Spielwiese macht die ganze Familie etwas zufriedener.",
+            ToolKind::Remove => "Aufträge, Kammern und Bauten an der Oberfläche entfernen.",
+        }
+    }
+
+    /// Preis pro Feld als (Futter, Erde); `None` = kostenlos.
+    pub fn price(self) -> Option<(f32, f32)> {
+        match self {
+            ToolKind::Post => Some((0.0, cost::POST_EARTH)),
+            ToolKind::Chamber(Chamber::Sleeping) => Some((cost::NEST_FOOD, 0.0)),
+            ToolKind::Clover => Some((cost::CLOVER_FOOD, 0.0)),
+            ToolKind::Feature(Feature::Hedge) => Some((0.0, cost::HEDGE_EARTH)),
+            ToolKind::Feature(Feature::BoltHole) => Some((0.0, cost::BOLT_HOLE_EARTH)),
+            ToolKind::Feature(Feature::SunSpot) => Some((0.0, cost::SUN_SPOT_EARTH)),
+            ToolKind::Feature(Feature::Herbs) => Some((cost::HERBS_FOOD, 0.0)),
+            ToolKind::Feature(Feature::Playground) => Some((0.0, cost::PLAYGROUND_EARTH)),
+            _ => None,
         }
     }
 
     /// Was das Werkzeug kostet, für die Anzeige.
     pub fn cost_label(self) -> Option<String> {
+        let (food, earth) = self.price()?;
+        let what = if food > 0.0 {
+            format!("{food:.0} Futter")
+        } else {
+            format!("{earth:.0} Erde")
+        };
+        let per = match self {
+            ToolKind::Chamber(Chamber::Sleeping) => " pro Nest",
+            _ if self.is_single() => "",
+            _ => " pro Feld",
+        };
+        Some(format!("{what}{per}"))
+    }
+
+    /// Welche Forschung das Werkzeug freischaltet; `None` = von Anfang an da.
+    pub fn required_tech(self) -> Option<Tech> {
         match self {
-            ToolKind::Post => Some(format!("{:.0} Erde", cost::POST_EARTH)),
-            ToolKind::Chamber(Chamber::Sleeping) => Some(format!("{:.0} Futter pro Nest", cost::NEST_FOOD)),
-            ToolKind::Clover => Some(format!("{:.0} Futter pro Feld", cost::CLOVER_FOOD)),
+            ToolKind::Post => Some(Tech::Posts),
+            ToolKind::Clover => Some(Tech::Clover),
+            ToolKind::Chamber(Chamber::Nursery) => Some(Tech::Nursery),
+            ToolKind::Feature(Feature::Hedge) => Some(Tech::Hedges),
+            ToolKind::Feature(Feature::BoltHole) => Some(Tech::BoltHoles),
+            ToolKind::Feature(Feature::SunSpot) => Some(Tech::SunSpots),
+            ToolKind::Feature(Feature::Herbs) => Some(Tech::Herbs),
+            ToolKind::Feature(Feature::Playground) => Some(Tech::Playground),
             _ => None,
         }
     }
 
     fn is_single(self) -> bool {
-        matches!(self, ToolKind::Entrance | ToolKind::Post)
+        matches!(
+            self,
+            ToolKind::Entrance | ToolKind::Post | ToolKind::Feature(Feature::BoltHole | Feature::SunSpot)
+        )
     }
 
     /// Die Ansicht, in der das Werkzeug benutzt wird; `None` = beide.
     pub fn layer(self) -> Option<Layer> {
         match self {
             ToolKind::Dig | ToolKind::Chamber(_) => Some(Layer::Underground),
-            ToolKind::Entrance | ToolKind::Post | ToolKind::Clover => Some(Layer::Surface),
+            ToolKind::Entrance | ToolKind::Post | ToolKind::Clover | ToolKind::Feature(_) => Some(Layer::Surface),
             ToolKind::Remove => None,
         }
     }
+}
+
+/// Ob eine Grabtiefe schon erforscht ist.
+pub fn depth_available(depth: Depth, progress: &Progress) -> bool {
+    depth != Depth::Deep || progress.has(Tech::DeepTunnels)
 }
 
 /// Wählt ein Werkzeug und wechselt in die passende Ansicht, damit man sieht, was man baut.
@@ -98,6 +165,11 @@ pub fn select(kind: ToolKind, tool: &mut Tool, view: &mut ViewLayer) {
     if let Some(layer) = kind.layer() {
         view.0 = layer;
     }
+}
+
+/// Meldung, wenn ein Werkzeug noch gesperrt ist.
+pub fn locked_message(tech: Tech) -> String {
+    format!("{} ist noch nicht erforscht. Öffne den Forschungsbaum mit T.", tech.label())
 }
 
 #[derive(Resource)]
@@ -111,13 +183,31 @@ pub(crate) struct Drag {
     start: Option<TilePos>,
 }
 
-fn select_tool(keys: Res<ButtonInput<KeyCode>>, mut tool: ResMut<Tool>, mut view: ResMut<ViewLayer>) {
+fn select_tool(
+    keys: Res<ButtonInput<KeyCode>>,
+    progress: Res<Progress>,
+    mut tool: ResMut<Tool>,
+    mut view: ResMut<ViewLayer>,
+    mut messages: ResMut<Messages>,
+) {
     if let Some((kind, _, _)) = TOOLS.into_iter().find(|(_, key, _)| keys.just_pressed(*key)) {
-        select(kind, &mut tool, &mut view);
+        match kind.required_tech().filter(|tech| !progress.has(*tech)) {
+            Some(tech) => messages.push(locked_message(tech)),
+            None => select(kind, &mut tool, &mut view),
+        }
     }
     if keys.just_pressed(KeyCode::KeyR) {
+        // Noch nicht erforschte Tiefen überspringen.
         tool.depth = tool.depth.next();
+        while !depth_available(tool.depth, &progress) {
+            tool.depth = tool.depth.next();
+        }
     }
+}
+
+/// Ob ein Oberflächen-Bau auf dieses Feld passt: ein Bau pro Feld, nicht auf Eingänge.
+fn surface_free(field: &SurfaceTile) -> bool {
+    !field.entrance && !field.entrance_planned && !field.post && !field.clover && field.feature.is_none()
 }
 
 pub(crate) fn apply_drag(
@@ -125,6 +215,7 @@ pub(crate) fn apply_drag(
     cursor: Res<CursorWorld>,
     tool: Res<Tool>,
     view: Res<ViewLayer>,
+    progress: Res<Progress>,
     mut drag: ResMut<Drag>,
     mut grid: ResMut<Grid>,
     mut colony: ResMut<Colony>,
@@ -150,40 +241,56 @@ pub(crate) fn apply_drag(
     if tool.kind.layer().is_some_and(|layer| layer != view.0) {
         return;
     }
+    if let Some(tech) = tool.kind.required_tech().filter(|tech| !progress.has(*tech)) {
+        messages.push(locked_message(tech));
+        return;
+    }
 
     let end = TilePos::from_world_clamped(cursor);
     let frozen_work = tool.kind == ToolKind::Entrance || (tool.kind == ToolKind::Dig && tool.depth == Depth::Shallow);
     if frozen_work && clock.is_ground_frozen() {
         messages.push("Der Boden ist gefroren: Eingänge und flache Gänge werden erst im Frühling gegraben.");
     }
-    // Eingänge und Posten immer einzeln, ein ganzer Bereich davon ergibt keinen Sinn.
-    if tool.kind.is_single() {
-        let tile = grid.surface_mut(end);
-        if tile.entrance {
-            return;
-        }
-        match tool.kind {
-            ToolKind::Entrance => tile.entrance_planned = true,
-            _ if tile.post => {}
-            _ if colony.pay(0.0, cost::POST_EARTH) => tile.post = true,
-            _ => messages.push(format!(
-                "Für einen Wachposten fehlt Erde ({:.0} von {:.0}). Erde gibt es beim Graben.",
-                colony.earth,
-                cost::POST_EARTH
-            )),
-        }
-        return;
-    }
+    // Manche Bauten immer einzeln, ein ganzer Bereich davon ergibt keinen Sinn.
+    let tiles: Vec<TilePos> = if tool.kind.is_single() {
+        vec![end]
+    } else {
+        tiles_between(start, end).collect()
+    };
 
-    let mut missing_food = false;
-    let mut missing_seed = false;
-    for p in tiles_between(start, end) {
+    let mut short = false;
+    let mut too_wide = None;
+    for p in tiles {
         match tool.kind {
             ToolKind::Dig => {
-                let tile = grid.under_mut(p);
-                if tile.dug.is_none() {
-                    tile.planned = Some(tool.depth);
+                let tile = grid.under(p);
+                if tile.dug.is_some() {
+                    continue;
                 }
+                // Schon geplante Felder wurden beim Planen geprüft.
+                if tile.planned.is_none()
+                    && let Some(soil) = grid.too_wide(p)
+                {
+                    too_wide = Some(soil);
+                    continue;
+                }
+                grid.under_mut(p).planned = Some(tool.depth);
+            }
+            ToolKind::Entrance => {
+                let field = grid.surface(p);
+                if field.entrance || field.post || field.feature.is_some() {
+                    continue;
+                }
+                // Unter einem Eingang entsteht ein Gang, also gilt auch hier die Breite.
+                let under = grid.under(p);
+                if under.dug.is_none()
+                    && under.planned.is_none()
+                    && let Some(soil) = grid.too_wide(p)
+                {
+                    too_wide = Some(soil);
+                    continue;
+                }
+                grid.surface_mut(p).entrance_planned = true;
             }
             ToolKind::Chamber(chamber) => {
                 let tile = grid.under_mut(p);
@@ -195,25 +302,38 @@ pub(crate) fn apply_drag(
                     colony.food += cost::NEST_FOOD;
                 }
                 if chamber == Chamber::Sleeping && !colony.pay(cost::NEST_FOOD, 0.0) {
-                    missing_food = true;
+                    short = true;
                     continue;
                 }
                 tile.chamber = Some(chamber);
             }
-            ToolKind::Clover => {
+            ToolKind::Post | ToolKind::Clover | ToolKind::Feature(_) => {
                 let field = grid.surface_mut(p);
-                if field.entrance || field.post || field.clover {
+                if !surface_free(field) {
                     continue;
                 }
-                if !colony.pay(cost::CLOVER_FOOD, 0.0) {
-                    missing_seed = true;
+                let (food, earth) = tool.kind.price().unwrap_or_default();
+                if !colony.pay(food, earth) {
+                    short = true;
                     continue;
                 }
-                // Frisch gesät: erst einmal kurz.
-                field.clover = true;
-                field.grass = field.grass.min(0.15);
-                // Klee bindet Stickstoff: Ausgelaugter Boden wird wieder gesund.
-                field.fertility = field.fertility.max(1.0);
+                match tool.kind {
+                    ToolKind::Post => field.post = true,
+                    ToolKind::Clover => {
+                        // Frisch gesät: erst einmal kurz.
+                        field.clover = true;
+                        field.grass = field.grass.min(0.15);
+                        // Klee bindet Stickstoff: Ausgelaugter Boden wird wieder gesund.
+                        field.fertility = field.fertility.max(1.0);
+                    }
+                    ToolKind::Feature(feature) => {
+                        field.feature = Some(feature);
+                        if !feature.keeps_grass() {
+                            field.grass = 0.0;
+                        }
+                    }
+                    _ => unreachable!(),
+                }
             }
             ToolKind::Remove => {
                 let tile = grid.under_mut(p);
@@ -221,54 +341,52 @@ pub(crate) fn apply_drag(
                 if tile.chamber.take() == Some(Chamber::Sleeping) {
                     colony.food += cost::NEST_FOOD;
                 }
-                let surface = grid.surface_mut(p);
-                surface.entrance_planned = false;
-                surface.clover = false;
-                if std::mem::take(&mut surface.post) {
+                let field = grid.surface_mut(p);
+                field.entrance_planned = false;
+                field.clover = false;
+                // Erde von Hügeln und Hecken kommt zurück, Saatgut nicht.
+                if std::mem::take(&mut field.post) {
                     colony.earth += cost::POST_EARTH;
                 }
+                if let Some(feature) = field.feature.take() {
+                    let (_, earth) = ToolKind::Feature(feature).price().unwrap_or_default();
+                    colony.earth += earth;
+                }
             }
-            ToolKind::Entrance | ToolKind::Post => unreachable!(),
         }
     }
-    if missing_seed {
-        messages.push(format!(
-            "Für mehr Klee fehlt Saatgut ({:.0} Futter pro Feld).",
-            cost::CLOVER_FOOD
-        ));
+    if let Some(soil) = too_wide {
+        messages.push(width_message(soil));
     }
-    if missing_food {
-        messages.push(format!(
-            "Für mehr Nester fehlt Futter ({:.0} Futter pro Nest). Sammler tragen Gras in den Vorrat.",
-            cost::NEST_FOOD
-        ));
+    if short {
+        let price = tool.kind.cost_label().unwrap_or_default();
+        messages.push(format!("Für {} reicht es nicht ganz ({price}).", tool.kind.label()));
     }
+}
+
+fn width_message(soil: Soil) -> String {
+    let width = match soil.max_width() {
+        1 => "1 Feld".to_string(),
+        n => format!("{n} Felder"),
+    };
+    format!("{} hält nur Gänge, die höchstens {width} breit sind. Sonst stürzt die Decke ein.", soil.label())
 }
 
 /// Was der gerade aufgezogene Bereich kosten würde, für die Anzeige über der Werkzeugleiste.
 #[derive(Resource, Default)]
 pub struct SelectionCost(pub Option<String>);
 
-/// Wie viele Felder im Bereich das Werkzeug wirklich bezahlen müsste, und zu welchem Preis pro Feld.
-fn priced_tiles(grid: &Grid, kind: ToolKind, start: TilePos, end: TilePos) -> Option<(usize, f32)> {
-    let price = match kind {
-        ToolKind::Clover => cost::CLOVER_FOOD,
-        ToolKind::Chamber(Chamber::Sleeping) => cost::NEST_FOOD,
-        _ => return None,
-    };
-    let count = tiles_between(start, end)
+/// Wie viele Felder im Bereich das Werkzeug wirklich bezahlen müsste.
+fn priced_tiles(grid: &Grid, kind: ToolKind, start: TilePos, end: TilePos) -> usize {
+    tiles_between(start, end)
         .filter(|p| match kind {
-            ToolKind::Clover => {
-                let field = grid.surface(*p);
-                !field.entrance && !field.post && !field.clover
-            }
-            _ => {
+            ToolKind::Chamber(Chamber::Sleeping) => {
                 let tile = grid.under(*p);
                 (tile.dug.is_some() || tile.planned.is_some()) && tile.chamber != Some(Chamber::Sleeping)
             }
+            _ => surface_free(grid.surface(*p)),
         })
-        .count();
-    Some((count, price))
+        .count()
 }
 
 fn draw_preview(
@@ -289,11 +407,18 @@ fn draw_preview(
         selection.0 = None;
         return;
     };
-    let info = drag.start.filter(|_| dragging).and_then(|start| {
+    let info = drag.start.filter(|_| dragging && !tool.kind.is_single()).and_then(|start| {
+        let (food, earth) = tool.kind.price()?;
         let end = TilePos::from_world_clamped(cursor);
-        let (count, price) = priced_tiles(&grid, tool.kind, start, end)?;
+        let count = priced_tiles(&grid, tool.kind, start, end);
+        // Bezahlt wird in genau einem Rohstoff.
+        let (price, stock, unit) = if food > 0.0 {
+            (food, colony.food, "Futter")
+        } else {
+            (earth, colony.earth, "Erde")
+        };
         let total = count as f32 * price;
-        let affordable = (colony.food / price).floor() as usize;
+        let affordable = (stock / price).floor() as usize;
         let shortfall = if affordable < count {
             format!(" Reicht nur für {affordable}.")
         } else {
@@ -301,10 +426,16 @@ fn draw_preview(
         };
         let fields = if count == 1 { "Feld" } else { "Felder" };
         Some(format!(
-            "{count} {fields} {}: {total:.0} Futter (vorhanden: {:.0}).{shortfall}",
+            "{count} {fields} {}: {total:.0} {unit} (vorhanden: {stock:.0}).{shortfall}",
             tool.kind.label(),
-            colony.food
         ))
+    });
+    // Beim Graben ohne Kosten zeigen, welcher Boden unter dem Zeiger liegt.
+    let info = info.or_else(|| {
+        let digging = matches!(tool.kind, ToolKind::Dig | ToolKind::Entrance | ToolKind::Chamber(_));
+        let soil = grid.under(TilePos::from_world_clamped(cursor)).soil;
+        let width = soil.max_width();
+        digging.then(|| format!("Boden: {}, Gänge bis {width} breit.", soil.label()))
     });
     if selection.0 != info {
         selection.0 = info;

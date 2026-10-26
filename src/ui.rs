@@ -9,6 +9,7 @@ use crate::daynight::DayClock;
 use crate::map::{Grid, ViewLayer};
 use crate::rabbit::{Hunger, Mood, Rabbit, SHOW_HUNGER};
 use crate::speed;
+use crate::toolbar::TOOLBAR_HEIGHT;
 use crate::tools::{SelectionCost, Tool, ToolKind};
 
 /// Werkzeuge stehen in der Werkzeugleiste; hier nur noch die Kamera und das Markieren.
@@ -60,9 +61,9 @@ fn spawn_ui(mut commands: Commands) {
     commands.spawn((Text::default(), StatusText, panel(Some(12.0), None, Some(12.0), None)));
     commands.spawn((Text::default(), MessageText, panel(None, Some(12.0), Some(12.0), None)));
     // Über der Werkzeugleiste, damit sich beide nicht überdecken.
-    commands.spawn((Text::new(HELP), panel(Some(12.0), None, None, Some(84.0))));
+    commands.spawn((Text::new(HELP), panel(Some(12.0), None, None, Some(TOOLBAR_HEIGHT + 20.0))));
     // Versteckt sich selbst, solange kein Bereich aufgezogen wird.
-    commands.spawn((Text::default(), SelectionText, panel(None, Some(12.0), None, Some(84.0))));
+    commands.spawn((Text::default(), SelectionText, panel(None, Some(12.0), None, Some(TOOLBAR_HEIGHT + 20.0))));
 }
 
 fn update_status(
@@ -118,7 +119,7 @@ fn update_status(
         tool.kind.label(),
         Colony::sleeping_places(&grid),
         colony.food,
-        Colony::food_capacity(&grid),
+        colony.food_capacity(&grid),
         colony.earth,
     );
 }

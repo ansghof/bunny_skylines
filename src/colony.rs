@@ -19,6 +19,13 @@ pub mod cost {
     pub const NEST_FOOD: f32 = 2.0;
     /// Saatgut für ein Feld Klee.
     pub const CLOVER_FOOD: f32 = 1.0;
+    /// Saatgut für ein Feld Kräuter.
+    pub const HERBS_FOOD: f32 = 2.0;
+    /// Bauten aus Erde an der Oberfläche.
+    pub const HEDGE_EARTH: f32 = 3.0;
+    pub const BOLT_HOLE_EARTH: f32 = 1.0;
+    pub const SUN_SPOT_EARTH: f32 = 2.0;
+    pub const PLAYGROUND_EARTH: f32 = 3.0;
     /// Erde, die beim Graben eines Feldes anfällt.
     pub const EARTH_PER_TILE: f32 = 1.0;
 }
@@ -44,6 +51,8 @@ pub struct Colony {
     pub food: f32,
     /// Erde aus dem Graben; Baumaterial für Hügel und Wälle.
     pub earth: f32,
+    /// Futtereinheiten pro Feld Vorratskammer; mit getrocknetem Heu mehr.
+    pub storage_per_tile: f32,
 }
 
 impl Default for Colony {
@@ -51,6 +60,7 @@ impl Default for Colony {
         Self {
             food: START_FOOD,
             earth: 0.0,
+            storage_per_tile: FOOD_PER_STORAGE_TILE,
         }
     }
 }
@@ -66,8 +76,8 @@ impl Colony {
         true
     }
 
-    pub fn food_capacity(grid: &Grid) -> f32 {
-        grid.chamber_tiles(Chamber::Storage) as f32 * FOOD_PER_STORAGE_TILE
+    pub fn food_capacity(&self, grid: &Grid) -> f32 {
+        grid.chamber_tiles(Chamber::Storage) as f32 * self.storage_per_tile
     }
 
     pub fn sleeping_places(grid: &Grid) -> usize {

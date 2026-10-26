@@ -162,6 +162,10 @@ impl Depth {
 pub enum Chamber {
     Sleeping,
     Storage,
+    /// Hier erzählen alte Kaninchen, und alle sammeln Weisheit.
+    Story,
+    /// Junge wachsen hier schneller heran.
+    Nursery,
 }
 
 impl Chamber {
@@ -169,7 +173,41 @@ impl Chamber {
         match self {
             Chamber::Sleeping => "Schlafkammer",
             Chamber::Storage => "Vorratskammer",
+            Chamber::Story => "Erzählkammer",
+            Chamber::Nursery => "Kinderstube",
         }
+    }
+}
+
+/// Bauwerke an der Oberfläche, eins pro Feld.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Feature {
+    /// Dornenhecke: Füchse kommen nur langsam hindurch.
+    Hedge,
+    /// Fluchtloch: ein kleines Versteck ohne Verbindung zum Bau.
+    BoltHole,
+    /// Sonnenplatz: macht Kaninchen in der Nähe zufriedener.
+    SunSpot,
+    /// Kräuter: Wer hier frisst, wird zufriedener.
+    Herbs,
+    /// Spielwiese: macht die ganze Familie zufriedener.
+    Playground,
+}
+
+impl Feature {
+    pub fn label(self) -> &'static str {
+        match self {
+            Feature::Hedge => "Dornenhecke",
+            Feature::BoltHole => "Fluchtloch",
+            Feature::SunSpot => "Sonnenplatz",
+            Feature::Herbs => "Kräutergarten",
+            Feature::Playground => "Spielwiese",
+        }
+    }
+
+    /// Ob auf dem Feld weiter Gras zum Fressen wächst.
+    pub fn keeps_grass(self) -> bool {
+        matches!(self, Feature::Herbs | Feature::SunSpot | Feature::Playground)
     }
 }
 
@@ -188,6 +226,7 @@ pub struct SurfaceTile {
     pub fertility: f32,
     /// Sekunden seit dem letzten Bissen; ruhende Felder erholen sich.
     rest: f32,
+    pub feature: Option<Feature>,
 }
 
 impl SurfaceTile {
@@ -212,8 +251,43 @@ impl SurfaceTile {
     }
 }
 
+/// Bodenart unter der Wiese. Sie bestimmt, wie breit Gänge und Kammern werden dürfen,
+/// damit niemand den ganzen Untergrund zu einer einzigen Halle aushöhlt.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum Soil {
+    /// Locker und rieselnd: nur schmale Gänge.
+    Sand,
+    #[default]
+    Earth,
+    /// Von Wurzeln zusammengehalten: Hier halten auch breite Kammern.
+    Roots,
+}
+
+impl Soil {
+    pub fn label(self) -> &'static str {
+        match self {
+            Soil::Sand => "Sand",
+            Soil::Earth => "Erde",
+            Soil::Roots => "Wurzelerde",
+        }
+    }
+
+    /// So viele Felder breit darf ein offener Bereich hier höchstens sein, ohne einzustürzen.
+    pub fn max_width(self) -> i32 {
+        match self {
+            Soil::Sand => 1,
+            Soil::Earth => 2,
+            Soil::Roots => 4,
+        }
+    }
+}
+
+/// Breiter als das trägt kein Boden, größere Quadrate muss niemand prüfen.
+const WIDEST: i32 = 4;
+
 #[derive(Clone, Copy, Default)]
 pub struct UndergroundTile {
+    pub soil: Soil,
     pub dug: Option<Depth>,
     /// Grabauftrag mit gewünschter Tiefe.
     pub planned: Option<Depth>,
@@ -262,6 +336,28 @@ impl Grid {
             }
     }
 
+    /// Ob hier ein Gang hinpasst. Gibt sonst den Boden zurück, der für die Breite zu schwach ist:
+    /// Ein offenes Quadrat darf nicht breiter werden, als sein lockerster Boden trägt.
+    pub fn too_wide(&self, p: TilePos) -> Option<Soil> {
+        let open = |q: TilePos| q == p || (q.in_bounds() && (self.under(q).dug.is_some() || self.under(q).planned.is_some()));
+        for size in 2..=WIDEST + 1 {
+            for top in p.y - size + 1..=p.y {
+                for left in p.x - size + 1..=p.x {
+                    let corner = TilePos::new(left, top);
+                    let far = TilePos::new(left + size - 1, top + size - 1);
+                    if !tiles_between(corner, far).all(open) {
+                        continue;
+                    }
+                    let weakest = tiles_between(corner, far).map(|q| self.under(q).soil).min_by_key(|soil| soil.max_width());
+                    if let Some(soil) = weakest.filter(|soil| size > soil.max_width()) {
+                        return Some(soil);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn chamber_tiles(&self, chamber: Chamber) -> usize {
         self.underground
             .iter()
@@ -282,6 +378,7 @@ impl Grid {
             let tile = grid.surface_mut(p);
             tile.grass = 0.5 + 0.5 * noise(p);
             tile.fertility = 1.0;
+            grid.under_mut(p).soil = soil_at(p);
         }
 
         let entrance = TilePos::new(20, 15);
@@ -299,6 +396,31 @@ impl Grid {
         }
         grid
     }
+}
+
+/// Bodenart in größeren Flecken: Sandadern, Erde und durchwurzelte Stellen.
+/// Rund um den Startbau ist immer Erde, damit die mitgebrachte Schlafkammer hält.
+fn soil_at(p: TilePos) -> Soil {
+    if (p.x - 22).abs() <= 3 && (p.y - 15).abs() <= 3 {
+        return Soil::Earth;
+    }
+    match smooth_noise(p, 6, 101) {
+        v if v < 0.35 => Soil::Sand,
+        v if v > 0.62 => Soil::Roots,
+        _ => Soil::Earth,
+    }
+}
+
+/// Weicher Verlauf aus Zufallswerten auf einem groben Raster mit `cell` Feldern Abstand.
+fn smooth_noise(p: TilePos, cell: i32, seed: i32) -> f32 {
+    let (cx, cy) = (p.x.div_euclid(cell), p.y.div_euclid(cell));
+    let fade = |t: f32| t * t * (3.0 - 2.0 * t);
+    let tx = fade(p.x.rem_euclid(cell) as f32 / cell as f32);
+    let ty = fade(p.y.rem_euclid(cell) as f32 / cell as f32);
+    let at = |x: i32, y: i32| noise(TilePos::new(x * 7 + seed, y * 13 - seed));
+    let top = at(cx, cy) + (at(cx + 1, cy) - at(cx, cy)) * tx;
+    let bottom = at(cx, cy + 1) + (at(cx + 1, cy + 1) - at(cx, cy + 1)) * tx;
+    top + (bottom - top) * ty
 }
 
 /// Fester Pseudo-Zufallswert 0..1 pro Feld, damit die Wiese nicht wie ein Schachbrett aussieht.
@@ -380,6 +502,14 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     if tile.post {
         rgb = mix(rgb, [0.60, 0.48, 0.30], 0.7);
     }
+    match tile.feature {
+        Some(Feature::Hedge) => rgb = mix(rgb, [0.25, 0.42, 0.22], 0.75),
+        Some(Feature::BoltHole) => rgb = mix(rgb, [0.36, 0.26, 0.17], 0.8),
+        Some(Feature::SunSpot) => rgb = mix(rgb, [0.95, 0.85, 0.50], 0.45),
+        Some(Feature::Herbs) => rgb = mix(rgb, [0.45, 0.62, 0.40], 0.4),
+        Some(Feature::Playground) => rgb = mix(rgb, [0.70, 0.82, 0.45], 0.4),
+        None => {}
+    }
     // Gänge darunter scheinen leicht durch.
     if grid.under(p).dug.is_some() {
         rgb = rgb.map(|c| c * 0.9);
@@ -396,7 +526,12 @@ pub fn underground_color(grid: &Grid, p: TilePos) -> Color {
     let tile = grid.under(p);
     let checker = if (p.x + p.y) % 2 == 0 { 1.0 } else { 0.95 };
     let mut rgb = match tile.dug {
-        None => [0.73, 0.54, 0.33],
+        // Ungegraben sieht man den Boden: heller Sand, Erde, dunkle Wurzelerde.
+        None => match tile.soil {
+            Soil::Sand => [0.86, 0.73, 0.48],
+            Soil::Earth => [0.73, 0.54, 0.33],
+            Soil::Roots => [0.60, 0.52, 0.30],
+        },
         Some(Depth::Shallow) => [0.55, 0.39, 0.25],
         Some(Depth::Medium) => [0.43, 0.30, 0.18],
         Some(Depth::Deep) => [0.32, 0.21, 0.12],
@@ -414,6 +549,8 @@ pub fn underground_color(grid: &Grid, p: TilePos) -> Color {
     match tile.chamber {
         Some(Chamber::Sleeping) => rgb = mix(rgb, [0.66, 0.52, 0.78], 0.35),
         Some(Chamber::Storage) => rgb = mix(rgb, [0.91, 0.78, 0.42], 0.4),
+        Some(Chamber::Story) => rgb = mix(rgb, [0.55, 0.70, 0.86], 0.35),
+        Some(Chamber::Nursery) => rgb = mix(rgb, [0.95, 0.70, 0.72], 0.35),
         None => {}
     }
     if grid.surface(p).entrance {
@@ -424,4 +561,55 @@ pub fn underground_color(grid: &Grid, p: TilePos) -> Color {
 
 fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn grid_of(soil: Soil) -> Grid {
+        let mut grid = Grid::starting_meadow();
+        for p in Grid::positions() {
+            *grid.under_mut(p) = UndergroundTile { soil, ..default() };
+        }
+        grid
+    }
+
+    /// Gräbt alle Felder der Reihe nach, soweit der Boden es erlaubt, und zählt sie.
+    fn dig_block(grid: &mut Grid, size: i32) -> usize {
+        let mut dug = 0;
+        for p in tiles_between(TilePos::new(5, 5), TilePos::new(5 + size - 1, 5 + size - 1)) {
+            if grid.too_wide(p).is_none() {
+                grid.under_mut(p).dug = Some(Depth::Medium);
+                dug += 1;
+            }
+        }
+        dug
+    }
+
+    #[test]
+    fn sand_allows_only_single_tunnels() {
+        let mut grid = grid_of(Soil::Sand);
+        assert_eq!(dig_block(&mut grid, 1), 1);
+        assert_eq!(grid.too_wide(TilePos::new(6, 5)), None);
+        grid.under_mut(TilePos::new(6, 5)).dug = Some(Depth::Medium);
+        assert_eq!(grid.too_wide(TilePos::new(5, 6)), None);
+        grid.under_mut(TilePos::new(5, 6)).dug = Some(Depth::Medium);
+        assert_eq!(grid.too_wide(TilePos::new(6, 6)), Some(Soil::Sand));
+    }
+
+    #[test]
+    fn widths_follow_soil() {
+        assert_eq!(dig_block(&mut grid_of(Soil::Earth), 2), 4);
+        assert!(dig_block(&mut grid_of(Soil::Earth), 3) < 9);
+        assert_eq!(dig_block(&mut grid_of(Soil::Roots), 4), 16);
+        assert!(dig_block(&mut grid_of(Soil::Roots), 5) < 25);
+    }
+
+    #[test]
+    fn weakest_soil_decides() {
+        let mut grid = grid_of(Soil::Roots);
+        grid.under_mut(TilePos::new(6, 6)).soil = Soil::Sand;
+        assert_eq!(dig_block(&mut grid, 2), 3);
+    }
 }

@@ -5,10 +5,10 @@ use std::f32::consts::TAU;
 
 use bevy::prelude::*;
 
-use crate::behavior::{Activity, BehaviorSet, Reserved, release};
+use crate::behavior::{Activity, BehaviorSet, Reserved, current_node, is_hidden, release};
 use crate::colony::{Messages, Rng};
 use crate::daynight::{DayClock, figure_light};
-use crate::map::{Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, ViewLayer};
+use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
 use crate::rabbit::{OnLayer, Rabbit, z_for};
 use crate::camera::Orbit;
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
@@ -23,6 +23,8 @@ const LEAVE_SPEED: f32 = 120.0;
 /// Ab dieser Entfernung zu einem Kaninchen beginnt die Jagd.
 const CHASE_DISTANCE: f32 = 200.0;
 const CATCH_DISTANCE: f32 = 20.0;
+/// So schnell ist der Fuchs noch in einer Dornenhecke.
+const HEDGE_SLOWDOWN: f32 = 0.35;
 /// Ein Fuchs bleibt höchstens so lange, dann gibt er auf.
 const MAX_STAY_SECONDS: f32 = 70.0;
 /// So lange wartet er, wenn kein Kaninchen draußen ist.
@@ -146,6 +148,7 @@ fn hunt(
     time: Res<Time>,
     mut messages: ResMut<Messages>,
     mut reserved: ResMut<Reserved>,
+    grid: Res<Grid>,
     mut foxes: Query<(Entity, &mut Fox, &mut Transform)>,
     rabbits: Query<(Entity, &Rabbit, &Transform, &OnLayer, &Activity), Without<Fox>>,
 ) {
@@ -159,7 +162,7 @@ fn hunt(
 
         let nearest_outside = rabbits
             .iter()
-            .filter(|(_, _, _, layer, _)| layer.0 == Layer::Surface)
+            .filter(|(_, _, t, layer, _)| catchable(&grid, t, layer))
             .map(|(entity, _, t, _, _)| (entity, t.translation.truncate()))
             .min_by(|a, b| a.1.distance(position).total_cmp(&b.1.distance(position)));
 
@@ -189,7 +192,7 @@ fn hunt(
                 }
             },
             FoxState::Chasing(rabbit) => match rabbits.get(rabbit) {
-                Ok((_, prey, at, layer, activity)) if layer.0 == Layer::Surface => {
+                Ok((_, prey, at, layer, activity)) if catchable(&grid, at, layer) => {
                     let at = at.translation.truncate();
                     if at.distance(position) < CATCH_DISTANCE {
                         release(activity, &mut reserved);
@@ -218,6 +221,10 @@ fn hunt(
             }
         };
 
+        // Durch Dornenhecken kommt der Fuchs nur mühsam.
+        let in_hedge = TilePos::from_world(position)
+            .is_some_and(|p| grid.surface(p).feature == Some(Feature::Hedge));
+        let speed = if in_hedge { speed * HEDGE_SLOWDOWN } else { speed };
         fox.velocity = match target {
             Some(target) if target.distance(position) > 1.0 => (target - position).normalize() * speed,
             _ => Vec2::ZERO,
@@ -225,6 +232,11 @@ fn hunt(
         let next = position + fox.velocity * dt;
         transform.translation = next.extend(z_for(next));
     }
+}
+
+/// Nur Kaninchen draußen und nicht im Fluchtloch sind erreichbar.
+fn catchable(grid: &Grid, transform: &Transform, layer: &OnLayer) -> bool {
+    layer.0 == Layer::Surface && !is_hidden(grid, current_node(transform, layer))
 }
 
 /// Der nächste Punkt knapp außerhalb der Karte.
