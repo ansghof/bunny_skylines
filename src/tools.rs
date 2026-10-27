@@ -200,8 +200,9 @@ impl ToolKind {
                  hängt von der Größe der Familie ab."
             }
             ToolKind::Trail => {
-                "Auf Trampelpfaden hoppeln Kaninchen ein Drittel schneller – auch auf der Flucht, \
-                 dann entkommen sie dem Fuchs. Das Gras wächst darauf weiter."
+                "Vom Start zum Ziel ziehen: Der Pfad geht erst waagerecht, dann senkrecht, mit einer \
+                 Kurve an der Ecke. Darauf hoppeln Kaninchen ein Drittel schneller, auch auf der Flucht \
+                 vor dem Fuchs. Das Gras wächst weiter."
             }
             ToolKind::Remove => "Aufträge, Kammern und Bauten an der Oberfläche entfernen.",
         }
@@ -421,11 +422,7 @@ pub(crate) fn apply_drag(
         messages.push("Der Boden ist gefroren: Eingänge und flache Gänge werden erst im Frühling gegraben.");
     }
     // Manche Bauten immer einzeln, ein ganzer Bereich davon ergibt keinen Sinn.
-    let tiles: Vec<TilePos> = if tool.kind.is_single() {
-        vec![end]
-    } else {
-        tiles_between(start, end).collect()
-    };
+    let tiles: Vec<TilePos> = drag_tiles(tool.kind, start, end);
 
     let mut short = false;
     let mut too_wide = None;
@@ -647,8 +644,39 @@ fn width_message(soil: Soil, bonus: i32) -> String {
 pub struct SelectionCost(pub Option<String>);
 
 /// Wie viele Felder im Bereich das Werkzeug wirklich bezahlen müsste.
+/// Ein Pfad von A nach B mit einer Ecke: erst waagerecht vom Start aus, dann senkrecht zum Ziel.
+/// An der Ecke entsteht so von selbst eine Kurve.
+fn trail_route(start: TilePos, end: TilePos) -> Vec<TilePos> {
+    let step = |from: i32, to: i32| if to >= from { 1 } else { -1 };
+    let mut route = Vec::new();
+    let mut x = start.x;
+    loop {
+        route.push(TilePos::new(x, start.y));
+        if x == end.x {
+            break;
+        }
+        x += step(start.x, end.x);
+    }
+    let mut y = start.y;
+    while y != end.y {
+        y += step(start.y, end.y);
+        route.push(TilePos::new(end.x, y));
+    }
+    route
+}
+
+/// Welche Felder ein Ziehen von `start` bis `end` mit diesem Werkzeug betrifft.
+fn drag_tiles(kind: ToolKind, start: TilePos, end: TilePos) -> Vec<TilePos> {
+    match kind {
+        _ if kind.is_single() => vec![end],
+        ToolKind::Trail => trail_route(start, end),
+        _ => tiles_between(start, end).collect(),
+    }
+}
+
 fn priced_tiles(grid: &Grid, kind: ToolKind, start: TilePos, end: TilePos) -> usize {
-    tiles_between(start, end)
+    drag_tiles(kind, start, end)
+        .into_iter()
         .filter(|p| match kind {
             ToolKind::Chamber(Chamber::Sleeping) => {
                 let tile = grid.under(*p);
@@ -761,8 +789,32 @@ fn draw_preview(
         Some(start) if buttons.pressed(MouseButton::Left) && !tool.kind.is_single() => start,
         _ => end,
     };
+    // Ein Pfad zeigt seinen Weg Feld für Feld, alles andere den aufgezogenen Bereich.
+    if tool.kind == ToolKind::Trail {
+        for p in trail_route(start, end) {
+            let half = TILE_SIZE / 2.0 - 6.0;
+            gizmo_rect(&mut gizmos, p.center() - half, p.center() + half, 0.0, color);
+        }
+        return;
+    }
     let min = start.center().min(end.center()) - TILE_SIZE / 2.0;
     let max = start.center().max(end.center()) + TILE_SIZE / 2.0;
     // Auf der Oberkante, sonst steckt der Rahmen dort, wo noch nicht gegraben ist, in der Erde.
     gizmo_rect(&mut gizmos, min, max, 0.0, color);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trail_goes_across_then_down_with_one_corner() {
+        let route = trail_route(TilePos::new(26, 18), TilePos::new(20, 15));
+        assert_eq!(route.first(), Some(&TilePos::new(26, 18)));
+        assert_eq!(route.last(), Some(&TilePos::new(20, 15)));
+        // 7 Felder waagerecht, dann 3 senkrecht, ohne Lücke.
+        assert_eq!(route.len(), 10);
+        assert!(route.windows(2).all(|w| (w[0].x - w[1].x).abs() + (w[0].y - w[1].y).abs() == 1));
+        assert!(route.contains(&TilePos::new(20, 18)), "die Ecke liegt über dem Ziel");
+    }
 }

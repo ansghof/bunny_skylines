@@ -20,6 +20,7 @@
 //! - `fangbild` oder `fangbild=S`: 0,8 s (oder S s) nach dem ersten Fang ein Bild machen
 //! - `fuchs`: gleich einen Fuchs schicken
 //! - `marder`: in der nächsten Nacht sofort einen Marder schicken (mit `nacht` gleich)
+//! - `pfadziehen` (mit `zeiger`): einen Pfad von rechts oben zum Eingang ziehen
 //! - `pfade`: Trampelpfade vom Eingang nach links
 //! - `wachen`: Nachtwache im Startgang einrichten; `pfropf`: Erdpfropf im Startgang
 //! - `bussard`: gleich einen Bussard schicken
@@ -330,6 +331,12 @@ fn fake_cursor(script: Res<TestScript>, time: Res<Time<Real>>, mut cursor: ResMu
     // Mit `auswahl` wandert der Zeiger nach dem Drücken fünf Felder weiter.
     let dragged = script.has("auswahl") && time.elapsed_secs() > 1.5;
     let tile = if dragged { TilePos::new(25, 12) } else { TilePos::new(21, 13) };
+    // Mit `pfadziehen` von rechts oben bis vor den Eingang, wie im Spiel.
+    let tile = if script.has("pfadziehen") {
+        if time.elapsed_secs() > 1.5 { TilePos::new(19, 15) } else { TilePos::new(26, 19) }
+    } else {
+        tile
+    };
     cursor.0 = Some(tile.center());
 }
 
@@ -340,10 +347,22 @@ fn fake_press(
     time: Res<Time<Real>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut tool: ResMut<Tool>,
+    mut colony: ResMut<Colony>,
 ) {
     if script.has("auswahl") && time.elapsed_secs() > 1.0 && !mouse.pressed(MouseButton::Left) {
         tool.kind = ToolKind::Clover;
         mouse.press(MouseButton::Left);
+    }
+    // `pfadziehen`: drücken, zum Ziel fahren, nach zwei Sekunden loslassen.
+    if script.has("pfadziehen") {
+        let now = time.elapsed_secs();
+        if (1.0..2.0).contains(&now) && !mouse.pressed(MouseButton::Left) {
+            tool.kind = ToolKind::Trail;
+            colony.earth = 30.0;
+            mouse.press(MouseButton::Left);
+        } else if now >= 2.0 && mouse.pressed(MouseButton::Left) {
+            mouse.release(MouseButton::Left);
+        }
     }
 }
 
