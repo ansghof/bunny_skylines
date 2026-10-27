@@ -689,6 +689,118 @@ def burrow():
     s.save('einrichtung/eingang.svg')
 
 
+def log_end(s, cx, cy, r, rings=4):
+    """Ein Holzstamm von oben: Rinde außen, helles Holz mit Jahresringen innen, Schatten daneben."""
+    out = (f'<circle cx="{f(cx + r * 0.25)}" cy="{f(cy + r * 0.35)}" r="{f(r * 1.05)}" fill="#1e1408" opacity="0.4" {s.blur(r * 0.25)}/>'
+           f'<circle cx="{f(cx)}" cy="{f(cy)}" r="{f(r)}" fill="{s.radial(cx - r * 0.3, cy - r * 0.3, r * 1.3, [(0, "#8a6440"), (1, "#3e2814")])}"/>'
+           f'<circle cx="{f(cx)}" cy="{f(cy)}" r="{f(r * 0.82)}" fill="{s.radial(cx - r * 0.2, cy - r * 0.25, r, [(0, "#e8c890"), (0.7, "#c49a64"), (1, "#a07a4a")])}"/>')
+    out += ''.join(f'<circle cx="{f(cx)}" cy="{f(cy)}" r="{f(r * 0.82 * k / (rings + 1))}" fill="none" stroke="#8a643c" '
+                   f'stroke-width="{f(max(0.6, r * 0.03))}" opacity="0.55"/>' for k in range(1, rings + 1))
+    out += f'<path d="M{f(cx)} {f(cy)} l{f(r * 0.5)} {f(-r * 0.45)}" stroke="#6e4c2c" stroke-width="{f(max(0.6, r * 0.04))}" opacity="0.5"/>'
+    return out
+
+
+def flower(s, x, y, r, petal, middle='#f4cf45', n=6):
+    petals = ''.join(f'<ellipse cx="{f(x + math.cos(i * math.tau / n) * r * 0.55)}" cy="{f(y + math.sin(i * math.tau / n) * r * 0.55)}" '
+                     f'rx="{f(r * 0.5)}" ry="{f(r * 0.32)}" transform="rotate({f(i * 360 / n)} {f(x + math.cos(i * math.tau / n) * r * 0.55)} '
+                     f'{f(y + math.sin(i * math.tau / n) * r * 0.55)})" fill="{petal}"/>' for i in range(n))
+    return (f'<circle cx="{f(x + 1)}" cy="{f(y + 1.5)}" r="{f(r * 1.1)}" fill="#1e3014" opacity="0.3" {s.blur(r * 0.3)}/>'
+            f'{petals}<circle cx="{f(x)}" cy="{f(y)}" r="{f(r * 0.3)}" fill="{middle}"/>')
+
+
+def festival():
+    s = Svg(384, 384, 'Festplatz von oben, 3 × 3 Felder: ein festgetretener Tanzplatz mit Steinkreis, Blumenmast in der Mitte, '
+            'Wimpelketten zu vier Pfosten, eine Festtafel auf einem Baumstumpf und Blumen am Rand', 81)
+    c = 192
+    # Der Platz: festgetretene Erde, zum Rand hin weich ins Gras.
+    s.add(f'<circle cx="{c}" cy="{c}" r="176" fill="#8a7448" opacity="0.4" {s.blur(14)}/>')
+    s.add(f'<g {s.rough(10, 0.03)}><circle cx="{c}" cy="{c}" r="160" '
+          f'fill="{s.radial(170, 160, 190, [(0, "#e2cc9c"), (0.6, "#ccb07a"), (1, "#b0925c")])}" {s.blur(4)}/></g>')
+    place = s.clip(f'<circle cx="{c}" cy="{c}" r="156"/>')
+    grain = ''.join(f'<circle cx="{f(x)}" cy="{f(y)}" r="{f(s.rng.uniform(0.6, 2))}" fill="{s.rng.choice(["#9a7a4c", "#f0dcb0", "#7e6440"])}" opacity="0.6"/>'
+                    for x, y in s.scatter(900, 30, 30, 354, 354))
+    # Ein festgetretener Ring vom Tanzen, etwas dunkler.
+    ring = f'<circle cx="{c}" cy="{c}" r="112" fill="none" stroke="#a88a58" stroke-width="30" opacity="0.45" {s.blur(8)}/>'
+    tufts = s.strokes([(x, y) for x, y in s.scatter(160, 20, 20, 364, 364) if 140 < math.hypot(x - c, y - c) < 172],
+                      -90, 9, 1.4, ['#8ab858', '#5e8a34', '#a8cc70'], 0.8, 0.6, 0.2)
+    paws = ''
+    for _ in range(14):
+        a, d = s.rng.uniform(0, math.tau), s.rng.uniform(95, 130)
+        x, y = c + math.cos(a) * d, c + math.sin(a) * d
+        rot = math.degrees(a) + 90
+        paws += (f'<g transform="rotate({f(rot)} {f(x)} {f(y)})" fill="#8a6c40" opacity="0.5">'
+                 f'<ellipse cx="{f(x - 4)}" cy="{f(y)}" rx="2.6" ry="4.4"/><ellipse cx="{f(x + 4)}" cy="{f(y)}" rx="2.6" ry="4.4"/></g>')
+    s.add(f'<g {place}>{grain}{ring}{paws}</g>{tufts}')
+
+    # Der Steinkreis.
+    for i in range(8):
+        a = i * math.tau / 8 + 0.2
+        x, y = c + math.cos(a) * 82, c + math.sin(a) * 82
+        s.add(f'<ellipse cx="{f(x + 2)}" cy="{f(y + 3)}" rx="9" ry="6.5" fill="#2a2418" opacity="0.4" {s.blur(2)}/>'
+              f'<g {s.rough(1.6, 0.2)}><ellipse cx="{f(x)}" cy="{f(y)}" rx="9" ry="6.5" transform="rotate({f(math.degrees(a))} {f(x)} {f(y)})" '
+              f'fill="{s.radial(x - 3, y - 3, 11, [(0, "#d8d4c8"), (0.6, "#a8a496"), (1, "#6e6a5e")])}"/></g>')
+
+    # Wimpelketten vom Mast zu den Pfosten, mit Schatten am Boden.
+    posts = [(70, 70), (314, 70), (314, 314), (70, 314)]
+    colors = ['#d8503a', '#f0c040', '#5a9a48', '#5a8ad0', '#d86a90', '#f08a3a']
+    for k, (px, py) in enumerate(posts):
+        mx, my = (c + px) / 2 + (py - c) * 0.12, (c + py) / 2 - (px - c) * 0.12
+        line = f'M{c} {c} Q{f(mx)} {f(my)} {px} {py}'
+        s.add(f'<path d="{line}" transform="translate(8 12)" stroke="#1e1408" stroke-width="2" fill="none" opacity="0.25" {s.blur(2)}/>')
+        flags, shadows = '', ''
+        for j in range(1, 9):
+            u = j / 9
+            x = (1 - u) ** 2 * c + 2 * (1 - u) * u * mx + u * u * px
+            y = (1 - u) ** 2 * c + 2 * (1 - u) * u * my + u * u * py
+            dx, dy = 2 * (1 - u) * (mx - c) + 2 * u * (px - mx), 2 * (1 - u) * (my - c) + 2 * u * (py - my)
+            n = math.hypot(dx, dy)
+            tx, ty, nx, ny = dx / n, dy / n, -dy / n, dx / n
+            tri = f'M{f(x - tx * 6)} {f(y - ty * 6)} L{f(x + tx * 6)} {f(y + ty * 6)} L{f(x + nx * 13)} {f(y + ny * 13)} Z'
+            col = colors[(j + k) % len(colors)]
+            shadows += f'<path d="{tri}" transform="translate(8 12)" fill="#1e1408" opacity="0.22"/>'
+            flags += (f'<path d="{tri}" fill="{s.linear(x, y, x + nx * 13, y + ny * 13, [(0, light(col, 0.2)), (1, dark(col, 0.25))])}"/>')
+        s.add(f'<g {s.blur(1.5)}>{shadows}</g>')
+        s.add(f'<path d="{line}" stroke="#f4ecd8" stroke-width="1.4" fill="none"/>{flags}')
+    for px, py in posts:
+        s.add(log_end(s, px, py, 10, 2))
+
+    # Der Blumenmast: ein Kranz aus Laub und Blumen um das Ende des Mastes.
+    wreath = [(c + math.cos(a) * 22, c + math.sin(a) * 22, 9) for a in [i * math.tau / 14 for i in range(14)]]
+    foliage(s, wreath, '#4a8a34', 3.5, box=(c - 32, c - 32, c + 32, c + 32))
+    for i, col in enumerate(['#f2b8b0', '#ffffff', '#b98ad9', '#f4e7a0', '#d8503a', '#ffffff', '#f2b8b0']):
+        a = i * math.tau / 7 + 0.3
+        s.add(flower(s, c + math.cos(a) * 22, c + math.sin(a) * 22, 5.5, col))
+    s.add(log_end(s, c, c, 11, 3))
+
+    # Die Festtafel: ein breiter Baumstumpf mit Möhren, Klee und einer Löwenzahnblüte.
+    tx, ty = c, 318
+    s.add(f'<ellipse cx="{tx + 8}" cy="{ty + 10}" rx="50" ry="30" fill="#1e1408" opacity="0.4" {s.blur(6)}/>')
+    s.add(f'<g {s.rough(2, 0.15)}><ellipse cx="{tx}" cy="{ty}" rx="46" ry="26" fill="{s.radial(tx - 14, ty - 10, 56, [(0, "#8a6440"), (1, "#3e2814")])}"/></g>')
+    s.add(f'<ellipse cx="{tx}" cy="{ty}" rx="39" ry="20" fill="{s.radial(tx - 10, ty - 6, 44, [(0, "#e8c890"), (0.7, "#c49a64"), (1, "#a07a4a")])}"/>')
+    s.add(''.join(f'<ellipse cx="{tx}" cy="{ty}" rx="{f(39 * k / 5)}" ry="{f(20 * k / 5)}" fill="none" stroke="#8a643c" stroke-width="1" opacity="0.5"/>'
+                  for k in range(1, 5)))
+    for x, y, rot in ((tx - 20, ty - 2, -12), (tx + 2, ty + 6, 8)):
+        g = s.linear(-10, 0, 12, 0, [(0, '#c45a14'), (0.5, '#f4a050'), (1, '#e07a2a')])
+        s.add(f'<g transform="translate({x} {y}) rotate({rot})">'
+              f'<path d="M-2 1.5 C4 -1 10 -1 14 0 C10 1 4 4 -2 4 Z" fill="#1e1408" opacity="0.35"/>'
+              f'<path d="M-12 -4 C-4 -6 6 -3 14 0 C6 3 -4 6 -12 4 C-14 2 -14 -2 -12 -4 Z" fill="{g}"/>'
+              '<path d="M-6 -3 l1 2 M0 -2.5 l1 2 M6 -1.4 l1 1.6" stroke="#a84a14" stroke-width="0.8" fill="none"/>'
+              '<path d="M-12 0 l-6 -5 M-12 0 l-8 0 M-12 0 l-6 5" stroke="#4e8a30" stroke-width="1.6" stroke-linecap="round"/></g>')
+    for x, y in ((tx + 22, ty - 8), (tx + 28, ty - 2), (tx + 21, ty + 1)):
+        s.add(f'<circle cx="{x + 1}" cy="{y + 1.5}" r="5" fill="#1e3014" opacity="0.3"/>'
+              f'<circle cx="{x}" cy="{y}" r="5" fill="{s.radial(x - 1.5, y - 1.5, 6, [(0, "#8ac870"), (1, "#3a7a2c")])}"/>')
+    s.add(flower(s, tx - 2, ty - 12, 5, '#f4cf45', '#e8a820', 10))
+
+    # Blumen am Rand des Platzes.
+    for _ in range(26):
+        a, d = s.rng.uniform(0, math.tau), s.rng.uniform(150, 176)
+        x, y = c + math.cos(a) * d, c + math.sin(a) * d
+        if 8 < x < 376 and 8 < y < 376:
+            s.add(flower(s, x, y, s.rng.uniform(3.5, 5.5), s.rng.choice(['#ffffff', '#ffffff', '#f2b8b0', '#b98ad9', '#f4e7a0', '#d8503a'])))
+    s.save('einrichtung/festplatz.svg')
+
+
+festival()
 burrow()
 rabbit()
 fox()
