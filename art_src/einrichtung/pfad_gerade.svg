@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Trampelpfad: festgetretene Erde mit hellerer Mitte und ein paar Kieseln -->
+  <g fill="#a8864e"><rect x="34" y="0" width="60" height="64"/><rect x="34" y="64" width="60" height="64"/><circle cx="64" cy="64" r="30.0"/></g>
+  <g fill="#d2b47c"><rect x="40" y="0" width="48" height="64"/><rect x="40" y="64" width="48" height="64"/><circle cx="64" cy="64" r="24.0"/></g>
+  <ellipse cx="56" cy="18" rx="3" ry="2.2" fill="#9a8466"/><ellipse cx="70" cy="60" rx="3" ry="2.2" fill="#9a8466"/><ellipse cx="58" cy="104" rx="3" ry="2.2" fill="#9a8466"/>
+</svg>

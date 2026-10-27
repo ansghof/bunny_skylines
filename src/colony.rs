@@ -13,6 +13,8 @@ pub const FOOD_PER_STORAGE_TILE: f32 = 10.0;
 
 /// Was das Bauen kostet. Rohstoffe sind die Währung: Futter (Gras, auch fürs Nest) und Erde.
 pub mod cost {
+    /// Ein Feld Trampelpfad wird mit Erde ausgebessert.
+    pub const TRAIL_EARTH: f32 = 1.0;
     /// Das erste zugekaufte Grundstück kostet so viel Erde, jedes weitere so viel mehr.
     pub const PLOT_EARTH: f32 = 10.0;
     /// Saatmöhren aus dem Vorrat.

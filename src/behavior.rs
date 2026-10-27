@@ -26,6 +26,8 @@ const WISDOM_YOUNG: f32 = 0.05;
 const CLAWS_DIG_FACTOR: f32 = 0.7;
 /// So viel schneller hoppeln alle in breiten Gängen.
 const WIDE_TUNNEL_SPEED: f32 = 1.25;
+/// So viel schneller hoppeln alle auf Trampelpfaden: Flucht 165 × 1,3 ≈ 215, der Fuchs jagt mit 175.
+pub const TRAIL_SPEED: f32 = 1.3;
 /// So viel zufriedener macht ein Bissen Kräuter.
 const HERB_MOOD: f32 = 0.25;
 /// So lange denkt ein Kaninchen noch gern an die Kräuter zurück.
@@ -636,6 +638,10 @@ fn walk(
         let speed = if rabbit.is_old() { speed * 0.8 } else { speed };
         let wide = layer.0 == Layer::Underground && progress.has(Tech::WideTunnels);
         let speed = if wide { speed * WIDE_TUNNEL_SPEED } else { speed };
+        // Auf dem Trampelpfad geht es schneller, auf der Flucht schneller als der Fuchs.
+        let here = TilePos::from_world_clamped(transform.translation.truncate());
+        let on_trail = layer.0 == Layer::Surface && grid.surface(here).trail;
+        let speed = if on_trail { speed * TRAIL_SPEED } else { speed };
 
         let mut budget = speed * time.delta_secs();
         while budget > 0.0 {

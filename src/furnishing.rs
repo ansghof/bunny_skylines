@@ -43,13 +43,15 @@ enum Kind {
     Tree,
     /// Ein Stück alter Steinwall.
     Stones,
+    /// Ein Stück Trampelpfad; die Zahl sagt, zu welchen Nachbarn er führt (N 1, O 2, S 4, W 8).
+    Trail(u8),
 }
 
 impl Kind {
     /// In welcher Ansicht diese Einrichtung zu sehen ist.
     fn layer(self) -> Layer {
         match self {
-            Kind::Clover | Kind::Built(_) | Kind::Tree | Kind::Stones => Layer::Surface,
+            Kind::Clover | Kind::Built(_) | Kind::Tree | Kind::Stones | Kind::Trail(_) => Layer::Surface,
             Kind::Nest | Kind::Pile | Kind::Light | Kind::Plug | Kind::Watch => Layer::Underground,
         }
     }
@@ -65,7 +67,7 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 18] = [
+const IMAGES: [(&str, Vec2); 24] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
     ("futter_klein.png", Vec2::new(80.0, 56.0)),
     ("futter_mittel.png", Vec2::new(104.0, 72.0)),
@@ -85,7 +87,52 @@ const IMAGES: [(&str, Vec2); 18] = [
     ("steinwall.png", Vec2::new(140.0, 114.0)),
     ("moehren.png", Vec2::new(128.0, 128.0)),
     ("festplatz.png", Vec2::new(128.0, 128.0)),
+    ("pfad_punkt.png", Vec2::new(128.0, 128.0)),
+    ("pfad_ende.png", Vec2::new(128.0, 128.0)),
+    ("pfad_gerade.png", Vec2::new(128.0, 128.0)),
+    ("pfad_kurve.png", Vec2::new(128.0, 128.0)),
+    ("pfad_t.png", Vec2::new(128.0, 128.0)),
+    ("pfad_kreuz.png", Vec2::new(128.0, 128.0)),
 ];
+
+/// Die Pfadstücke, wie gezeichnet (oben = Norden), mit den Nachbarn, zu denen sie führen.
+const TRAIL_PIECES: [(&str, u8); 6] = [
+    ("pfad_punkt.png", 0),
+    ("pfad_ende.png", 1),
+    ("pfad_gerade.png", 1 | 4),
+    ("pfad_kurve.png", 1 | 2),
+    ("pfad_t.png", 1 | 2 | 4),
+    ("pfad_kreuz.png", 15),
+];
+
+/// Ein Mal im Uhrzeigersinn gedreht: aus Norden wird Osten, aus Osten Süden …
+fn turn(mask: u8) -> u8 {
+    ((mask << 1) | (mask >> 3)) & 15
+}
+
+/// Welches Pfadstück, wie oft im Uhrzeigersinn gedreht, zu diesen Nachbarn passt.
+fn trail_piece(mask: u8) -> (&'static str, u8) {
+    for (image, base) in TRAIL_PIECES {
+        let mut turned = base;
+        for turns in 0..4 {
+            if turned == mask {
+                return (image, turns);
+            }
+            turned = turn(turned);
+        }
+    }
+    ("pfad_punkt.png", 0)
+}
+
+/// Zu welchen Nachbarn ein Pfadfeld weiterführt: anderen Pfaden und Eingängen.
+fn trail_mask(grid: &Grid, p: TilePos) -> u8 {
+    let leads = |dx: i32, dy: i32| {
+        let q = TilePos::new(p.x + dx, p.y + dy);
+        q.in_bounds() && (grid.surface(q).trail || grid.surface(q).entrance)
+    };
+    // Norden ist +y auf der Karte.
+    u8::from(leads(0, 1)) | u8::from(leads(1, 0)) << 1 | u8::from(leads(0, -1)) << 2 | u8::from(leads(-1, 0)) << 3
+}
 
 fn feature_image(feature: Feature) -> &'static str {
     match feature {
@@ -206,6 +253,10 @@ fn place_furnishing(
         if surface.stones {
             wanted.insert((p, Kind::Stones), "steinwall.png");
         }
+        if surface.trail && !surface.entrance {
+            let mask = trail_mask(&grid, p);
+            wanted.insert((p, Kind::Trail(mask)), trail_piece(mask).0);
+        }
         if surface.entrance {
             wanted.insert((p, Kind::Light), "lichtschein.png");
         }
@@ -240,7 +291,12 @@ fn place_furnishing(
             Layer::Underground => grid.under(pos).dug.map_or(0.0, depth_y),
         };
         // Leicht über dem Boden, damit nichts flimmert.
-        let lift = if matches!(kind, Kind::Light | Kind::Clover | Kind::Built(_)) { 0.5 } else { 1.0 };
+        let lift = match kind {
+            // Pfade ganz unten, darüber Klee, Kräuter und Bauten.
+            Kind::Trail(_) => 0.3,
+            Kind::Light | Kind::Clover | Kind::Built(_) => 0.5,
+            _ => 1.0,
+        };
         let size = image_size(image);
         let at = Transform::from_translation(to_world3(pos.center(), floor + lift));
         let mut entity = commands.spawn((
@@ -257,8 +313,14 @@ fn place_furnishing(
                 entity.insert(figure_layer());
             }
         } else {
-            // Flache Vierecke liegen in x-z: die Bildhöhe gehört auf z.
-            entity.insert((Mesh3d(assets.flat.clone()), at.with_scale(Vec3::new(size.x, 1.0, size.y))));
+            // Flache Vierecke liegen in x-z: die Bildhöhe gehört auf z. Pfadstücke werden gedreht,
+            // im Uhrzeigersinn von oben gesehen, damit sie zu ihren Nachbarn führen.
+            let turns = if let Kind::Trail(mask) = kind { trail_piece(mask).1 } else { 0 };
+            let rotation = Quat::from_rotation_y(-(turns as f32) * std::f32::consts::FRAC_PI_2);
+            entity.insert((
+                Mesh3d(assets.flat.clone()),
+                at.with_rotation(rotation).with_scale(Vec3::new(size.x, 1.0, size.y)),
+            ));
         }
         placed.0.insert(key, (entity.id(), image));
     }

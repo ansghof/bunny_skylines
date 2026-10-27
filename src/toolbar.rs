@@ -114,6 +114,7 @@ impl Action {
             Action::Tool(ToolKind::Plug) => "erdpfropf",
             Action::Tool(ToolKind::Watch) => "nachtwache",
             Action::Tool(ToolKind::Land) => "land",
+            Action::Tool(ToolKind::Trail) => "trampelpfad",
             Action::Tool(ToolKind::Remove) => "entfernen",
             Action::Depth(Depth::Shallow) => "tiefe_flach",
             Action::Depth(Depth::Medium) => "tiefe_mittel",

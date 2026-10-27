@@ -20,6 +20,7 @@
 //! - `fangbild` oder `fangbild=S`: 0,8 s (oder S s) nach dem ersten Fang ein Bild machen
 //! - `fuchs`: gleich einen Fuchs schicken
 //! - `marder`: in der nächsten Nacht sofort einen Marder schicken (mit `nacht` gleich)
+//! - `pfade`: Trampelpfade vom Eingang nach links
 //! - `wachen`: Nachtwache im Startgang einrichten; `pfropf`: Erdpfropf im Startgang
 //! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
@@ -139,6 +140,22 @@ fn prepare(
     }
     if let Some(degrees) = script.value("neigung") {
         orbit.pitch = degrees.to_radians();
+    }
+    if script.has("pfade") {
+        // Ein Pfad vom Eingang nach links und ein Querweg, wie zu einer fernen Weide.
+        for x in 11..20 {
+            grid.surface_mut(TilePos::new(x, 15)).trail = true;
+        }
+        for y in 11..=19 {
+            grid.surface_mut(TilePos::new(11, y)).trail = true;
+        }
+        // Eine Kurve oben links und eine Kreuzung auf dem Weg zum Eingang.
+        for x in 12..=14 {
+            grid.surface_mut(TilePos::new(x, 19)).trail = true;
+        }
+        for y in [14, 16] {
+            grid.surface_mut(TilePos::new(15, y)).trail = true;
+        }
     }
     if script.has("wachen") {
         grid.under_mut(TilePos::new(21, 15)).watch = true;

@@ -40,6 +40,8 @@ pub enum ToolKind {
     Watch,
     /// Ein angrenzendes Grundstück dazukaufen.
     Land,
+    /// Trampelpfad: Darauf hoppeln Kaninchen schneller.
+    Trail,
     Remove,
 }
 
@@ -76,7 +78,7 @@ impl ToolGroup {
             ToolGroup::Food => "Futter",
             ToolGroup::Safety => "Schutz",
             ToolGroup::Community => "Gemeinschaft",
-            ToolGroup::Land => "Land",
+            ToolGroup::Land => "Land und Wege",
             ToolGroup::Remove => "Entfernen",
         }
     }
@@ -100,7 +102,7 @@ pub enum Lock {
 }
 
 /// Alle Werkzeuge in der Reihenfolge der Werkzeugleiste, mit Taste und Tastenname.
-pub const TOOLS: [(ToolKind, KeyCode, &str); 20] = [
+pub const TOOLS: [(ToolKind, KeyCode, &str); 21] = [
     (ToolKind::Point, KeyCode::Escape, "Esc"),
     (ToolKind::Dig, KeyCode::KeyG, "G"),
     (ToolKind::Entrance, KeyCode::KeyE, "E"),
@@ -120,6 +122,7 @@ pub const TOOLS: [(ToolKind, KeyCode, &str); 20] = [
     (ToolKind::Watch, KeyCode::KeyI, "I"),
     (ToolKind::Plug, KeyCode::KeyC, "C"),
     (ToolKind::Land, KeyCode::Digit6, "6"),
+    (ToolKind::Trail, KeyCode::Digit7, "7"),
     (ToolKind::Remove, KeyCode::KeyX, "X"),
 ];
 
@@ -135,7 +138,7 @@ impl ToolKind {
             | ToolKind::Plug
             | ToolKind::Feature(Feature::Hedge | Feature::BoltHole) => ToolGroup::Safety,
             ToolKind::Feature(Feature::SunSpot | Feature::Playground | Feature::Festival) => ToolGroup::Community,
-            ToolKind::Land => ToolGroup::Land,
+            ToolKind::Land | ToolKind::Trail => ToolGroup::Land,
             ToolKind::Remove => ToolGroup::Remove,
         }
     }
@@ -152,6 +155,7 @@ impl ToolKind {
             ToolKind::Plug => "Erdpfropf",
             ToolKind::Watch => "Nachtwache",
             ToolKind::Land => "Land kaufen",
+            ToolKind::Trail => "Trampelpfad",
             ToolKind::Remove => "Entfernen",
         }
     }
@@ -195,6 +199,10 @@ impl ToolKind {
                 "Ein Grundstück neben eurem Land für Erde dazukaufen. Wie viel Land ihr haben dürft, \
                  hängt von der Größe der Familie ab."
             }
+            ToolKind::Trail => {
+                "Auf Trampelpfaden hoppeln Kaninchen ein Drittel schneller – auch auf der Flucht, \
+                 dann entkommen sie dem Fuchs. Das Gras wächst darauf weiter."
+            }
             ToolKind::Remove => "Aufträge, Kammern und Bauten an der Oberfläche entfernen.",
         }
     }
@@ -212,6 +220,7 @@ impl ToolKind {
             ToolKind::Feature(Feature::Playground) => Some((0.0, cost::PLAYGROUND_EARTH)),
             ToolKind::Feature(Feature::Carrots) => Some((cost::CARROTS_FOOD, 0.0)),
             ToolKind::Feature(Feature::Festival) => Some((0.0, cost::FESTIVAL_EARTH)),
+            ToolKind::Trail => Some((0.0, cost::TRAIL_EARTH)),
             ToolKind::Plug => Some((0.0, cost::PLUG_EARTH)),
             ToolKind::Watch => Some((0.0, cost::WATCH_EARTH)),
             _ => None,
@@ -288,7 +297,9 @@ impl ToolKind {
     pub fn layer(self) -> Option<Layer> {
         match self {
             ToolKind::Dig | ToolKind::Chamber(_) | ToolKind::Plug | ToolKind::Watch => Some(Layer::Underground),
-            ToolKind::Entrance | ToolKind::Post | ToolKind::Clover | ToolKind::Feature(_) => Some(Layer::Surface),
+            ToolKind::Entrance | ToolKind::Post | ToolKind::Clover | ToolKind::Trail | ToolKind::Feature(_) => {
+                Some(Layer::Surface)
+            }
             ToolKind::Point | ToolKind::Land | ToolKind::Remove => None,
         }
     }
@@ -473,6 +484,17 @@ pub(crate) fn apply_drag(
                 }
                 tile.chamber = Some(chamber);
             }
+            ToolKind::Trail => {
+                let field = grid.surface(p);
+                if field.trail || field.entrance {
+                    continue;
+                }
+                if !colony.pay(0.0, cost::TRAIL_EARTH) {
+                    short = true;
+                    continue;
+                }
+                grid.surface_mut(p).trail = true;
+            }
             ToolKind::Plug | ToolKind::Watch => {
                 let tile = grid.under(p);
                 // Ein Pfropf gehört in einen Gang, eine Wache in irgendein gegrabenes Feld.
@@ -538,6 +560,7 @@ pub(crate) fn apply_drag(
                 let field = grid.surface_mut(p);
                 field.entrance_planned = false;
                 field.clover = false;
+                field.trail = false;
                 // Erde von Hügeln und Hecken kommt zurück, Saatgut nicht.
                 if std::mem::take(&mut field.post) {
                     colony.earth += cost::POST_EARTH;
@@ -631,6 +654,7 @@ fn priced_tiles(grid: &Grid, kind: ToolKind, start: TilePos, end: TilePos) -> us
                 let tile = grid.under(*p);
                 (tile.dug.is_some() || tile.planned.is_some()) && tile.chamber != Some(Chamber::Sleeping)
             }
+            ToolKind::Trail => !grid.surface(*p).trail && !grid.surface(*p).entrance,
             _ => surface_free(grid.surface(*p)),
         })
         .count()

@@ -253,6 +253,9 @@ pub struct SurfaceTile {
     /// Offener Sand in einer Sandgrube.
     #[serde(default)]
     pub sand: bool,
+    /// Ein Trampelpfad: Hier hoppeln Kaninchen schneller, das Gras wächst trotzdem.
+    #[serde(default)]
+    pub trail: bool,
 }
 
 impl SurfaceTile {
