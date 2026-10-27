@@ -47,13 +47,15 @@ enum Kind {
     Trail(u8),
     /// Ein Stück Damm, wie beim Pfad mit seinen Nachbarn verbunden.
     Dam(u8),
+    /// Ein Baueingang: Röhre mit ausgeworfener Erde davor.
+    Entrance,
 }
 
 impl Kind {
     /// In welcher Ansicht diese Einrichtung zu sehen ist.
     fn layer(self) -> Layer {
         match self {
-            Kind::Clover | Kind::Built(_) | Kind::Tree | Kind::Stones | Kind::Trail(_) | Kind::Dam(_) => {
+            Kind::Clover | Kind::Built(_) | Kind::Tree | Kind::Stones | Kind::Trail(_) | Kind::Dam(_) | Kind::Entrance => {
                 Layer::Surface
             }
             Kind::Nest | Kind::Pile | Kind::Light | Kind::Plug | Kind::Watch => Layer::Underground,
@@ -71,8 +73,10 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 30] = [
+const IMAGES: [(&str, Vec2); 31] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
+    // Die ausgeworfene Erde reicht über das Feld hinaus.
+    ("eingang.png", Vec2::new(192.0, 192.0)),
     ("futter_klein.png", Vec2::new(80.0, 56.0)),
     ("futter_mittel.png", Vec2::new(104.0, 72.0)),
     ("futter_voll.png", Vec2::new(124.0, 88.0)),
@@ -289,12 +293,14 @@ fn place_furnishing(
         if surface.stones {
             wanted.insert((p, Kind::Stones), "steinwall.png");
         }
-        if surface.trail && !surface.entrance {
-            let mask = trail_mask(&grid, p);
+        // Pfade laufen bis ans Loch; das Bild des Eingangs liegt darüber.
+        let mask = trail_mask(&grid, p);
+        if (surface.trail && !surface.entrance) || (surface.entrance && mask != 0) {
             wanted.insert((p, Kind::Trail(mask)), trail_piece(mask).0);
         }
         if surface.entrance {
             wanted.insert((p, Kind::Light), "lichtschein.png");
+            wanted.insert((p, Kind::Entrance), "eingang.png");
         }
         // Abgefressener Klee ist nur noch Farbe am Boden, bis er nachwächst.
         if surface.clover && surface.grass > 0.25 {
@@ -337,6 +343,8 @@ fn place_furnishing(
             // Pfade ganz unten, darüber Klee, Kräuter und Bauten.
             Kind::Trail(_) => 0.3,
             Kind::Light | Kind::Clover | Kind::Built(_) | Kind::Dam(_) => 0.5,
+            // Über Pfaden und Klee, die zum Eingang führen.
+            Kind::Entrance => 0.7,
             _ => 1.0,
         };
         let size = image_size(image);

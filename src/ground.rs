@@ -14,8 +14,6 @@ use bevy::prelude::*;
 use crate::overlay::{MapOverlay, pasture_color};
 use crate::map::{Depth, Grid, Layer, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer, surface_color, underground_color};
 
-/// Wie tief ein Eingangsloch an der Oberfläche wirkt.
-const ENTRANCE_DEPTH: f32 = 36.0;
 const SOIL_WALL: [f32; 3] = [0.42, 0.29, 0.17];
 /// So viele Felder deckt eine Bodentextur ab, bevor sie sich wiederholt.
 const TEXTURE_SPAN: f32 = 4.0 * TILE_SIZE;
@@ -65,7 +63,6 @@ impl Texture {
         }
         let tile = grid.surface(p);
         match () {
-            _ if tile.entrance => Texture::Dirt,
             _ if tile.water && tile.ford => Texture::Stones,
             _ if tile.water => Texture::Water,
             _ if tile.stones => Texture::Stones,
@@ -145,13 +142,14 @@ pub fn gizmo_circle(gizmos: &mut Gizmos, center: Vec2, radius: f32, y: f32, colo
     gizmos.circle(Isometry3d::new(center, Quat::from_rotation_x(-FRAC_PI_2)), radius, color);
 }
 
-/// Ein Teil des Bodens: alle Felder einer Ansicht mit derselben Textur.
+/// Ein Teil des Bodens: alle Felder einer Ansicht mit derselben Textur. `true` = die
+/// durchscheinenden Ränder, mit denen diese Textur in andere Nachbarfelder ausläuft.
 #[derive(Component)]
-struct GroundMesh(Layer, Texture);
+struct GroundMesh(Layer, Texture, bool);
 
-/// Bild und Material jeder Bodentextur.
+/// Bild und Materialien jeder Bodentextur: deckend für die Felder, durchscheinend für die Ränder.
 #[derive(Resource)]
-struct GroundTextures(Vec<(Handle<Image>, Handle<StandardMaterial>)>);
+struct GroundTextures(Vec<(Handle<Image>, [Handle<StandardMaterial>; 2])>);
 
 fn spawn_ground(
     mut commands: Commands,
@@ -165,21 +163,23 @@ fn spawn_ground(
     for texture in Texture::ALL {
         let image: Handle<Image> = asset_server.load(texture.file());
         // Die Farben kommen aus den Ecken des Meshes, die Textur gibt die Zeichnung dazu.
-        let material = materials.add(StandardMaterial {
+        let solid = StandardMaterial {
             base_color: Color::WHITE,
             base_color_texture: Some(image.clone()),
             perceptual_roughness: 0.95,
             ..default()
-        });
-        textures.push((image, material));
+        };
+        let edge = StandardMaterial { alpha_mode: AlphaMode::Blend, ..solid.clone() };
+        textures.push((image, [materials.add(solid), materials.add(edge)]));
     }
     for layer in [Layer::Surface, Layer::Underground] {
         let parts = build_meshes(&grid, layer, MapOverlay::Off);
-        for ((texture, mesh), (_, material)) in Texture::ALL.into_iter().zip(parts).zip(&textures) {
+        for (i, mesh) in parts.into_iter().enumerate() {
+            let (texture, edge) = part_of(i);
             commands.spawn((
-                GroundMesh(layer, texture),
+                GroundMesh(layer, texture, edge),
                 Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(material.clone()),
+                MeshMaterial3d(textures[i % Texture::ALL.len()].1[edge as usize].clone()),
                 Transform::default(),
                 visibility_for(layer, view.0),
             ));
@@ -204,7 +204,7 @@ fn prepare_textures(
         let (AssetEvent::LoadedWithDependencies { id } | AssetEvent::Modified { id }) = *event else {
             continue;
         };
-        let Some((_, material)) = textures.0.iter().find(|(image, _)| image.id() == id) else {
+        let Some((_, pair)) = textures.0.iter().find(|(image, _)| image.id() == id) else {
             continue;
         };
         let Some(image) = images.get(id) else {
@@ -217,8 +217,10 @@ fn prepare_textures(
             continue;
         };
         let gain = 1.0 / mean_brightness(&prepared).max(0.05);
-        if let Some(mut material) = materials.get_mut(material) {
-            material.base_color = Color::linear_rgb(gain, gain, gain);
+        for material in pair {
+            if let Some(mut material) = materials.get_mut(material) {
+                material.base_color = Color::linear_rgb(gain, gain, gain);
+            }
         }
         let _ = images.insert(id, prepared);
     }
@@ -347,9 +349,10 @@ fn rebuild_ground(
     }
     for layer in [Layer::Surface, Layer::Underground] {
         let parts = build_meshes(&grid, layer, *overlay);
-        for (texture, part) in Texture::ALL.into_iter().zip(parts) {
+        for (i, part) in parts.into_iter().enumerate() {
+            let (texture, edge) = part_of(i);
             for (ground, mesh) in &grounds {
-                if ground.0 == layer && ground.1 == texture {
+                if ground.0 == layer && ground.1 == texture && ground.2 == edge {
                     // Schlägt nur fehl, wenn das Mesh gerade entfernt wurde.
                     let _ = meshes.insert(&mesh.0, part.clone());
                 }
@@ -411,6 +414,25 @@ impl MeshBuilder {
         }
     }
 
+    /// Ein Streifen, der von `alpha[0]` an der ersten Kante zu `alpha[1]` an der zweiten ausblendet.
+    fn strip(&mut self, corners: [Vec3; 4], uvs: [Vec2; 4], colors: [[f32; 3]; 4], alpha: [f32; 4]) {
+        let start = self.positions.len() as u32;
+        for i in 0..4 {
+            let mut linear = Color::srgb(colors[i][0], colors[i][1], colors[i][2]).to_linear().to_f32_array();
+            linear[3] = alpha[i];
+            self.positions.push(corners[i].to_array());
+            self.normals.push(Vec3::Y.to_array());
+            self.colors.push(linear);
+            self.uvs.push(uvs[i].to_array());
+        }
+        let facing = (corners[1] - corners[0]).cross(corners[2] - corners[0]).dot(Vec3::Y);
+        if facing >= 0.0 {
+            self.indices.extend([start, start + 1, start + 2, start, start + 2, start + 3]);
+        } else {
+            self.indices.extend([start, start + 2, start + 1, start, start + 3, start + 2]);
+        }
+    }
+
     fn build(mut self) -> Mesh {
         // Ein leeres Mesh mag Bevy nicht; ein unsichtbares Dreieck tut es auch.
         if self.positions.is_empty() {
@@ -437,18 +459,28 @@ fn rgb(color: Color) -> [f32; 3] {
 /// Höhe der Oberkante eines Feldes in der jeweiligen Ansicht.
 fn top_y(grid: &Grid, layer: Layer, p: TilePos) -> f32 {
     match layer {
-        Layer::Surface if grid.surface(p).entrance => -ENTRANCE_DEPTH,
         Layer::Surface => 0.0,
         Layer::Underground => grid.under(p).dug.map_or(0.0, depth_y),
     }
 }
 
-/// Alle Teile einer Ansicht, in der Reihenfolge von `Texture::ALL`. Jedes Feld wird aus vier
-/// Dreiecken um seine Mitte gebaut: Die Mitte hat die Farbe des Feldes, die Ecken mischen sie mit
-/// gleichartigen Nachbarn. So gehen Felder weich ineinander über, und Markierungen bleiben sichtbar.
-/// Gangwände bekommen immer die Erde des Untergrunds.
+/// Welche Textur das i-te Teil aus `build_meshes` hat und ob es die durchscheinenden Ränder sind.
+fn part_of(i: usize) -> (Texture, bool) {
+    (Texture::ALL[i % Texture::ALL.len()], i >= Texture::ALL.len())
+}
+
+/// Wie weit eine Textur an der Oberfläche in ein andersartiges Nachbarfeld ausläuft.
+const BLEND_REACH: f32 = 0.45;
+
+/// Alle Teile einer Ansicht: erst die Felder jeder Textur in der Reihenfolge von `Texture::ALL`,
+/// dann ebenso ihre durchscheinenden Ränder. Jedes Feld wird aus vier Dreiecken um seine Mitte
+/// gebaut: Die Mitte hat die Farbe des Feldes, die Ecken mischen sie mit gleichartigen Nachbarn.
+/// An der Oberfläche läuft jede Textur dazu in andersartige Nachbarn aus, halb deckend an der
+/// Kante und nach innen verblassend; von beiden Seiten zusammen gibt das einen weichen Übergang
+/// statt einer geraden Kante. Gangwände bekommen immer die Erde des Untergrunds.
 fn build_meshes(grid: &Grid, layer: Layer, overlay: MapOverlay) -> Vec<Mesh> {
     let mut builders: Vec<MeshBuilder> = Texture::ALL.iter().map(|_| MeshBuilder::default()).collect();
+    let mut edges: Vec<MeshBuilder> = Texture::ALL.iter().map(|_| MeshBuilder::default()).collect();
     let slot = |texture: Texture| Texture::ALL.iter().position(|t| *t == texture).unwrap();
     let half = TILE_SIZE / 2.0;
     // Die Textur liegt durchgehend über der Karte, damit gleiche Nachbarn nahtlos ineinander übergehen.
@@ -501,6 +533,28 @@ fn build_meshes(grid: &Grid, layer: Layer, overlay: MapOverlay) -> Vec<Mesh> {
             offsets.map(|(sx, sy)| corner_color(sx, sy)),
         );
 
+        // Im Untergrund bleiben die Bodenarten scharf getrennt, sie bestimmen das Graben.
+        if layer == Layer::Surface {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let neighbor = TilePos::new(p.x + dx, p.y + dy);
+                if !neighbor.in_bounds() || tiles[index(neighbor)].0 == texture || tiles[index(neighbor)].1 != y {
+                    continue;
+                }
+                let out = Vec2::new(dx as f32, dy as f32);
+                let ends = [(dx - dy, dy + dx), (dx + dy, dy - dx)];
+                let edge = ends.map(|(sx, sy)| center + Vec2::new(sx as f32, sy as f32) * half);
+                let inner = edge.map(|point| point + out * TILE_SIZE * BLEND_REACH);
+                let points = [edge[0], edge[1], inner[1], inner[0]];
+                let colors = ends.map(|(sx, sy)| corner_color(sx, sy));
+                edges[slot(texture)].strip(
+                    points.map(|point| to_world3(point, y + 0.15)),
+                    points.map(uv),
+                    [colors[0], colors[1], colors[1], colors[0]],
+                    [0.5, 0.5, 0.0, 0.0],
+                );
+            }
+        }
+
         // Wände dort, wo der Nachbar höher liegt, damit Gänge eingegraben wirken.
         let walls = &mut builders[slot(Texture::Soil)];
         for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
@@ -535,5 +589,5 @@ fn build_meshes(grid: &Grid, layer: Layer, overlay: MapOverlay) -> Vec<Mesh> {
             );
         }
     }
-    builders.into_iter().map(MeshBuilder::build).collect()
+    builders.into_iter().chain(edges).map(MeshBuilder::build).collect()
 }

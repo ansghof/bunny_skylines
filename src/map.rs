@@ -867,9 +867,7 @@ fn grow_grass(time: Res<Time>, clock: Res<DayClock>, mut grid: ResMut<Grid>, mut
 /// Farbe eines Oberflächenfeldes: Gras je nach Bewuchs, Markierungen für Aufträge und Posten.
 pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     let tile = grid.surface(p);
-    if tile.entrance {
-        return Color::srgb(0.29, 0.20, 0.13);
-    }
+    // Eingänge malt ein eigenes Bild; der Boden drumherum bleibt, wie er ist.
     // Kein Schachbrett mehr: Die Textur zeigt die Felder, und Nachbarn gehen weich ineinander über.
     let checker = 1.0;
     if tile.water {

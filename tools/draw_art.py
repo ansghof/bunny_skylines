@@ -652,6 +652,44 @@ def places():
     s.save('einrichtung/nachtwache.svg')
 
 
+def burrow():
+    s = Svg(192, 192, 'Baueingang von oben: eine ovale Röhre führt schräg in die Erde, davor ein Fächer aus ausgeworfener Erde', 71)
+    # Ausgeworfene Erde, nach vorn (unten im Bild) breit auslaufend und zum Rand hin dünner.
+    spoil = 'M60 74 C40 96 34 132 52 160 C70 184 122 184 140 160 C158 132 152 96 132 74 C116 62 76 62 60 74 Z'
+    s.add(f'<path d="{spoil}" fill="#6e4c2e" opacity="0.4" {s.blur(9)}/>')
+    s.add(f'<g {s.rough(7, 0.08)}><path d="{spoil}" fill="{s.radial(92, 100, 80, [(0, "#9a7448"), (0.55, "#7e5a36"), (1, "#5e4228")])}" opacity="0.9" {s.blur(2)}/></g>')
+    clip = s.clip_d(spoil)
+    crumbs = ''.join(f'<circle cx="{f(x)}" cy="{f(y)}" r="{f(s.rng.uniform(0.6, 2.4))}" fill="{s.rng.choice(["#b89068", "#4e3220", "#a07a50", "#8a8478"])}" opacity="0.8"/>'
+                     for x, y in s.scatter(320, 30, 60, 162, 186))
+    clods = ''.join(f'<ellipse cx="{f(x)}" cy="{f(y)}" rx="{f(s.rng.uniform(2.5, 5))}" ry="{f(s.rng.uniform(2, 3.5))}" '
+                    f'fill="{s.radial(x - 1.5, y - 1.5, 5, [(0, "#b08a5c"), (1, "#5e4228")])}"/>'
+                    for x, y in s.scatter(26, 50, 110, 142, 172))
+    # Kratzspuren vom Graben: Rillen vom Loch nach vorn.
+    scratches = ''.join(f'<path d="M{f(x)} 112 q{f(s.rng.uniform(-6, 6))} 20 {f((x - 96) * 0.5)} 46" stroke="#4a3220" stroke-width="1.6" fill="none" opacity="0.45"/>'
+                        for x in (82, 90, 99, 107))
+    s.add(f'<g {clip}>{crumbs}{scratches}{clods}</g>')
+    for x, y in ((128, 150), (66, 146), (110, 168)):
+        s.add(f'<ellipse cx="{x + 1}" cy="{y + 1.5}" rx="4.5" ry="3.2" fill="#2a1e10" opacity="0.4"/>'
+              f'<ellipse cx="{x}" cy="{y}" rx="4.5" ry="3.2" fill="{s.radial(x - 1.5, y - 1.2, 5, [(0, "#d8d2c4"), (1, "#7e786a")])}"/>')
+
+    # Erdlippe rund um das Loch: hinten (oben) im Licht, weil dort die Wand der Röhre zu sehen ist.
+    lip = 'M52 86 C52 58 70 44 96 44 C122 44 140 58 140 86 C140 108 120 120 96 120 C72 120 52 108 52 86 Z'
+    s.add(f'<g {s.rough(4, 0.2)}><path d="{lip}" fill="{s.radial(96, 70, 52, [(0, "#a07a50"), (0.7, "#7a5634"), (1, "#5a3c22")])}"/></g>')
+    hole = 'M60 86 C60 64 76 54 96 54 C116 54 132 64 132 86 C132 102 116 112 96 112 C76 112 60 102 60 86 Z'
+    s.add(f'<path d="{hole}" fill="{s.linear(0, 54, 0, 112, [(0, "#6a4a2c"), (0.25, "#3e2814"), (0.6, "#120a04"), (1, "#050302")])}"/>')
+    # Die Röhre führt nach vorn unten weg: unten im Loch am dunkelsten, die Rückwand bekommt etwas Licht.
+    s.add(f'<g {s.clip_d(hole)}><ellipse cx="96" cy="100" rx="28" ry="14" fill="#000000" opacity="0.8" {s.blur(6)}/>'
+          f'<path d="M64 74 C76 60 116 60 128 74" stroke="#9a7448" stroke-width="4" fill="none" opacity="0.5" {s.blur(2)}/>'
+          + s.strokes(s.scatter(30, 64, 56, 128, 80), 90, 6, 0.8, ['#8a6440', '#2e1e10'], 0.5, 0.3) + '</g>')
+    # Ein paar Wurzeln und Grashalme hängen über den hinteren Rand.
+    s.add(s.strokes([(70 + i * 7 + s.rng.uniform(-2, 2), 52 + abs(i - 4) * 1.6) for i in range(9)], 95, 9, 1.1,
+                    ['#c4a074', '#8a6a48'], 0.8, 0.25, 0.3))
+    s.add(s.strokes([(x, y) for x, y in s.scatter(60, 40, 30, 152, 70) if (x - 96) ** 2 / 56 ** 2 + (y - 80) ** 2 / 36 ** 2 > 0.9],
+                    -90, 9, 1.4, ['#8ab858', '#5e8a34', '#a8cc70'], 0.9, 0.5, 0.2))
+    s.save('einrichtung/eingang.svg')
+
+
+burrow()
 rabbit()
 fox()
 marten()
