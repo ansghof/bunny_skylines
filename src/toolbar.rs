@@ -469,6 +469,9 @@ fn toolbar_keys(
     if keys.just_pressed(KeyCode::KeyT) {
         research.0 = !research.0;
     }
+    if keys.just_pressed(KeyCode::Escape) && research.0 {
+        research.0 = false;
+    }
 }
 
 /// Oben nur die Werkzeuge der aktiven Gruppe, beim Graben dazu die Grabtiefen.
@@ -691,7 +694,7 @@ fn update_research_panel(
         .next_goal()
         .map_or(String::new(), |goal| format!("    Nächste Stufe {goal}"));
     let content = format!(
-        "Forschungsbaum  [T]    Weisheit: {:.0}    Stufe: {}{next}\n\
+        "Forschungsbaum  [T, Esc: schließen]    Weisheit: {:.0}    Stufe: {}{next}\n\
          Weisheit sammeln Kaninchen in der Erzählkammer, alte Kaninchen dreimal so viel.",
         progress.wisdom,
         progress.stage.label()
