@@ -5,6 +5,7 @@
 //! Marder kommen erst, wenn die Familie zur „Siedlung“ gewachsen ist.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::f32::consts::TAU;
 
 use bevy::prelude::*;
 
@@ -12,19 +13,20 @@ use crate::audio::{Sound, Sounds};
 use crate::bird::Sky;
 use crate::carry::{CarryPoint, carry_off};
 use crate::behavior::{Activity, BehaviorSet, Fear, Goal, Path, Reserved, current_node, flee_from, release};
-use crate::camera::{Orbit, figure_layer};
+use crate::camera::Orbit;
 use crate::colony::{Messages, Rng};
-use crate::daynight::DayClock;
+use crate::daynight::{DayClock, figure_light};
 use crate::flood::Flood;
 use crate::ground::{floor_y, to_world3};
 use crate::map::{Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
 use crate::pathfinding::{Node, find_path, neighbors};
 use crate::progress::{Progress, Stage};
 use crate::rabbit::{Fur, OnLayer, Pregnant, Rabbit, Stomping};
+use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 use crate::scenario::Scenario;
 
-const IMAGE: &str = "figuren/marder/marder.png";
-const SIZE: Vec2 = Vec2::new(76.0, 38.0);
+const RIG_PATH: &str = "figuren/marder/marder.rig.ron";
+const RIG_FOLDER: &str = "figuren/marder";
 /// Etwas langsamer als ein hoppelndes Kaninchen: Wer gewarnt ist, entkommt.
 const SPEED: f32 = 95.0;
 const CATCH_DISTANCE: f32 = 22.0;
@@ -46,7 +48,6 @@ pub struct MartenPlugin;
 impl Plugin for MartenPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MartenSpawner>()
-            .add_systems(Startup, prepare_assets)
             .add_systems(
                 Update,
                 (assign_night_watch, spawn_martens, prowl, close_plugs, night_watch, notice_marten, show_martens)
@@ -88,6 +89,8 @@ pub struct Marten {
     /// Ob eine Nachtwache ihn schon gemeldet hat.
     spotted: bool,
     velocity: Vec2,
+    /// Wo im Galoppsprung er gerade ist, 0 bis 1.
+    anim_phase: f32,
 }
 
 impl Marten {
@@ -95,9 +98,6 @@ impl Marten {
         Node::new(self.layer, TilePos::from_world_clamped(self.position))
     }
 }
-
-#[derive(Component)]
-struct MartenImage(Entity);
 
 #[derive(Resource)]
 pub struct MartenSpawner {
@@ -120,32 +120,6 @@ impl MartenSpawner {
         self.next = 6.0;
         self.forced = true;
     }
-}
-
-#[derive(Resource)]
-struct MartenAssets {
-    quad: Handle<Mesh>,
-    image: Handle<StandardMaterial>,
-}
-
-fn prepare_assets(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.insert_resource(MartenAssets {
-        // Unterkante am Ursprung, damit er auf dem Gangboden steht.
-        quad: meshes.add(Mesh::from(Rectangle::new(1.0, 1.0)).translated_by(Vec3::new(0.0, 0.5, 0.0))),
-        image: materials.add(StandardMaterial {
-            base_color_texture: Some(asset_server.load(IMAGE)),
-            alpha_mode: AlphaMode::AlphaToCoverage,
-            unlit: true,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        }),
-    });
 }
 
 fn half_extent() -> Vec2 {
@@ -195,7 +169,7 @@ fn spawn_martens(
     clock: Res<DayClock>,
     progress: Res<Progress>,
     grid: Res<Grid>,
-    assets: Res<MartenAssets>,
+    asset_server: Res<AssetServer>,
     mut spawner: ResMut<MartenSpawner>,
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
@@ -239,7 +213,7 @@ fn spawn_martens(
         return;
     };
     steps.insert(0, start);
-    let marten = commands
+    commands
         .spawn((Sky, CarryPoint::default(), Marten {
             hunt: Hunt::Approaching,
             position,
@@ -250,16 +224,9 @@ fn spawn_martens(
             no_prey: 0.0,
             spotted: false,
             velocity: Vec2::ZERO,
-        }))
-        .id();
-    commands.spawn((
-        Sky,
-        MartenImage(marten),
-        Mesh3d(assets.quad.clone()),
-        MeshMaterial3d(assets.image.clone()),
-        Transform::default(),
-        figure_layer(),
-    ));
+            anim_phase: 0.0,
+        }, RigSource { rig: asset_server.load(RIG_PATH), folder: RIG_FOLDER }))
+        .insert((Transform::from_translation(position.extend(0.0)), Visibility::default(), OnLayer(Layer::Surface)));
     sounds.play(Sound::Fox);
     if !wall.is_empty() {
         messages.push("Aus dem alten Steinwall schleicht ein Marder …");
@@ -280,7 +247,6 @@ fn prowl(
     mut reserved: ResMut<Reserved>,
     mut martens: Query<(Entity, &mut Marten)>,
     rabbits: Query<(Entity, &Rabbit, &Transform, &OnLayer, &Activity, &Fur)>,
-    images: Query<(Entity, &MartenImage)>,
 ) {
     let dt = time.delta_secs();
     for (entity, mut marten) in &mut martens {
@@ -357,11 +323,6 @@ fn prowl(
             let step = (exit - marten.position).clamp_length_max(budget.max(SPEED * dt));
             marten.position += step;
             if marten.position.distance(exit) < 4.0 {
-                for (image, owner) in &images {
-                    if owner.0 == entity {
-                        commands.entity(image).despawn();
-                    }
-                }
                 commands.entity(entity).despawn();
                 messages.push("Der Marder ist wieder fort.");
                 continue;
@@ -491,30 +452,85 @@ fn notice_marten(
     }
 }
 
+/// Überträgt Ort und Ebene auf die Figur und lässt ihn galoppieren: Marder springen, die
+/// Hinterbeine setzen gemeinsam auf, der lange Rücken krümmt sich dabei.
+#[allow(clippy::too_many_arguments)]
 fn show_martens(
+    time: Res<Time>,
     grid: Res<Grid>,
     orbit: Res<Orbit>,
     view: Res<ViewLayer>,
-    mut martens: Query<(&Marten, &mut CarryPoint)>,
-    mut images: Query<(&MartenImage, &mut Transform, &mut Visibility)>,
+    clock: Res<DayClock>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut martens: Query<(&mut Marten, &mut Transform, &mut OnLayer, &mut CarryPoint, Option<&AvatarLink>)>,
+    mut avatars: Query<(&Children, &mut Visibility), With<Avatar>>,
+    mut roots: Query<(&RigRoot, &mut Transform, &Children), (Without<Marten>, Without<Part>)>,
+    mut parts: Query<(&Part, &mut Transform), (Without<RigRoot>, Without<Marten>)>,
 ) {
+    let dt = time.delta_secs();
     let right = to_world3(orbit.screen_right(), 0.0);
-    for (image, mut transform, mut shown) in &mut images {
-        let Ok((marten, mut point)) = martens.get_mut(image.0) else {
+    for (mut marten, mut transform, mut layer, mut point, link) in &mut martens {
+        transform.translation = marten.position.extend(0.0);
+        layer.0 = marten.layer;
+        let shown = marten.layer == view.0;
+        let speed = marten.velocity.length();
+        // Ein Sprung je Körperlänge.
+        marten.anim_phase = (marten.anim_phase + dt * speed / 70.0).fract();
+        let phase = marten.anim_phase * TAU;
+        let moving = speed > 1.0;
+        let sideways = marten.velocity.dot(orbit.screen_right());
+
+        let Some((children, mut visibility)) = link.and_then(|link| avatars.get_mut(link.0).ok()) else {
             continue;
         };
-        let floor = floor_y(&grid, marten.layer, TilePos::from_world_clamped(marten.position));
-        transform.translation = to_world3(marten.position, floor);
-        transform.rotation = orbit.billboard();
-        // Nach links oder rechts schauen, je nachdem wohin er auf dem Bildschirm läuft.
-        let sideways = marten.velocity.dot(orbit.screen_right());
-        let facing = if sideways < -0.1 { -1.0 } else if sideways > 0.1 { 1.0 } else { transform.scale.x.signum() };
-        let facing = if facing == 0.0 { 1.0 } else { facing };
-        transform.scale = Vec3::new(SIZE.x * facing, SIZE.y, 1.0);
-        *shown = if marten.layer == view.0 { Visibility::Inherited } else { Visibility::Hidden };
+        *visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
+        let mut facing = 1.0;
+        for child in children.iter() {
+            let Ok((root, mut root_transform, root_children)) = roots.get_mut(child) else {
+                continue;
+            };
+            // Bleibt er stehen, behält er die letzte Blickrichtung.
+            if sideways.abs() > 0.1 {
+                root_transform.scale.x = sideways.signum() * root.pixel_scale;
+            } else if root_transform.scale.x == 0.0 {
+                root_transform.scale.x = root.pixel_scale;
+            }
+            facing = root_transform.scale.x.signum();
+            root_transform.scale.y = root.pixel_scale;
+            root_transform.scale.z = root.pixel_scale;
+            // Im Sprung hebt er ab, beim Landen ist er unten.
+            let hop = if moving { phase.sin().max(0.0) * 6.0 } else { 0.0 };
+            root_transform.translation = Vec3::new(0.0, hop, 0.0);
+            root_transform.rotation = orbit.billboard();
+
+            let t = time.elapsed_secs();
+            let reach = if moving { 1.0 } else { 0.0 };
+            for part_entity in root_children.iter() {
+                let Ok((part, mut part_transform)) = parts.get_mut(part_entity) else {
+                    continue;
+                };
+                let (offset, angle) = match part.name.as_str() {
+                    // Hinterbeine schieben ab, Vorderbeine greifen nach vorn; je Paar leicht versetzt.
+                    "bein_hinten_nah" => (Vec2::ZERO, (phase).sin() * 30.0 * reach),
+                    "bein_hinten_fern" => (Vec2::ZERO, (phase - 0.4).sin() * 30.0 * reach),
+                    "bein_vorne_nah" => (Vec2::ZERO, (phase + 2.4).sin() * 34.0 * reach),
+                    "bein_vorne_fern" => (Vec2::ZERO, (phase + 2.0).sin() * 34.0 * reach),
+                    // Der Rücken wölbt sich beim Absprung und streckt sich im Flug.
+                    "koerper" => (Vec2::new(0.0, phase.cos().max(0.0) * 3.0 * reach), (phase).sin() * 4.0 * reach),
+                    "schwanz" => (Vec2::ZERO, (phase + 1.0).sin() * 10.0 * reach + (t * 2.0).sin() * 4.0),
+                    // Steht er, hebt er schnuppernd den Kopf.
+                    "kopf" | "auge" if !moving => (Vec2::new(0.0, (t * 3.0).sin().max(0.0) * 3.0), 0.0),
+                    "kopf" | "auge" => (Vec2::new(0.0, -(phase).sin() * 3.0), 0.0),
+                    _ => (Vec2::ZERO, 0.0),
+                };
+                let light = figure_light(&clock, marten.layer);
+                pose_part(part, &mut part_transform, &mut materials, offset, angle, None, Color::WHITE, light);
+            }
+        }
         // Die Beute im Maul, vorn am Kopf.
-        point.at = to_world3(marten.position, floor + 22.0) + right * facing * 34.0;
+        let floor = floor_y(&grid, marten.layer, TilePos::from_world_clamped(marten.position));
+        point.at = to_world3(marten.position, floor + 18.0) + right * facing * 34.0;
         point.facing = facing;
-        point.visible = marten.layer == view.0;
+        point.visible = shown;
     }
 }

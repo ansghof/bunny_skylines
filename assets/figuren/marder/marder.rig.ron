@@ -1,0 +1,15 @@
+// Bauplan des Marders. Aufbau und Bedeutung der Felder wie bei kaninchen.rig.ron.
+(
+    pixel_massstab: 0.3,
+    teile: [
+        (name: "bein_hinten_fern", bild: "bein_fern.png", position: (-38, 38),  drehpunkt: (0.5, 0.92), ebene: 0, faerben: false),
+        (name: "bein_vorne_fern",  bild: "bein_fern.png", position: (58, 38),   drehpunkt: (0.5, 0.92), ebene: 0, faerben: false),
+        (name: "schwanz",          bild: "schwanz.png",   position: (-62, 50),  drehpunkt: (0.97, 0.5), drehung: 6, ebene: 1, faerben: false),
+        (name: "koerper",          bild: "koerper.png",   position: (0, 44),    drehpunkt: (0.5, 0.5),  ebene: 2, faerben: false),
+        (name: "bein_hinten_nah",  bild: "bein_nah.png",  position: (-48, 36),  drehpunkt: (0.5, 0.92), ebene: 3, faerben: false),
+        (name: "bein_vorne_nah",   bild: "bein_nah.png",  position: (48, 36),   drehpunkt: (0.5, 0.92), ebene: 3, faerben: false),
+        (name: "kopf",             bild: "kopf.png",      position: (70, 58),   drehpunkt: (0.25, 0.5), ebene: 4, faerben: false),
+        (name: "auge",             bild: "auge_offen.png", position: (94, 63),  drehpunkt: (0.5, 0.5),  ebene: 5, faerben: false,
+            varianten: {"zu": "auge_zu.png"}),
+    ],
+)

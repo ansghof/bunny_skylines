@@ -4,6 +4,7 @@ ohne dicke Umrisse, damit sie zu den Bodentexturen passen. Licht kommt immer von
 Aufruf aus dem Projektordner: `python tools/draw_art.py .`, danach `cargo run -p art_export`.
 Trampelpfade und Dämme zeichnet `tools/draw_paths.py`."""
 import math
+import os
 import random
 import sys
 
@@ -105,6 +106,7 @@ class Svg:
         text = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.w}" height="{self.h}" '
                 f'viewBox="0 0 {self.w} {self.h}">\n  <!-- {self.comment} -->\n'
                 f'  <defs>{"".join(self.defs)}</defs>\n  ' + '\n  '.join(self.body) + '\n</svg>\n')
+        os.makedirs(os.path.dirname(f'{root}/art_src/{path}'), exist_ok=True)
         with open(f'{root}/art_src/{path}', 'w', encoding='utf-8') as file:
             file.write(text)
 
@@ -301,26 +303,55 @@ def fox():
 # Marder und Bussard: je ein Bild.
 
 def marten():
-    s = Svg(160, 80, 'Steinmarder von der Seite: langer Körper, buschiger Schwanz, heller Kehlfleck', 31)
-    brown = '#5e3f28'
-    hair = ['#8a6446', '#3a2414', '#6e4c32']
-    for leg in ('M42 56 L38 74 L46 74 L50 58 Z', 'M104 58 L106 74 L114 73 L112 56 Z'):
-        furry(s, leg, dark(brown, 0.35), (36, 54, 116, 76), 90, 1.2, 3, 1.2, hair=hair)
-    furry(s, 'M8 46 C4 34 10 22 22 24 C30 26 34 36 40 42 L36 50 C26 52 14 54 8 46 Z', dark(brown, 0.15),
-          (3, 22, 42, 54), 200, 1.6, 6, 3, hair=hair)
-    d = 'M36 44 C48 30 96 28 118 36 C126 40 126 54 116 58 C92 64 56 64 40 58 C34 56 32 50 36 44 Z'
-    furry(s, d, brown, (32, 28, 126, 64), 182, 1.4, 5, hair=hair, extra=glow(s, 78, 64, 40, 6, '#2a180c', 0.4, 4, s.clip(f'<path d="{d}"/>')))
-    for leg in ('M54 58 L52 74 L60 74 L62 60 Z', 'M96 60 L98 74 L106 74 L104 58 Z'):
-        furry(s, leg, dark(brown, 0.3), (50, 56, 108, 76), 90, 1.2, 3, 1.2, hair=hair)
-    head = 'M112 38 C120 24 136 20 146 26 C156 30 159 38 154 43 C146 48 132 50 122 52 Z'
-    furry(s, 'M126 26 L130 15 L137 23 Z', brown, (125, 14, 138, 27), 270, 1.2, 2.5, 1, hair=hair)
-    bib = f'<path d="M116 46 C126 52 136 54 146 48 C140 58 124 60 114 56 Z" fill="#efe2c2" {s.blur(1.2)}/>'
-    furry(s, head, brown, (110, 20, 160, 54), 195, 1.4, 3.5, hair=hair, extra=bib)
-    s.add(f'<path d="M116 46 C126 52 136 54 146 48 C140 58 124 60 114 56 Z" fill="#efe2c2" opacity="0.85" {s.rough(1.6, 0.9)}/>'
-          '<circle cx="143" cy="33" r="2.4" fill="#0c0603"/><circle cx="142.4" cy="32.3" r="0.7" fill="#ffffff" opacity="0.8"/>'
-          '<ellipse cx="156" cy="39" rx="2.6" ry="2.1" fill="#120a05"/>')
-    s.save('figuren/marder/marder.svg')
+    """Steinmarder in Teilen wie der Fuchs, damit er im Galopp springen kann."""
+    brown = '#7a5434'
+    hair = ['#a07a56', '#3a2414', '#6e4c32', '#b08a62']
+    bib = '#efe2c2'
 
+    s = Svg(150, 56, 'Körper des Marders: lang und schlank, Rücken dunkler, heller Kehlfleck an der Brust', 31)
+    d = 'M6 34 C6 16 24 4 54 3 C84 2 114 8 132 14 C146 19 148 36 140 44 C128 52 100 50 76 50 C50 52 22 54 10 46 C6 42 6 38 6 34 Z'
+    c = s.clip_d(d)
+    back = glow(s, 70, 8, 64, 8, '#2a180c', 0.45, 5, c)
+    chest = f'<g {c}><path d="M104 52 C120 50 136 44 146 30 C150 46 140 56 124 58 C114 58 106 56 104 52 Z" fill="{bib}" {s.blur(1.6)}/></g>'
+    furry(s, d, brown, (5, 6, 148, 52), 182, 1.4, 5, hair=hair, extra=back + chest, light_at=(0.5, 0.2))
+    s.save('figuren/marder/koerper.svg')
+
+    s = Svg(64, 46, 'Kopf des Marders: runde Ohren mit hellem Rand, spitze Schnauze, heller Kehlfleck', 33)
+    for x, y in ((18, 9), (29, 7)):
+        s.add(f'<circle cx="{x}" cy="{y}" r="6.5" fill="{bib}"/>')
+        s.add(f'<circle cx="{x + 0.4}" cy="{y + 0.8}" r="5" fill="{dark(brown, 0.2)}"/>')
+    d = 'M4 26 C4 14 14 6 28 6 C40 6 48 12 54 18 L60 22 C63 24 63 28 60 30 L50 34 C42 40 30 42 20 40 C10 38 4 34 4 26 Z'
+    c = s.clip_d(d)
+    throat = f'<g {c}><path d="M4 34 C18 42 34 42 50 34 L52 46 L4 46 Z" fill="{bib}" {s.blur(1.4)}/></g>'
+    furry(s, d, brown, (3, 5, 63, 42), 195, 1.4, 3.5, hair=hair, extra=throat, light_at=(0.35, 0.2))
+    s.add(f'<ellipse cx="60.4" cy="25.6" rx="2.8" ry="2.4" fill="{s.radial(59.6, 24.8, 3, [(0, "#4a3a32"), (1, "#0d0806")])}"/>'
+          '<path d="M59 30 C55 33 50 34 46 34" fill="none" stroke="#1a100a" stroke-width="0.9" opacity="0.7"/>'
+          '<g fill="none" stroke="#e8dcc8" stroke-width="0.4" opacity="0.7"><path d="M55 28 L63.5 26"/><path d="M55 29 L63.5 31"/></g>')
+    s.save('figuren/marder/kopf.svg')
+
+    for name, t in (('nah', 0.0), ('fern', 0.2)):
+        s = Svg(22, 40, 'Lauf des Marders: kurz und kräftig, unten fast schwarz', 34 + int(t * 10))
+        d = 'M5 4 C5 1 17 1 17 4 L16 30 C16 34 20 35 20 37 C20 39.4 4 39.4 3 37 C3 35 6 34 6 30 Z'
+        paw = f'<g {s.clip_d(d)}><rect x="0" y="22" width="22" height="20" fill="#1e140c" opacity="0.8" {s.blur(3)}/></g>'
+        furry(s, d, dark(brown, 0.25 + t), (3, 1, 20, 39), 90, 1.2, 3, 1.2, hair=hair, extra=paw)
+        s.save(f'figuren/marder/bein_{name}.svg')
+
+    s = Svg(96, 40, 'Schwanz des Marders: lang und buschig, zur Spitze hin dunkler', 35)
+    d = 'M95 18 C80 8 50 4 24 8 C8 11 2 18 4 24 C6 31 18 34 34 32 C60 30 82 28 95 24 Z'
+    tip = f'<g {s.clip_d(d)}><rect x="-10" y="0" width="50" height="40" fill="#1e140c" opacity="0.55" {s.blur(8)}/></g>'
+    furry(s, d, dark(brown, 0.1), (2, 4, 96, 34), 185, 1.6, 7, 3.2, hair=hair, extra=tip, light_at=(0.6, 0.2))
+    s.save('figuren/marder/schwanz.svg')
+
+    s = Svg(10, 8, 'Offenes Marderauge: rund, schwarz und glänzend', 36)
+    s.add(f'<circle cx="5" cy="4" r="3" fill="{s.radial(4.4, 3.4, 3.2, [(0, "#3a2a20"), (1, "#050302")])}"/>'
+          '<circle cx="4" cy="3" r="0.9" fill="#ffffff" opacity="0.9"/>')
+    s.save('figuren/marder/auge_offen.svg')
+
+    s = Svg(10, 8, 'Geschlossenes Marderauge: ein kurzer Strich', 37)
+    s.add('<path d="M2 4 Q5 6 8 4" fill="none" stroke="#050302" stroke-width="1.3" stroke-linecap="round"/>')
+    s.save('figuren/marder/auge_zu.svg')
+
+def buzzard():
     s = Svg(192, 96, 'Mäusebussard von schräg unten: breite Schwingen mit dunklen Fingern, gebänderter Bauch', 32)
     wing = ('M96 40 C78 30 56 22 30 22 C18 22 8 26 2 34 C12 34 18 38 22 42 C14 44 10 48 8 54 C20 50 30 50 40 54 '
             'C34 58 32 62 32 66 C48 58 70 54 88 54 Z')
@@ -530,9 +561,11 @@ def stuff():
     s.save('einrichtung/heunest.svg')
 
     s = Svg(96, 64, 'Fluchtloch von oben: ein Ring aus ausgeworfener Erde um ein dunkles Loch', 55)
-    s.add(f'<g {s.rough(5, 0.25)}><ellipse cx="48" cy="32" rx="44" ry="27" fill="{s.radial(40, 22, 50, [(0, "#a07a50"), (0.6, "#7a5634"), (1, "#5a3c22")])}"/></g>')
+    # Nur ein schmaler Wall aus frischer Erde, nach außen weich, damit Wiese, Sand oder Waldboden drumherum durchscheinen.
+    s.add(f'<ellipse cx="48" cy="33" rx="40" ry="24" fill="#6e4c2e" opacity="0.45" {s.blur(4)}/>')
+    s.add(f'<g {s.rough(5, 0.25)}><ellipse cx="48" cy="32" rx="35" ry="21" fill="{s.radial(40, 22, 40, [(0, "#a07a50"), (0.6, "#7a5634"), (1, "#5a3c22")])}"/></g>')
     s.add(''.join(f'<circle cx="{f(x)}" cy="{f(y)}" r="{f(s.rng.uniform(0.8, 2.4))}" fill="{s.rng.choice(["#b89068", "#4e3220", "#8a8478"])}" opacity="0.8"/>'
-                  for x, y in s.scatter(50, 8, 8, 88, 56) if ((x - 48) / 42) ** 2 + ((y - 32) / 25) ** 2 < 1 and ((x - 48) / 28) ** 2 + ((y - 32) / 16) ** 2 > 1))
+                  for x, y in s.scatter(50, 8, 8, 88, 56) if ((x - 48) / 34) ** 2 + ((y - 32) / 20) ** 2 < 1 and ((x - 48) / 28) ** 2 + ((y - 32) / 16) ** 2 > 1))
     s.add(f'<ellipse cx="48" cy="33" rx="27" ry="16" fill="{s.radial(48, 38, 26, [(0, "#050302"), (0.7, "#1e1208"), (1, "#3e2814")])}" {s.blur(1.5)}/>')
     s.add(f'<path d="M24 28 C30 20 66 20 72 28" stroke="#c49a6c" stroke-width="2" fill="none" opacity="0.5" {s.blur(1)}/>')
     s.save('einrichtung/fluchtloch.svg')
@@ -622,6 +655,7 @@ def places():
 rabbit()
 fox()
 marten()
+buzzard()
 plants()
 stuff()
 places()

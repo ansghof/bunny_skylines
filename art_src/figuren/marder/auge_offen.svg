@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="10" height="8" viewBox="0 0 10 8">
+  <!-- Offenes Marderauge: rund, schwarz und glänzend -->
+  <defs><radialGradient id="r1" gradientUnits="userSpaceOnUse" cx="4.4" cy="3.4" r="3.2"><stop offset="0" stop-color="#3a2a20"/><stop offset="1" stop-color="#050302"/></radialGradient></defs>
+  <circle cx="5" cy="4" r="3" fill="url(#r1)"/><circle cx="4" cy="3" r="0.9" fill="#ffffff" opacity="0.9"/>
+</svg>
