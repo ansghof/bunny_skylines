@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="12" viewBox="0 0 16 12"><path d="M2 7 Q8 0 14 6 Q8 11 2 7 Z" fill="#2b1a0e"/><circle cx="9" cy="5" r="1.4" fill="#ffffff"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="12" viewBox="0 0 16 12">
+  <!-- Offenes Fuchsauge: bernsteingelb, mandelförmig, mit länglicher Pupille -->
+  <defs><radialGradient id="r1" gradientUnits="userSpaceOnUse" cx="9" cy="5.4" r="6"><stop offset="0" stop-color="#f0b848"/><stop offset="0.7" stop-color="#c47a1c"/><stop offset="1" stop-color="#6a3a0c"/></radialGradient></defs>
+  <path d="M1.6 7 Q8 0.4 14.4 5.4 Q9 11.4 1.6 7 Z" fill="url(#r1)" stroke="#1a100a" stroke-width="1.1"/><ellipse cx="9" cy="6" rx="1.1" ry="2.6" fill="#120a05"/><circle cx="7.4" cy="4.4" r="0.9" fill="#ffffff" opacity="0.9"/>
+</svg>

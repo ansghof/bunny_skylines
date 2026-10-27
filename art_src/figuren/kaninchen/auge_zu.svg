@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="14" height="16" viewBox="0 0 14 16"><path d="M2 7 Q7 12 12 7" fill="none" stroke="#2b1a0e" stroke-width="2.4" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="16" viewBox="0 0 14 16">
+  <!-- Geschlossenes Auge: ein gebogener Lidstrich -->
+  <defs></defs>
+  <path d="M2 7.4 Q7 11.6 12 7.4" fill="none" stroke="#2b1a0e" stroke-width="1.8" stroke-linecap="round"/><path d="M2.6 6.6 Q7 9.6 11.4 6.6" fill="none" stroke="#f2ece4" stroke-width="1" opacity="0.6"/>
+</svg>
