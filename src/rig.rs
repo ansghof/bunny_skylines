@@ -133,6 +133,10 @@ struct NeedsSize;
 #[derive(Resource, Default)]
 struct PivotMeshes(HashMap<(i32, i32), Handle<Mesh>>);
 
+/// Der Schatten unter einer Figur.
+#[derive(Component)]
+pub struct FigureShadow;
+
 /// Weicher Schatten unter jeder Figur, damit sie nicht zu schweben scheint.
 #[derive(Resource)]
 struct ShadowAssets {
@@ -176,6 +180,7 @@ fn attach_rigs(
         // Größe grob nach der Figur: Bildbreite in Pixeln mal Maßstab.
         let width = rig.parts.iter().map(|p| p.position.0.abs()).fold(0.0, f32::max) * rig.pixel_scale;
         commands.spawn((
+            FigureShadow,
             Mesh3d(shadow.mesh.clone()),
             MeshMaterial3d(shadow.material.clone()),
             NotShadowCaster,

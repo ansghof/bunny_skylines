@@ -22,6 +22,7 @@
 //! - `marder`: in der nächsten Nacht sofort einen Marder schicken (mit `nacht` gleich)
 //! - `pfadziehen` (mit `zeiger`): einen Pfad von rechts oben zum Eingang ziehen
 //! - `pfade`: Trampelpfade vom Eingang nach links
+//! - `fluchtloecher`: Fluchtlöcher am und um den Startplatz
 //! - `wachen`: Nachtwache im Startgang einrichten; `pfropf`: Erdpfropf im Startgang
 //! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
@@ -52,11 +53,11 @@ use crate::camera::{CursorWorld, Orbit, update_cursor};
 use crate::colony::{Colony, Messages, Rng};
 use crate::daynight::{DayClock, Season};
 use crate::ending::{EndScreen, restart};
-use crate::map::{Chamber, Depth, Grid, Layer, TilePos, ViewLayer, tiles_between};
+use crate::map::{Chamber, Depth, Feature, Grid, Layer, TilePos, ViewLayer, tiles_between};
 use crate::progress::Progress;
 use crate::toolbar::{Action, ResearchOpen, Tooltip};
 use crate::tools::{Tool, ToolKind, apply_drag};
-use crate::behavior::{Activity, Reserved};
+use crate::behavior::{Activity, Path, Reserved};
 use crate::rabbit::{Hunger, Mood, OnLayer, Rabbit, spawn_extra};
 use crate::inspect::{RABBIT_HEIGHT, pick_rabbit};
 use crate::overlay::MapOverlay;
@@ -92,7 +93,8 @@ impl Plugin for DevToolsPlugin {
             .add_systems(Update, log_messages)
             .add_systems(Startup, extra_family.after(prepare))
             .add_systems(Update, save_and_load)
-            .add_systems(Update, take_shot);
+            .add_systems(Update, take_shot)
+            .add_systems(Update, sit_in_holes);
     }
 }
 
@@ -156,6 +158,12 @@ fn prepare(
         }
         for y in [14, 16] {
             grid.surface_mut(TilePos::new(15, y)).trail = true;
+        }
+    }
+    if script.has("fluchtloecher") {
+        // Fluchtlöcher rund um den Startplatz, damit die Familie auf der Flucht hineinspringt.
+        for (x, y) in [(17, 13), (19, 13), (21, 13), (17, 17), (19, 17), (21, 17), (16, 15), (18, 15)] {
+            grid.surface_mut(TilePos::new(x, y)).feature = Some(Feature::BoltHole);
         }
     }
     if script.has("wachen") {
@@ -442,6 +450,29 @@ fn save_and_load(
 }
 
 /// `familie=N`: so viele erwachsene Kaninchen zusätzlich in der Schlafkammer.
+/// `fluchtloecher`: Nach einer Sekunde setzen sich alle Kaninchen eine Weile in die Fluchtlöcher.
+fn sit_in_holes(
+    script: Res<TestScript>,
+    time: Res<Time<Real>>,
+    grid: Res<Grid>,
+    mut done: Local<bool>,
+    mut rabbits: Query<(&mut Transform, &mut OnLayer, &mut Activity, &mut Path), With<Rabbit>>,
+) {
+    if *done || !script.has("fluchtloecher") || time.elapsed_secs() < 1.0 {
+        return;
+    }
+    *done = true;
+    let holes: Vec<TilePos> = Grid::positions()
+        .filter(|p| grid.surface(*p).feature == Some(Feature::BoltHole))
+        .collect();
+    for ((mut transform, mut layer, mut activity, mut path), hole) in rabbits.iter_mut().zip(holes) {
+        transform.translation = hole.center().extend(transform.translation.z);
+        layer.0 = Layer::Surface;
+        path.0.clear();
+        *activity = Activity::Idle(30.0);
+    }
+}
+
 fn extra_family(script: Res<TestScript>, mut commands: Commands, asset_server: Res<AssetServer>, mut rng: ResMut<Rng>) {
     let Some(count) = script.value("familie") else {
         return;

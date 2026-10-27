@@ -5,14 +5,14 @@ use std::f32::consts::{PI, TAU};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
-use crate::behavior::{Activity, Carrying, DigTarget, Fear, Goal, Path, Reserved, path_to_edge, release};
+use crate::behavior::{Activity, Carrying, DigTarget, Fear, Goal, Path, Reserved, current_node, is_hidden, path_to_edge, release};
 use crate::effects::{DirtAssets, throw_dirt};
 use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer};
 use crate::camera::{Orbit, figure_layer};
 use crate::daynight::{DayClock, Season, YEAR_LENGTH, figure_light};
-use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
+use crate::rig::{Avatar, AvatarLink, FigureShadow, Part, RigRoot, RigSource, pose_part};
 
 /// Spielsekunden, bis ein Junges erwachsen ist.
 pub const ADULT_AGE: f32 = 150.0;
@@ -76,6 +76,12 @@ const HOPS_PER_SECOND: f32 = 2.6;
 const FLEE_HOPS_PER_SECOND: f32 = 3.8;
 /// Wie hoch ein Hopser geht, in Spieleinheiten.
 const HOP_HEIGHT: f32 = 8.0;
+/// So tief (in Bildpixeln) sinkt ein Kaninchen ins Fluchtloch: Die Ohren beginnen dann im Loch.
+const DUCK_HEIGHT: f32 = 126.0;
+/// Ab diesem Anteil des Abtauchens ist vom Körper nichts mehr zu sehen.
+const DUCK_HIDE_BODY: f32 = 0.5;
+/// So schnell taucht es ab und wieder auf, in Anteilen pro Sekunde.
+const DUCK_SPEED: f32 = 4.0;
 
 const RIG_PATH: &str = "figuren/kaninchen/kaninchen.rig.ron";
 const RIG_FOLDER: &str = "figuren/kaninchen";
@@ -227,6 +233,8 @@ struct Anim {
     seed: f32,
     facing_left: bool,
     last_position: Vec2,
+    /// 0 = steht draußen, 1 = hockt im Fluchtloch, nur die Ohren schauen heraus.
+    ducked: f32,
 }
 
 fn rabbit_bundle(
@@ -272,6 +280,7 @@ fn rabbit_bundle(
             seed: rng.f32(),
             facing_left: false,
             last_position: position,
+            ducked: 0.0,
         },
         RigSource {
             rig: asset_server.load(RIG_PATH),
@@ -730,6 +739,11 @@ fn tick_stomping(mut commands: Commands, time: Res<Time>, mut rabbits: Query<(En
     }
 }
 
+/// Weicher Übergang von 0 nach 1.
+fn smooth(x: f32) -> f32 {
+    x * x * (3.0 - 2.0 * x)
+}
+
 fn animate(
     mut commands: Commands,
     time: Res<Time>,
@@ -739,16 +753,29 @@ fn animate(
     dirt: Res<DirtAssets>,
     mut rng: ResMut<Rng>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut rabbits: Query<(&Rabbit, &Activity, &OnLayer, &Fur, &Transform, &mut Anim, Has<Stomping>, &AvatarLink)>,
+    grid: Res<Grid>,
+    mut rabbits: Query<(
+        &Rabbit,
+        &Activity,
+        &OnLayer,
+        &Fur,
+        &Transform,
+        &Offset,
+        &Path,
+        &mut Anim,
+        Has<Stomping>,
+        &AvatarLink,
+    )>,
     avatars: Query<(&Children, &Transform), (With<Avatar>, Without<Rabbit>)>,
     mut roots: Query<(&RigRoot, &mut Transform, &Children), (Without<Rabbit>, Without<Part>, Without<Avatar>)>,
     mut parts: Query<(&Part, &mut Transform), (Without<RigRoot>, Without<Rabbit>, Without<Avatar>)>,
+    mut shadows: Query<&mut Visibility, With<FigureShadow>>,
 ) {
     let dt = time.delta_secs();
     let screen_right = orbit.screen_right();
     let billboard = orbit.billboard();
 
-    for (rabbit, activity, layer, fur, transform, mut anim, stomping, link) in &mut rabbits {
+    for (rabbit, activity, layer, fur, transform, offset, path, mut anim, stomping, link) in &mut rabbits {
         let Ok((children, avatar_transform)) = avatars.get(link.0) else {
             continue;
         };
@@ -782,6 +809,10 @@ fn animate(
             anim.hop_phase = 0.0;
         }
         let lift = (anim.hop_phase * PI).sin();
+        // Im Fluchtloch hockt es sich hinein; wer nur durchhoppelt, taucht nicht ab.
+        let in_hole = path.0.is_empty() && is_hidden(&grid, current_node(transform, layer));
+        let duck_goal = if in_hole { 1.0 } else { 0.0 };
+        anim.ducked += (duck_goal - anim.ducked).clamp(-dt * DUCK_SPEED, dt * DUCK_SPEED);
         // Stauchen beim Aufkommen, Strecken in der Luft, sonst leichtes Atmen.
         let (stretch_x, stretch_y) = if sleeping {
             (1.04, 0.9 + (t * 1.2).sin() * 0.02)
@@ -821,11 +852,20 @@ fn animate(
         }
 
         for child in children.iter() {
+            if let Ok(mut visibility) = shadows.get_mut(child) {
+                let wanted = if anim.ducked > DUCK_HIDE_BODY { Visibility::Hidden } else { Visibility::Inherited };
+                visibility.set_if_neq(wanted);
+            }
             let Ok((root, mut root_transform, root_children)) = roots.get_mut(child) else {
                 continue;
             };
             let scale = root.pixel_scale * growth;
-            root_transform.translation = Vec3::new(0.0, lift * HOP_HEIGHT * growth, 0.0);
+            // Sie sinkt entlang ihrer eigenen Hochachse, auf dem Bildschirm also gerade nach unten,
+            // bis die Ohren dort beginnen, wo vorher die Füße standen. Dabei rückt sie in die Mitte des Lochs.
+            let ducked = smooth(anim.ducked);
+            let sink = billboard * Vec3::Y * DUCK_HEIGHT * scale * stretch_y * ducked;
+            let to_middle = Vec3::new(-offset.0.x, 0.0, offset.0.y) * ducked;
+            root_transform.translation = Vec3::new(0.0, lift * HOP_HEIGHT * growth, 0.0) - sink + to_middle;
             root_transform.scale = Vec3::new(facing * scale * stretch_x, scale * stretch_y, scale);
             root_transform.rotation = billboard * Quat::from_rotation_z(lean);
 
@@ -875,6 +915,11 @@ fn animate(
                     fur.0.with_alpha(alpha),
                     light,
                 );
+                // Im Fluchtloch ist der Körper im Boden verschwunden; nur die Ohren schauen heraus.
+                let ear = matches!(part.name.as_str(), "ohr_links" | "ohr_rechts");
+                if !ear && anim.ducked > DUCK_HIDE_BODY {
+                    part_transform.scale = Vec3::ZERO;
+                }
             }
         }
     }
