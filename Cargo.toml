@@ -6,7 +6,7 @@ rust-version = "1.97"
 publish = false
 
 [workspace]
-members = ["tools/art_export", "tools/sound_gen"]
+members = ["tools/art_export", "tools/sound_gen", "tools/texture_gen"]
 
 [dependencies]
 # system_font_discovery: Die eingebaute Schrift hat keine Umlaute, also Systemschriften nutzen.

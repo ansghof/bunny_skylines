@@ -870,7 +870,8 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     if tile.entrance {
         return Color::srgb(0.29, 0.20, 0.13);
     }
-    let checker = if (p.x + p.y) % 2 == 0 { 1.0 } else { 0.96 };
+    // Kein Schachbrett mehr: Die Textur zeigt die Felder, und Nachbarn gehen weich ineinander über.
+    let checker = 1.0;
     if tile.water {
         // Wasser mit leichtem Wellenmuster; Furten mit grauen Trittsteinen.
         let ripple = 0.94 + 0.08 * noise(TilePos::new(p.x * 3 + 11, p.y * 5 - 7));
