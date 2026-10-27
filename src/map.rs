@@ -183,6 +183,15 @@ impl Depth {
         }
     }
 
+    /// 1 flach, 2 mittel, 3 tief.
+    pub fn level(self) -> u8 {
+        match self {
+            Depth::Shallow => 1,
+            Depth::Medium => 2,
+            Depth::Deep => 3,
+        }
+    }
+
     /// Sekunden Spielzeit, die ein Kaninchen für ein Feld dieser Tiefe gräbt.
     pub fn dig_seconds(self) -> f32 {
         match self {
@@ -309,6 +318,9 @@ pub struct SurfaceTile {
     /// Gerade überschwemmt.
     #[serde(default)]
     pub flooded: bool,
+    /// Ein Maulwurfshügel, den ein Kaninchen zu Erde einebnen kann.
+    #[serde(default)]
+    pub molehill: bool,
 }
 
 impl SurfaceTile {
@@ -393,6 +405,17 @@ pub struct UndergroundTile {
     /// Sekunden, bis der vollgelaufene Gang wieder trocken ist; 0 = trocken.
     #[serde(default)]
     pub wet: f32,
+}
+
+impl UndergroundTile {
+    /// Muss hier noch gegraben werden: ein neuer Gang oder ein bestehender, der tiefer soll.
+    pub fn needs_digging(&self) -> bool {
+        match (self.dug, self.planned) {
+            (_, None) => false,
+            (None, Some(_)) => true,
+            (Some(now), Some(wanted)) => wanted.level() > now.level(),
+        }
+    }
 }
 
 #[derive(Resource, serde::Serialize, serde::Deserialize)]

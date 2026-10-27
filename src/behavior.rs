@@ -506,8 +506,17 @@ fn path_end(start: Node, steps: &[Node]) -> TilePos {
     steps.last().map_or(start.pos, |node| node.pos)
 }
 
-/// Das nächste Feld mit genug Gras, auf dem noch Platz zum Grasen ist.
+/// Das nächste Feld mit genug Gras, auf dem noch Platz zum Grasen ist. Liegt irgendwo ein
+/// Maulwurfshügel, geht es zuerst dorthin: Wer daneben grast, ebnet ihn zu Erde ein.
 fn find_grass(grid: &Grid, reserved: &Reserved, start: Node) -> Option<(TilePos, Vec<Node>)> {
+    if Grid::positions().any(|p| grid.surface(p).molehill) {
+        let hill = find_path(grid, start, |node| {
+            node.layer == Layer::Surface && grid.surface(node.pos).molehill && reserved.spot_free(node.pos)
+        });
+        if let Some(steps) = hill {
+            return Some((path_end(start, &steps), steps));
+        }
+    }
     let steps = find_path(grid, start, |node| {
         let tile = grid.surface(node.pos);
         node.layer == Layer::Surface
@@ -585,7 +594,7 @@ fn find_dig_job(
                 let DigTarget::Tunnel(p) = *target else { unreachable!() };
                 let tile = grid.under(p);
                 let thawed = !frozen || tile.planned != Some(Depth::Shallow);
-                tile.dug.is_none() && tile.planned.is_some() && thawed && !taken.contains(target)
+                tile.needs_digging() && thawed && !taken.contains(target)
             }),
         };
         found.is_some()
@@ -595,7 +604,7 @@ fn find_dig_job(
 
 fn still_planned(grid: &Grid, target: DigTarget) -> bool {
     match target {
-        DigTarget::Tunnel(p) => grid.under(p).planned.is_some() && grid.under(p).dug.is_none(),
+        DigTarget::Tunnel(p) => grid.under(p).needs_digging(),
         DigTarget::Entrance(p) => grid.surface(p).entrance_planned,
     }
 }
@@ -779,9 +788,9 @@ fn work(
                     continue;
                 }
                 let target = *target;
-                finish_digging(&mut grid, target);
+                let earth = finish_digging(&mut grid, target);
                 sounds.play(Sound::Dig);
-                colony.earth += cost::EARTH_PER_TILE;
+                colony.earth += earth;
                 reserved.dig.remove(&target);
                 hunger.0 = (hunger.0 + 0.08).min(1.0);
                 Activity::Idle(0.3)
@@ -839,13 +848,19 @@ fn work(
     }
 }
 
-fn finish_digging(grid: &mut Grid, target: DigTarget) {
+/// Gräbt ein Feld fertig und sagt, wie viel Erde dabei herauskommt: ein neues Feld bringt
+/// `EARTH_PER_TILE`, ein vertiefter Gang je Stufe tiefer ebenso viel.
+fn finish_digging(grid: &mut Grid, target: DigTarget) -> f32 {
     match target {
         DigTarget::Tunnel(p) => {
             let tile = grid.under_mut(p);
-            if tile.dug.is_none() {
-                tile.dug = tile.planned.take();
+            let before = tile.dug.map_or(0, Depth::level);
+            if tile.needs_digging() {
+                tile.dug = tile.planned;
             }
+            tile.planned = None;
+            let steps = if before == 0 { 1 } else { tile.dug.map_or(0, Depth::level).saturating_sub(before) };
+            cost::EARTH_PER_TILE * steps as f32
         }
         DigTarget::Entrance(p) => {
             let surface = grid.surface_mut(p);
@@ -854,8 +869,10 @@ fn finish_digging(grid: &mut Grid, target: DigTarget) {
             surface.post = false;
             surface.grass = 0.0;
             let tile = grid.under_mut(p);
+            let new = tile.dug.is_none();
             tile.dug.get_or_insert(Depth::Shallow);
             tile.planned = None;
+            if new { cost::EARTH_PER_TILE } else { 0.0 }
         }
     }
 }
@@ -866,4 +883,31 @@ pub fn path_to_edge(grid: &Grid, transform: &Transform, layer: &OnLayer) -> Opti
     find_path(grid, current_node(transform, layer), |node| {
         node.layer == Layer::Surface && grid.on_border(node.pos)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deepening_a_tunnel_brings_earth_per_level() {
+        let mut grid = Grid::starting_meadow();
+        // Der Startgang neben dem Eingang ist flach.
+        let p = TilePos::new(21, 15);
+        assert_eq!(grid.under(p).dug, Some(Depth::Shallow));
+        grid.under_mut(p).planned = Some(Depth::Deep);
+        assert!(grid.under(p).needs_digging());
+        assert_eq!(finish_digging(&mut grid, DigTarget::Tunnel(p)), 2.0 * cost::EARTH_PER_TILE);
+        assert_eq!(grid.under(p).dug, Some(Depth::Deep));
+        assert!(!grid.under(p).needs_digging());
+
+        // Ein neues Feld bringt wie bisher einmal Erde, egal wie tief.
+        let fresh = TilePos::new(21, 16);
+        grid.under_mut(fresh).planned = Some(Depth::Medium);
+        assert_eq!(finish_digging(&mut grid, DigTarget::Tunnel(fresh)), cost::EARTH_PER_TILE);
+
+        // Flacher planen als gegraben ist kein Auftrag.
+        grid.under_mut(p).planned = Some(Depth::Shallow);
+        assert!(!grid.under(p).needs_digging());
+    }
 }

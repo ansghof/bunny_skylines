@@ -533,6 +533,16 @@ def grass_heap(s, d, box, carrots=(), flower=None, seed_shift=0):
 
 
 def stuff():
+    s = Svg(72, 40, 'Maulwurfshügel: ein runder Haufen frischer, krümeliger Erde mit ein paar Grashalmen', 50)
+    d = 'M2 38 C6 24 18 10 36 9 C54 10 66 24 70 38 Z'
+    s.add(f'<ellipse cx="37" cy="37" rx="34" ry="3.5" fill="#1a1408" opacity="0.4" {s.blur(2)}/>')
+    s.add(f'<g {s.rough(3, 0.35)}><path d="{d}" fill="{s.radial(28, 16, 40, [(0, "#8a6440"), (0.55, "#5e4228"), (1, "#3a2614")])}"/></g>')
+    crumbs = ''.join(f'<circle cx="{f(x)}" cy="{f(y)}" r="{f(s.rng.uniform(0.7, 2.2))}" fill="{s.rng.choice(["#a07a50", "#2e1e10", "#7a5a3a", "#b89068"])}" opacity="0.85"/>'
+                     for x, y in s.scatter(140, 2, 8, 70, 39))
+    s.add(f'<g {s.clip_d(d)}>{crumbs}</g>')
+    s.add(s.strokes([(8, 37), (14, 36), (60, 36), (66, 37), (30, 12), (42, 11)], -90, 6, 1.2, ['#8ab858', '#5e8a34'], 0.9, 0.5, 0.2))
+    s.save('einrichtung/maulwurfshuegel.svg')
+
     s = Svg(80, 56, 'Kleiner Futterhaufen: ein Büschel frisch gerupftes Gras', 51)
     grass_heap(s, 'M6 52 C10 30 26 14 40 14 C54 14 70 30 74 52 Z', (6, 14, 74, 54))
     s.save('einrichtung/futter_klein.svg')

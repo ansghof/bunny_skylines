@@ -49,13 +49,15 @@ enum Kind {
     Dam(u8),
     /// Ein Baueingang: Röhre mit ausgeworfener Erde davor.
     Entrance,
+    /// Ein Maulwurfshügel auf der Wiese.
+    Molehill,
 }
 
 impl Kind {
     /// In welcher Ansicht diese Einrichtung zu sehen ist.
     fn layer(self) -> Layer {
         match self {
-            Kind::Clover | Kind::Built(_) | Kind::Tree | Kind::Stones | Kind::Trail(_) | Kind::Dam(_) | Kind::Entrance => {
+            Kind::Clover | Kind::Built(_) | Kind::Tree | Kind::Stones | Kind::Trail(_) | Kind::Dam(_) | Kind::Entrance | Kind::Molehill => {
                 Layer::Surface
             }
             Kind::Nest | Kind::Pile | Kind::Light | Kind::Plug | Kind::Watch => Layer::Underground,
@@ -64,7 +66,7 @@ impl Kind {
 
     /// Steht aufrecht wie eine Figur, statt flach am Boden zu liegen.
     fn upright(self) -> bool {
-        matches!(self, Kind::Pile | Kind::Plug | Kind::Tree | Kind::Stones | Kind::Built(Feature::Hedge))
+        matches!(self, Kind::Pile | Kind::Plug | Kind::Tree | Kind::Stones | Kind::Molehill | Kind::Built(Feature::Hedge))
     }
 }
 
@@ -73,8 +75,9 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 31] = [
+const IMAGES: [(&str, Vec2); 32] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
+    ("maulwurfshuegel.png", Vec2::new(72.0, 40.0)),
     // Die ausgeworfene Erde reicht über das Feld hinaus.
     ("eingang.png", Vec2::new(192.0, 192.0)),
     ("futter_klein.png", Vec2::new(80.0, 56.0)),
@@ -297,6 +300,9 @@ fn place_furnishing(
         let mask = trail_mask(&grid, p);
         if (surface.trail && !surface.entrance) || (surface.entrance && mask != 0) {
             wanted.insert((p, Kind::Trail(mask)), trail_piece(mask).0);
+        }
+        if surface.molehill {
+            wanted.insert((p, Kind::Molehill), "maulwurfshuegel.png");
         }
         if surface.entrance {
             wanted.insert((p, Kind::Light), "lichtschein.png");

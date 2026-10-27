@@ -167,7 +167,7 @@ impl ToolKind {
     pub fn description(self) -> &'static str {
         match self {
             ToolKind::Point => "Kaninchen anklicken und ansehen, ohne etwas zu bauen. Esc wechselt jederzeit hierher.",
-            ToolKind::Dig => "Gänge und Kammern ausheben lassen. Bringt Erde.",
+            ToolKind::Dig => "Gänge und Kammern ausheben lassen. Bringt Erde. Mit größerer Tiefe über bestehende Gänge gezogen, werden sie tiefer gelegt: je Stufe noch einmal Erde.",
             ToolKind::Entrance => "Einen Eingang von der Wiese in den Bau graben lassen.",
             ToolKind::Chamber(Chamber::Sleeping) => "Gegrabene Felder zur Schlafkammer machen. Mehr Nester, mehr Nachwuchs.",
             ToolKind::Chamber(Chamber::Storage) => "Gegrabene Felder zur Vorratskammer machen. Hier lagert das Futter.",
@@ -453,7 +453,12 @@ pub(crate) fn apply_drag(
             ToolKind::Point | ToolKind::Land => {}
             ToolKind::Dig => {
                 let tile = grid.under(p);
-                if tile.dug.is_some() {
+                // Ein bestehender Gang lässt sich tiefer legen, das bringt noch einmal Erde.
+                // Unter Eingängen bleibt er flach, dort geht es nach draußen.
+                if let Some(now) = tile.dug {
+                    if tool.depth.level() > now.level() && !grid.surface(p).entrance {
+                        grid.under_mut(p).planned = Some(tool.depth);
+                    }
                     continue;
                 }
                 // Schon geplante Felder wurden beim Planen geprüft.
@@ -614,7 +619,16 @@ fn plot_blocked(plot: Plot, grid: &Grid, colony: &Colony, progress: &Progress) -
         });
     }
     let price = plot_price(grid);
-    (colony.earth < price).then(|| format!("Dafür fehlt noch Erde: {price:.0} nötig, {:.0} da.", colony.earth))
+    (colony.earth + colony.food < price).then(|| {
+        format!("Dafür reicht es nicht: {price:.0} nötig, {:.0} Erde und {:.0} Futter da.", colony.earth, colony.food)
+    })
+}
+
+/// Wie ein Grundstück bezahlt wird: erst mit Erde, was fehlt, mit Futter.
+fn plot_payment(grid: &Grid, colony: &Colony) -> (f32, f32) {
+    let price = plot_price(grid);
+    let earth = colony.earth.min(price).max(0.0);
+    (earth, price - earth)
 }
 
 fn buy_plot(
@@ -629,10 +643,16 @@ fn buy_plot(
         messages.push(reason);
         return;
     }
-    colony.earth -= plot_price(grid);
+    let (earth, food) = plot_payment(grid, colony);
+    colony.earth -= earth;
+    colony.food -= food;
     grid.owned.push(plot);
     sounds.play(Sound::Research);
-    messages.push("Neues Land gekauft! Hier kann die Familie jetzt grasen und bauen.");
+    messages.push(if food > 0.0 {
+        format!("Neues Land gekauft, für {earth:.0} Erde und {food:.0} Futter! Hier kann die Familie jetzt grasen und bauen.")
+    } else {
+        "Neues Land gekauft! Hier kann die Familie jetzt grasen und bauen.".to_string()
+    });
 }
 
 /// Mit Stützwurzeln trägt jeder Boden einen Gang mehr in der Breite.
@@ -790,7 +810,15 @@ fn draw_preview(
             gizmo_rect(&mut gizmos, plot.first_tile().center() - half + 4.0, plot.last_tile().center() + half - 4.0, 0.0, color);
         }
         let info = match plot_blocked(hovered, &grid, &colony, &progress) {
-            None => format!("Land kaufen: {:.0} Erde (vorhanden: {:.0}).", plot_price(&grid), colony.earth),
+            None => match plot_payment(&grid, &colony) {
+                (_, food) if food > 0.0 => format!(
+                    "Land kaufen: {:.0} Erde. Es fehlen {food:.0}, die zahlt ihr mit Futter (vorhanden: {:.0} Erde, {:.0} Futter).",
+                    plot_price(&grid),
+                    colony.earth,
+                    colony.food,
+                ),
+                _ => format!("Land kaufen: {:.0} Erde (vorhanden: {:.0}).", plot_price(&grid), colony.earth),
+            },
             Some(reason) => reason,
         };
         if selection.0.as_ref() != Some(&info) {
@@ -900,6 +928,25 @@ mod tests {
         assert_eq!(route.len(), 10);
         assert!(route.windows(2).all(|w| (w[0].x - w[1].x).abs() + (w[0].y - w[1].y).abs() == 1));
         assert!(route.contains(&TilePos::new(20, 18)), "die Ecke liegt über dem Ziel");
+    }
+
+    #[test]
+    fn land_is_paid_with_earth_first_and_the_rest_with_food() {
+        let grid = Grid::starting_meadow();
+        let mut progress = Progress::default();
+        progress.stage = crate::progress::Stage::Warren;
+        let plot = Plot::of(TilePos::new(5, 15));
+        let price = plot_price(&grid);
+
+        let colony = Colony { earth: price - 4.0, food: 10.0, ..default() };
+        assert_eq!(plot_blocked(plot, &grid, &colony, &progress), None, "Futter springt ein");
+        assert_eq!(plot_payment(&grid, &colony), (price - 4.0, 4.0));
+
+        let rich = Colony { earth: price + 5.0, food: 10.0, ..default() };
+        assert_eq!(plot_payment(&grid, &rich), (price, 0.0), "genug Erde: kein Futter");
+
+        let poor = Colony { earth: price - 4.0, food: 3.0, ..default() };
+        assert!(plot_blocked(plot, &grid, &poor, &progress).is_some(), "zusammen zu wenig");
     }
 
     #[test]
