@@ -15,7 +15,7 @@ use crate::audio::{Sound, Sounds};
 use crate::menu::OpenMenu;
 use crate::overlay::MapOverlay;
 use crate::progress::{Blocked, Branch, Progress, Tech};
-use crate::tools::{Lock, TOOLS, Tool, ToolKind, depth_available, locked_message, select};
+use crate::tools::{Lock, TOOLS, Tool, ToolGroup, ToolKind, depth_available, locked_message, select};
 
 const BUTTON_SIZE: f32 = 46.0;
 const ICON_SIZE: f32 = 36.0;
@@ -40,7 +40,7 @@ impl Plugin for ToolbarPlugin {
             .add_systems(Startup, (spawn_toolbar, spawn_research_panel))
             .add_systems(
                 Update,
-                (toolbar_keys, highlight_buttons, update_tooltip, show_research_panel, update_research_panel),
+                (toolbar_keys, show_group_tools, highlight_buttons, update_tooltip, show_research_panel, update_research_panel),
             );
     }
 }
@@ -66,6 +66,8 @@ pub(crate) enum Action {
     Overlay(MapOverlay),
     /// Das Pausenmenü öffnen.
     Menu,
+    /// Eine Gruppe von Werkzeugen in der oberen Reihe zeigen.
+    Group(ToolGroup),
 }
 
 #[derive(Component)]
@@ -122,6 +124,7 @@ impl Action {
             Action::View(Layer::Underground) => "ansicht_unten",
             Action::Research => "forschung",
             Action::Menu => "menue",
+            Action::Group(group) => return Action::Tool(group.icon_tool()).icon(),
             Action::Overlay(MapOverlay::Mood) => "karte_stimmung",
             Action::Overlay(_) => "karte_weide",
             Action::Speed(_) => return None,
@@ -177,8 +180,11 @@ impl Action {
             Action::Speed(None) => "Pause  [Leertaste]".into(),
             Action::Speed(Some(speed)) => format!("Tempo {speed}×  [{speed}]"),
             Action::View(layer) => format!("Ansicht: {}  [Tab]", layer.label()),
-            Action::Menu => "Menü  [F10]
-Pause, speichern, laden, neu beginnen oder beenden.".into(),
+            Action::Menu => "Menü  [F10]\nPause, speichern, laden, neu beginnen oder beenden.".into(),
+            Action::Group(group) => {
+                let tools: Vec<&str> = group.tools().map(ToolKind::label).collect();
+                format!("{}\n{}", group.label(), tools.join(", "))
+            }
             Action::Overlay(overlay) => format!(
                 "Übersichtskarte: {}  [Q]
 {}",
@@ -229,9 +235,11 @@ fn centered_row(commands: &mut Commands, bottom: f32) -> Entity {
 }
 
 fn spawn_toolbar(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let tools: Vec<Action> = TOOLS.iter().map(|(kind, _, _)| Action::Tool(*kind)).collect();
+    // Oben alle Werkzeuge und die Grabtiefen; sichtbar sind nur die der aktiven Gruppe.
+    let mut tools: Vec<Action> = TOOLS.iter().map(|(kind, _, _)| Action::Tool(*kind)).collect();
+    tools.extend([Depth::Shallow, Depth::Medium, Depth::Deep].map(Action::Depth));
     let controls: [Vec<Action>; 6] = [
-        [Depth::Shallow, Depth::Medium, Depth::Deep].map(Action::Depth).to_vec(),
+        ToolGroup::ALL.map(Action::Group).to_vec(),
         vec![Action::GatherFirst, Action::Alarm],
         vec![
             Action::Speed(None),
@@ -427,6 +435,16 @@ impl ActionTargets<'_> {
             Action::View(layer) => self.view.0 = layer,
             Action::Research => self.research.0 = !self.research.0,
             Action::Menu => self.menu.0 = true,
+            // Eine Gruppe wählen heißt ihr erstes freie Werkzeug wählen, außer man ist schon darin.
+            Action::Group(group) => {
+                if self.tool.kind.group() != group {
+                    let kind = group
+                        .tools()
+                        .find(|kind| kind.lock(&self.progress).is_none())
+                        .unwrap_or(group.icon_tool());
+                    select(kind, &mut self.tool, &mut self.view);
+                }
+            }
             Action::Overlay(which) => {
                 self.overlay.toggle(which);
                 // Die Weide sieht man nur von oben.
@@ -448,6 +466,25 @@ fn toolbar_keys(
     }
     if keys.just_pressed(KeyCode::KeyT) {
         research.0 = !research.0;
+    }
+}
+
+/// Oben nur die Werkzeuge der aktiven Gruppe, beim Graben dazu die Grabtiefen.
+fn show_group_tools(tool: Res<Tool>, mut buttons: Query<(&ActionButton, &mut Node)>) {
+    if !tool.is_changed() {
+        return;
+    }
+    let group = tool.kind.group();
+    for (button, mut node) in &mut buttons {
+        let visible = match button.0 {
+            Action::Tool(kind) => kind.group() == group,
+            Action::Depth(_) => group == ToolGroup::Dig,
+            _ => continue,
+        };
+        let display = if visible { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
     }
 }
 
@@ -476,6 +513,10 @@ fn highlight_buttons(
             Action::Research => (research.0, false),
             Action::Overlay(which) => (*overlay == which, false),
             Action::Menu => (false, false),
+            Action::Group(group) => (
+                tool.kind.group() == group,
+                group.tools().all(|kind| kind.lock(&progress).is_some()),
+            ),
         };
         let fill = match (hovered.0, dimmed) {
             (true, _) => BUTTON_HOVER,

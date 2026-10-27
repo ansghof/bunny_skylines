@@ -43,6 +43,55 @@ pub enum ToolKind {
     Remove,
 }
 
+/// Gruppen der Werkzeugleiste: unten wählt man die Gruppe, oben stehen ihre Werkzeuge.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ToolGroup {
+    Point,
+    Dig,
+    Chambers,
+    Food,
+    Safety,
+    Community,
+    Land,
+    Remove,
+}
+
+impl ToolGroup {
+    pub const ALL: [ToolGroup; 8] = [
+        ToolGroup::Point,
+        ToolGroup::Dig,
+        ToolGroup::Chambers,
+        ToolGroup::Food,
+        ToolGroup::Safety,
+        ToolGroup::Community,
+        ToolGroup::Land,
+        ToolGroup::Remove,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ToolGroup::Point => "Zeigen",
+            ToolGroup::Dig => "Graben",
+            ToolGroup::Chambers => "Kammern",
+            ToolGroup::Food => "Futter",
+            ToolGroup::Safety => "Schutz",
+            ToolGroup::Community => "Gemeinschaft",
+            ToolGroup::Land => "Land",
+            ToolGroup::Remove => "Entfernen",
+        }
+    }
+
+    /// Die Werkzeuge der Gruppe, in der Reihenfolge der Leiste.
+    pub fn tools(self) -> impl Iterator<Item = ToolKind> {
+        TOOLS.into_iter().map(|(kind, _, _)| kind).filter(move |kind| kind.group() == self)
+    }
+
+    /// Das Werkzeug, dessen Bild die Gruppe zeigt.
+    pub fn icon_tool(self) -> ToolKind {
+        self.tools().next().unwrap_or(ToolKind::Point)
+    }
+}
+
 /// Warum ein Werkzeug noch gesperrt ist.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Lock {
@@ -75,6 +124,22 @@ pub const TOOLS: [(ToolKind, KeyCode, &str); 20] = [
 ];
 
 impl ToolKind {
+    pub fn group(self) -> ToolGroup {
+        match self {
+            ToolKind::Point => ToolGroup::Point,
+            ToolKind::Dig | ToolKind::Entrance => ToolGroup::Dig,
+            ToolKind::Chamber(_) => ToolGroup::Chambers,
+            ToolKind::Clover | ToolKind::Feature(Feature::Herbs | Feature::Carrots) => ToolGroup::Food,
+            ToolKind::Post
+            | ToolKind::Watch
+            | ToolKind::Plug
+            | ToolKind::Feature(Feature::Hedge | Feature::BoltHole) => ToolGroup::Safety,
+            ToolKind::Feature(Feature::SunSpot | Feature::Playground | Feature::Festival) => ToolGroup::Community,
+            ToolKind::Land => ToolGroup::Land,
+            ToolKind::Remove => ToolGroup::Remove,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             ToolKind::Point => "Zeigen",
