@@ -8,7 +8,7 @@ use crate::audio::{Sound, Sounds};
 use crate::colony::Messages;
 use crate::daynight::{DAY_LENGTH, DayClock, Season};
 use crate::map::Grid;
-use crate::scenario::{Scenario, Terrain};
+use crate::scenario::Scenario;
 
 /// So lange vorher warnt das Spiel, in Sekunden.
 const WARNING_SECONDS: f32 = 40.0;
@@ -62,7 +62,7 @@ fn schedule_drought(
     mut drought: ResMut<Drought>,
     mut messages: ResMut<Messages>,
 ) {
-    if scenario.chapter.terrain != Terrain::DryMeadow || drought.phase != DroughtPhase::Calm {
+    if !scenario.chapter.terrain.has_droughts() || drought.phase != DroughtPhase::Calm {
         return;
     }
     let progress = clock.season_progress();

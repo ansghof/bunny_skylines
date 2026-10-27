@@ -75,6 +75,8 @@ pub enum Terrain {
     Brook,
     /// Magerer Boden und ein kleiner Tümpel; im Sommer kommt die Dürre.
     DryMeadow,
+    /// Eine Zufallskarte mit allem: Wald, Bach, Steinwall, Sandgrube und Tümpel.
+    Random,
 }
 
 impl Terrain {
@@ -86,8 +88,31 @@ impl Terrain {
             Terrain::SandPit => Grid::sand_pit(),
             Terrain::Brook => Grid::brook(),
             Terrain::DryMeadow => Grid::dry_meadow(),
+            Terrain::Random => Grid::random(random_seed()),
         }
     }
+
+    /// Füchse kommen aus dem Wald am oberen Rand.
+    pub fn has_forest(self) -> bool {
+        matches!(self, Terrain::ForestEdge | Terrain::Random)
+    }
+
+    /// Der Bach tritt im Frühling und nach Gewittern über die Ufer.
+    pub fn floods(self) -> bool {
+        matches!(self, Terrain::Brook | Terrain::Random)
+    }
+
+    /// Im Sommer kommt die Dürre.
+    pub fn has_droughts(self) -> bool {
+        matches!(self, Terrain::DryMeadow | Terrain::Random)
+    }
+}
+
+/// Jede freie Karte anders: aus der Uhrzeit.
+fn random_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(12345, |d| d.as_nanos() as u64)
 }
 
 /// Welche Feinde ein Kapitel wie früh schickt.
@@ -264,7 +289,29 @@ pub const CHAPTERS: [&Chapter; 6] =
     [&THE_HEDGE, &THE_FOREST_EDGE, &THE_STONE_WALL, &THE_SAND_PIT, &THE_BROOK, &THE_DRY_MEADOW];
 
 /// Das Kapitel mit dieser Nummer; unbekannte Nummern ergeben das erste.
+/// Freies Spiel: eine Zufallskarte ohne Ziele. Es gibt alles, was die Kapitel zeigen, auch
+/// Hochwasser und Dürre; Forschung beginnt von vorn.
+pub const FREE_PLAY: Chapter = Chapter {
+    number: 0,
+    title: "Freies Spiel",
+    story: "Schneeflocke und Lukas ziehen mit zwei ihrer Kinder in ein unbekanntes Tal. \
+            Hier gibt es alles: Wald, einen Bach, einen alten Steinwall, eine Sandgrube und einen Tümpel.\n\n\
+            Es gibt keine Ziele. Baut, so groß ihr wollt, und schaut, wie weit die Familie Buddelberg kommt.",
+    targets: &[],
+    max_losses: None,
+    terrain: Terrain::Random,
+    dangers: Dangers { first_fox: 420.0, fox_pace: 0.8, buzzard_from_start: false, marten_from_start: false },
+    known: &[],
+    relatives: 2,
+    start_earth: 10.0,
+    night_tools: false,
+};
+
+/// Kapitel nach Nummer; 0 ist das freie Spiel.
 pub fn chapter(number: u32) -> &'static Chapter {
+    if number == FREE_PLAY.number {
+        return &FREE_PLAY;
+    }
     CHAPTERS.iter().find(|c| c.number == number).copied().unwrap_or(&THE_HEDGE)
 }
 
@@ -300,12 +347,26 @@ pub struct Losses(pub u32);
 impl Scenario {
     /// Neubeginn nach dem Aussterben: dasselbe Kapitel, aber ohne erneute Einleitung.
     pub fn restart(&mut self) {
-        self.stage = Stage::Playing;
+        self.stage = self.playing();
+    }
+
+    /// Im freien Spiel gibt es keine Ziele: Es läuft gleich frei.
+    fn playing(&self) -> Stage {
+        if self.chapter.targets.is_empty() { Stage::Free } else { Stage::Playing }
+    }
+
+    /// „Kapitel 2: Der Waldrand“ oder „Freies Spiel“.
+    pub fn heading(&self) -> String {
+        if self.chapter.number == FREE_PLAY.number {
+            self.chapter.title.to_string()
+        } else {
+            format!("Kapitel {}: {}", self.chapter.number, self.chapter.title)
+        }
     }
 
     /// Zeile für die Statusanzeige, z. B. „Kapitel 1 „Die Hecke“: 10 Kaninchen (4/10) · …“.
     pub fn goal_line(&self, now: &Snapshot, losses: u32) -> Option<String> {
-        if self.stage == Stage::Free {
+        if self.stage == Stage::Free || self.chapter.targets.is_empty() {
             return None;
         }
         let mut goals: Vec<String> = self
@@ -346,8 +407,12 @@ pub fn show_intro(mut commands: Commands, scenario: Res<Scenario>, mut time: Res
     if let Some(max) = chapter.max_losses {
         goals.push(format!("• höchstens {max} Kaninchen an Feinde verlieren"));
     }
-    let body = format!("{}\n\nZiele:\n{}", chapter.story, goals.join("\n"));
-    let panel = spawn_overlay(&mut commands, &format!("Kapitel {}: {}", chapter.number, chapter.title), &body);
+    let body = if goals.is_empty() {
+        chapter.story.to_string()
+    } else {
+        format!("{}\n\nZiele:\n{}", chapter.story, goals.join("\n"))
+    };
+    let panel = spawn_overlay(&mut commands, &scenario.heading(), &body);
     spawn_button(&mut commands, panel, "Los geht’s!").observe(|click: On<PointerClick>, mut commands: Commands| {
         if click.button == PointerButton::Primary {
             commands.run_system_cached(start_playing);
@@ -381,7 +446,7 @@ pub fn start_playing(
         commands.entity(screen).despawn();
     }
     if scenario.stage == Stage::Intro {
-        scenario.stage = Stage::Playing;
+        scenario.stage = scenario.playing();
     }
     time.unpause();
 }
@@ -444,6 +509,7 @@ fn check_goals(
         Terrain::SandPit => "an der Sandgrube eine große Familie gegründet",
         Terrain::Brook => "zwei Hochwasser am Bach überstanden",
         Terrain::DryMeadow => "den Dürresommer auf der Trockenwiese überstanden",
+        Terrain::Random => "sich im unbekannten Tal eingelebt",
     };
     let body = format!(
         "Die Familie Buddelberg hat {feat}: {} Kaninchen und {:.0} Futter im Vorrat, im {} von Jahr {}.\n\n{outlook}",

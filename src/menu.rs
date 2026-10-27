@@ -10,7 +10,7 @@ use crate::audio::{Sound, Sounds};
 use crate::colony::Messages;
 use crate::ending::{EndScreen, restart, spawn_button, spawn_overlay};
 use crate::save::{chapters_unlocked, load_game, save_exists, save_game};
-use crate::scenario::{CHAPTERS, start_chapter, start_playing};
+use crate::scenario::{CHAPTERS, FREE_PLAY, start_chapter, start_playing};
 use crate::toolbar::Toolbar;
 
 /// Bild für den Titel, relativ zum Ordner `assets`.
@@ -138,7 +138,8 @@ fn spawn_title(mut commands: Commands, asset_server: Res<AssetServer>, mut time:
     if save_exists() {
         menu_button(&mut commands, menu, "Weiterspielen").observe(on_primary(continue_game));
     }
-    menu_button(&mut commands, menu, "Neues Spiel").observe(on_primary(new_game));
+    menu_button(&mut commands, menu, "Kampagne").observe(on_primary(new_game));
+    menu_button(&mut commands, menu, "Freies Spiel").observe(on_primary(free_game));
     menu_button(&mut commands, menu, "Beenden").observe(on_primary(quit));
 }
 
@@ -217,7 +218,7 @@ pub fn close_title(world: &mut World) {
 #[derive(Component)]
 struct ChapterMenu;
 
-/// Neues Spiel vom Titelbild: Kapitel wählen. Gesperrte Kapitel sagen, was vorher zu schaffen ist.
+/// Kampagne vom Titelbild: Kapitel wählen. Gesperrte Kapitel sagen, was vorher zu schaffen ist.
 pub fn new_game(
     mut commands: Commands,
     screens: Query<Entity, With<TitleScreen>>,
@@ -246,7 +247,7 @@ pub fn new_game(
             ChildOf(screen),
         ))
         .id();
-    commands.spawn((Text::new("Kapitel wählen"), TextColor(TEXT), font(26.0), ChildOf(panel)));
+    commands.spawn((Text::new("Kampagne: Kapitel wählen"), TextColor(TEXT), font(26.0), ChildOf(panel)));
     let unlocked = chapters_unlocked();
     for chapter in CHAPTERS {
         let number = chapter.number;
@@ -267,6 +268,12 @@ pub fn new_game(
         }
     }
     menu_button(&mut commands, panel, "Zurück").observe(on_primary(back_to_title));
+}
+
+/// Freies Spiel vom Titelbild: eine neue Zufallskarte ohne Ziele.
+fn free_game(world: &mut World) {
+    close_title(world);
+    world.run_system_cached_with(start_chapter, FREE_PLAY.number).ok();
 }
 
 /// Von der Kapitelwahl zurück zum Hauptmenü.

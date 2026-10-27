@@ -15,7 +15,7 @@ use crate::colony::{Colony, Messages, Rng};
 use crate::daynight::{DayClock, Season};
 use crate::map::{Chamber, Depth, FLOOD_REACH, Feature, Grid, Layer, TilePos};
 use crate::rabbit::{OnLayer, Rabbit, z_for};
-use crate::scenario::{Scenario, Terrain};
+use crate::scenario::Scenario;
 
 /// So lange vorher warnt das Spiel, in Sekunden.
 const WARNING_SECONDS: f32 = 30.0;
@@ -92,7 +92,7 @@ fn schedule_floods(
     mut messages: ResMut<Messages>,
     mut sounds: ResMut<Sounds>,
 ) {
-    if scenario.chapter.terrain != Terrain::Brook || flood.phase != FloodPhase::Calm {
+    if !scenario.chapter.terrain.floods() || flood.phase != FloodPhase::Calm {
         return;
     }
     let season = clock.season();

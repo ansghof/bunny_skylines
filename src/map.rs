@@ -670,6 +670,146 @@ impl Grid {
         grid
     }
 
+    /// Eine Zufallskarte für das freie Spiel mit allem, was die Kapitel zeigen: Wald am oberen Rand,
+    /// ein Bach mit Furten und Aue auf einer Seite, ein Steinwall mit Fels auf der anderen, eine
+    /// Sandgrube, ein Tümpel mit Bäumen, ein paar Hecken, magere Flecken und wechselnde Böden.
+    /// Rund um den Startbau bleibt immer feste Erde und Wiese.
+    pub fn random(seed: u64) -> Self {
+        let mut grid = Self::starting_meadow();
+        let mut dice = Dice(seed | 1);
+        // Verschiebt das feste Rauschen, damit jede Karte anders aussieht.
+        let (sx, sy) = (dice.between(0, 9000), dice.between(0, 9000));
+        let shifted = move |p: TilePos, extra: i32| TilePos::new(p.x + sx + extra, p.y + sy - extra);
+        let seed_noise = dice.between(0, 9000);
+        let start = |p: TilePos| (p.x - 22).abs() <= 5 && (p.y - 15).abs() <= 4;
+
+        // Böden und magere Flecken.
+        for p in Self::positions() {
+            let tile = grid.surface_mut(p);
+            tile.grass = 0.5 + 0.5 * noise(shifted(p, 0));
+            tile.fertility = (0.75 + 0.35 * smooth_noise(p, 5, seed_noise)).min(1.0);
+            tile.grass = tile.grass.min(tile.fertility);
+            if !start(p) {
+                grid.under_mut(p).soil = match smooth_noise(p, 6, seed_noise + 101) {
+                    v if v < 0.33 => Soil::Sand,
+                    v if v > 0.64 => Soil::Roots,
+                    _ => Soil::Earth,
+                };
+            }
+        }
+
+        // Wald am oberen Rand mit welligem Saum.
+        let forest_from = FOREST_FROM + dice.between(-1, 1);
+        for p in Self::positions() {
+            let edge = forest_from + (smooth_noise(TilePos::new(p.x, 0), 4, seed_noise + 7) * 3.0) as i32 - 1;
+            if p.y >= edge {
+                let deep = (p.y - edge) as f32 / (MAP_HEIGHT - edge).max(1) as f32;
+                let tile = grid.surface_mut(p);
+                tile.forest = true;
+                tile.fertility = 0.5 - 0.2 * deep;
+                tile.grass = tile.grass.min(tile.fertility);
+                tile.tree = p.y > edge && noise(shifted(p, 3)) > 0.45 - 0.25 * deep;
+                grid.under_mut(p).soil = Soil::Roots;
+            }
+        }
+
+        // Der Bach links oder rechts vom Bau, von unten bis in den Wald.
+        let left = dice.roll() < 0.5;
+        let middle = if left { dice.between(6, 11) } else { dice.between(30, 33) } as f32;
+        let (sway, phase) = (1.5 + dice.roll() * 1.2, dice.roll() * 6.0);
+        let bend = |y: i32| (middle + sway * (y as f32 * 0.38 + phase).sin()).round() as i32;
+        let fords = [dice.between(2, 7), dice.between(11, 17), dice.between(20, 24)];
+        for y in 0..MAP_HEIGHT {
+            let below = bend((y - 1).max(0));
+            for x in bend(y).min(below)..=bend(y).max(below) + 1 {
+                let p = TilePos::new(x, y);
+                let field = grid.surface_mut(p);
+                field.water = true;
+                field.ford = fords.contains(&y);
+                field.forest = false;
+                field.tree = false;
+                field.grass = 0.0;
+                field.fertility = 0.0;
+                grid.under_mut(p).soil = Soil::Rock;
+            }
+        }
+        for (p, distance) in grid.flood_distances(|_| false) {
+            if distance > 0 && !grid.surface(p).forest {
+                grid.surface_mut(p).floodplain = true;
+            }
+        }
+
+        // Auf der anderen Seite ein alter Steinwall mit Fels darunter.
+        let wall_x = if left { dice.between(30, 33) } else { dice.between(5, 8) };
+        let wall_from = dice.between(3, 8);
+        let wall_to = (wall_from + dice.between(8, 13)).min(forest_from - 2);
+        for p in Self::positions() {
+            let wall = (wall_x..wall_x + 2).contains(&p.x) && (wall_from..=wall_to).contains(&p.y);
+            if wall {
+                let tile = grid.surface_mut(p);
+                tile.stones = true;
+                tile.fertility = 0.2;
+                tile.grass = 0.1;
+            }
+            let near_wall = (p.x - wall_x).abs() <= 3
+                && (wall_from - 2..=wall_to + 2).contains(&p.y)
+                && noise(shifted(p, 57)) > 0.55;
+            if (wall || near_wall) && !grid.surface(p).water {
+                grid.under_mut(p).soil = Soil::Rock;
+            }
+        }
+
+        // Unten eine Sandgrube mit Sand darunter, über dem Wall ein Tümpel mit Bäumen.
+        let pit = Vec2::new(dice.between(15, 25) as f32, dice.between(3, 6) as f32);
+        let pit_size = Vec2::new(dice.between(4, 6) as f32, dice.between(2, 3) as f32);
+        let pond = Vec2::new((wall_x + if left { -6 } else { 7 }) as f32, (wall_to + 4).min(forest_from - 3) as f32);
+        for p in Self::positions() {
+            if grid.surface(p).water {
+                continue;
+            }
+            let at = Vec2::new(p.x as f32, p.y as f32);
+            let in_pit = ((at - pit) / pit_size).length_squared();
+            if in_pit < 1.0 {
+                let tile = grid.surface_mut(p);
+                tile.fertility = 0.15;
+                tile.grass = 0.0;
+                tile.sand = true;
+            }
+            if in_pit < 2.2 && !start(p) {
+                grid.under_mut(p).soil = Soil::Sand;
+            }
+            let in_pond = ((at - pond) / Vec2::new(2.6, 2.0)).length_squared();
+            let tile = grid.surface_mut(p);
+            if in_pond < 1.0 && !tile.stones && !start(p) {
+                tile.water = true;
+                tile.grass = 0.0;
+                tile.fertility = 0.0;
+                tile.forest = false;
+                tile.tree = false;
+                grid.under_mut(p).soil = Soil::Rock;
+            } else if in_pond < 2.6 && !tile.stones && !start(p) && noise(shifted(p, 41)) > 0.6 {
+                tile.tree = true;
+            }
+        }
+
+        // Ein paar kurze Hecken auf freier Wiese.
+        for _ in 0..dice.between(3, 5) {
+            let (x, y, length) = (dice.between(2, 37), dice.between(2, forest_from - 3), dice.between(2, 4));
+            let along_x = dice.roll() < 0.5;
+            for i in 0..length {
+                let p = if along_x { TilePos::new(x + i, y) } else { TilePos::new(x, y + i) };
+                if !p.in_bounds() || start(p) {
+                    continue;
+                }
+                let tile = grid.surface(p);
+                if !(tile.water || tile.stones || tile.sand || tile.forest || tile.tree) {
+                    grid.surface_mut(p).feature = Some(Feature::Hedge);
+                }
+            }
+        }
+        grid
+    }
+
     /// Liegt das Feld im Schatten einer Hecke oder eines Baums oder nah am Wasser?
     /// Dort verdorrt das Gras in der Dürre nicht.
     pub fn sheltered(&self, p: TilePos) -> bool {
@@ -803,6 +943,24 @@ fn soil_at(p: TilePos) -> Soil {
         v if v < 0.35 => Soil::Sand,
         v if v > 0.62 => Soil::Roots,
         _ => Soil::Earth,
+    }
+}
+
+/// Würfel für die Zufallskarte: aus einer Zahl immer dieselbe Folge.
+struct Dice(u64);
+
+impl Dice {
+    /// Gleichverteilt in 0..1.
+    fn roll(&mut self) -> f32 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    /// Eine ganze Zahl von `lo` bis einschließlich `hi`.
+    fn between(&mut self, lo: i32, hi: i32) -> i32 {
+        (lo + (self.roll() * (hi - lo + 1) as f32) as i32).min(hi)
     }
 }
 
@@ -1060,6 +1218,27 @@ mod tests {
     fn rock_never_digs() {
         let grid = grid_of(Soil::Rock);
         assert_eq!(grid.too_wide_with(TilePos::new(5, 5), 3), Some(Soil::Rock));
+    }
+
+    #[test]
+    fn every_random_map_has_all_landscapes_and_a_safe_start() {
+        for seed in 1..40u64 {
+            let grid = Grid::random(seed * 7919);
+            let any = |f: fn(&SurfaceTile) -> bool| Grid::positions().any(|p| f(grid.surface(p)));
+            assert!(any(|t| t.forest && t.tree), "Wald fehlt bei {seed}");
+            assert!(any(|t| t.water && t.ford), "Furt fehlt bei {seed}");
+            assert!(any(|t| t.floodplain), "Aue fehlt bei {seed}");
+            assert!(any(|t| t.stones), "Steinwall fehlt bei {seed}");
+            assert!(any(|t| t.sand), "Sandgrube fehlt bei {seed}");
+            assert!(any(|t| t.feature == Some(Feature::Hedge)), "Hecke fehlt bei {seed}");
+            // Der Startbau liegt auf fester Erde, trocken und frei.
+            for p in tiles_between(TilePos::new(19, 13), TilePos::new(25, 17)) {
+                let tile = grid.surface(p);
+                assert!(!tile.water && !tile.stones && !tile.forest, "Start belegt bei {seed}: {p:?}");
+                assert_eq!(grid.under(p).soil, Soil::Earth, "Startboden bei {seed}: {p:?}");
+            }
+            assert!(grid.surface(TilePos::new(20, 15)).entrance);
+        }
     }
 
     #[test]

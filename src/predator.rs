@@ -11,7 +11,7 @@ use crate::colony::{Messages, Rng};
 use crate::daynight::{DayClock, figure_light};
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
 use crate::rabbit::{Fur, OnLayer, Rabbit, z_for};
-use crate::scenario::{Scenario, Terrain};
+use crate::scenario::Scenario;
 use crate::progress::{Progress, Tech};
 use crate::camera::Orbit;
 use crate::carry::{CarryPoint, carry_off};
@@ -148,7 +148,7 @@ fn spawn_foxes(
     // Ein zufälliger Punkt knapp innerhalb des Kartenrands; am Waldrand aus dem Wald.
     let half = half_extent() - TILE_SIZE * 0.5;
     let along = rng.range(-1.0, 1.0);
-    let forest = scenario.chapter.terrain == Terrain::ForestEdge;
+    let forest = scenario.chapter.terrain.has_forest();
     let position = match rng.below(4) {
         _ if forest => Vec2::new(along * half.x, half.y),
         0 => Vec2::new(-half.x, along * half.y),
