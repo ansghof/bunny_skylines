@@ -8,6 +8,7 @@ mod danger;
 mod daynight;
 #[cfg(debug_assertions)]
 mod devtools;
+mod drought;
 mod effects;
 mod ending;
 mod flood;
@@ -69,7 +70,7 @@ fn main() {
             carry::CarryPlugin,
             danger::DangerPlugin,
         ))
-        .add_plugins(flood::FloodPlugin)
+        .add_plugins((flood::FloodPlugin, drought::DroughtPlugin))
         // Darstellung und Bedienung
         .add_plugins((
             furnishing::FurnishingPlugin,

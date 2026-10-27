@@ -20,6 +20,7 @@
 //! - `fangbild` oder `fangbild=S`: 0,8 s (oder S s) nach dem ersten Fang ein Bild machen
 //! - `fuchs`: gleich einen Fuchs schicken
 //! - `hochwasser`: Der Bach tritt gleich über die Ufer (nur in Kapitel 5)
+//! - `duerre`: Die heißen Tage beginnen gleich (nur in Kapitel 6)
 //! - `marder`: in der nächsten Nacht sofort einen Marder schicken (mit `nacht` gleich)
 //! - `pfadziehen` (mit `zeiger`): einen Pfad von rechts oben zum Eingang ziehen
 //! - `pfade`: Trampelpfade vom Eingang nach links
@@ -68,6 +69,7 @@ use crate::overlay::MapOverlay;
 use crate::bird::BuzzardSpawner;
 use crate::marten::MartenSpawner;
 use crate::predator::FoxSpawner;
+use crate::drought::Drought;
 use crate::flood::Flood;
 use crate::menu::{OpenMenu, TitleScreen, close_title, new_game};
 use crate::save::{load_game, save_game};
@@ -134,6 +136,7 @@ fn prepare(
     mut martens: ResMut<MartenSpawner>,
     mut foxes: ResMut<FoxSpawner>,
     mut flood: ResMut<Flood>,
+    mut drought: ResMut<Drought>,
 ) {
     if script.has("unten") {
         view.0 = Layer::Underground;
@@ -272,6 +275,9 @@ fn prepare(
     }
     if script.has("hochwasser") {
         flood.summon();
+    }
+    if script.has("duerre") {
+        drought.summon();
     }
     if script.has("karte_weide") {
         *overlay = MapOverlay::Pasture;

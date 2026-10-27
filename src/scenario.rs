@@ -73,6 +73,8 @@ pub enum Terrain {
     SandPit,
     /// Ein Bach mit Aue, der im Frühling und nach Gewittern über die Ufer tritt.
     Brook,
+    /// Magerer Boden und ein kleiner Tümpel; im Sommer kommt die Dürre.
+    DryMeadow,
 }
 
 impl Terrain {
@@ -83,6 +85,7 @@ impl Terrain {
             Terrain::StoneWall => Grid::stone_wall(),
             Terrain::SandPit => Grid::sand_pit(),
             Terrain::Brook => Grid::brook(),
+            Terrain::DryMeadow => Grid::dry_meadow(),
         }
     }
 }
@@ -228,7 +231,37 @@ const THE_BROOK: Chapter = Chapter {
     night_tools: true,
 };
 
-pub const CHAPTERS: [&Chapter; 5] = [&THE_HEDGE, &THE_FOREST_EDGE, &THE_STONE_WALL, &THE_SAND_PIT, &THE_BROOK];
+const THE_DRY_MEADOW: Chapter = Chapter {
+    number: 6,
+    title: "Die Trockenwiese",
+    story: "Weiter oben am Hang liegt eine stille Wiese. Der Boden ist mager, aber kein Bach tritt \
+            hier über die Ufer, nur ein kleiner Tümpel glitzert zwischen ein paar Bäumen. Doch die \
+            alten Kaninchen erzählen von heißen Sommern, in denen die ganze Wiese verdorrt.\n\n\
+            Wenn die Dürre kommt, bleibt das Gras nur im Schatten von Hecken und Bäumen und am \
+            Tümpel grün. Pflanzt rechtzeitig Hecken, schont die Weiden und füllt die Vorratskammern, \
+            am besten mit Heu aus der Trockenkammer. Danach kommt noch der Winter!",
+    targets: &[Target::Rabbits(20), Target::Food(40.0), Target::Year(2)],
+    max_losses: None,
+    terrain: Terrain::DryMeadow,
+    dangers: Dangers { first_fox: 400.0, fox_pace: 0.5, buzzard_from_start: false, marten_from_start: false },
+    known: &[
+        Tech::Posts,
+        Tech::Hedges,
+        Tech::Clover,
+        Tech::Claws,
+        Tech::DeepTunnels,
+        Tech::DriedHay,
+        Tech::BoltHoles,
+        Tech::SunSpots,
+        Tech::Nursery,
+    ],
+    relatives: 4,
+    start_earth: 25.0,
+    night_tools: true,
+};
+
+pub const CHAPTERS: [&Chapter; 6] =
+    [&THE_HEDGE, &THE_FOREST_EDGE, &THE_STONE_WALL, &THE_SAND_PIT, &THE_BROOK, &THE_DRY_MEADOW];
 
 /// Das Kapitel mit dieser Nummer; unbekannte Nummern ergeben das erste.
 pub fn chapter(number: u32) -> &'static Chapter {
@@ -410,6 +443,7 @@ fn check_goals(
         Terrain::StoneWall => "den Winter am Steinwall ohne große Verluste überstanden",
         Terrain::SandPit => "an der Sandgrube eine große Familie gegründet",
         Terrain::Brook => "zwei Hochwasser am Bach überstanden",
+        Terrain::DryMeadow => "den Dürresommer auf der Trockenwiese überstanden",
     };
     let body = format!(
         "Die Familie Buddelberg hat {feat}: {} Kaninchen und {:.0} Futter im Vorrat, im {} von Jahr {}.\n\n{outlook}",

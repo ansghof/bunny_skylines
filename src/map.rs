@@ -51,6 +51,16 @@ const CARROT_GROWTH_FACTOR: f32 = 0.5;
 const FLOODPLAIN_GROWTH_FACTOR: f32 = 1.6;
 /// So weit tritt der Bach bei Hochwasser über die Ufer, in Feldern.
 pub const FLOOD_REACH: i32 = 3;
+/// Bei voller Dürre wächst auf offener Wiese nur noch so viel vom üblichen Gras nach …
+const DROUGHT_GROWTH_FACTOR: f32 = 0.08;
+/// … und es verdorrt um so viel pro Sekunde, bis auf einen kümmerlichen Rest.
+const WILT_PER_SECOND: f32 = 0.003;
+const WILT_FLOOR: f32 = 0.1;
+/// Im Schatten von Hecken und Bäumen und am Wasser wächst es auch in der Dürre so gut.
+const SHADE_GROWTH_FACTOR: f32 = 0.6;
+/// So weit reicht der Schatten einer Hecke oder eines Baums, und so weit hält ein Tümpel den Boden feucht.
+const SHADE_REACH: i32 = 1;
+const WATER_REACH: i32 = 2;
 /// In diesen Reihen liegen Trittsteine im Bach.
 const BROOK_FORDS: [i32; 3] = [5, 12, 24];
 
@@ -391,6 +401,9 @@ pub struct Grid {
     underground: Vec<UndergroundTile>,
     /// Schneedecke auf der ganzen Wiese, 0 bis 1.
     pub snow: f32,
+    /// Wie stark gerade die Dürre ist, 0 bis 1.
+    #[serde(skip)]
+    pub drought: f32,
     /// Solange ein Marder im Bau ist, sind alle Erdpfropfen zu.
     #[serde(skip)]
     pub plugs_closed: bool,
@@ -629,6 +642,94 @@ impl Grid {
         grid
     }
 
+    /// Die Trockenwiese: magerer Boden und dünnes Gras, nur ein kleiner Tümpel mit ein paar Bäumen.
+    /// Im Sommer kommt die Dürre; dann grünt es nur noch im Schatten und am Wasser.
+    pub fn dry_meadow() -> Self {
+        let mut grid = Self::starting_meadow();
+        for p in Self::positions() {
+            let tile = grid.surface_mut(p);
+            tile.fertility = 0.7 + 0.2 * smooth_noise(p, 4, 909);
+            tile.grass = tile.grass.min(tile.fertility) * 0.8;
+            // Der Tümpel: ein kleines Oval rechts unterhalb vom Bau.
+            let dx = (p.x - 27) as f32 / 2.6;
+            let dy = (p.y - 21) as f32 / 2.0;
+            let reach = dx * dx + dy * dy;
+            if reach < 1.0 {
+                tile.water = true;
+                tile.grass = 0.0;
+                tile.fertility = 0.0;
+                grid.under_mut(p).soil = Soil::Rock;
+            } else if reach < 2.6 && noise(TilePos::new(p.x + 41, p.y - 13)) > 0.62 {
+                tile.tree = true;
+            }
+        }
+        // Ein paar alte Hecken stehen schon da.
+        for (x, y) in [(12, 9), (13, 9), (14, 9), (31, 13), (31, 14)] {
+            grid.surface_mut(TilePos::new(x, y)).feature = Some(Feature::Hedge);
+        }
+        grid
+    }
+
+    /// Liegt das Feld im Schatten einer Hecke oder eines Baums oder nah am Wasser?
+    /// Dort verdorrt das Gras in der Dürre nicht.
+    pub fn sheltered(&self, p: TilePos) -> bool {
+        let reach = SHADE_REACH.max(WATER_REACH);
+        (-reach..=reach).any(|dy| {
+            (-reach..=reach).any(|dx| {
+                let q = TilePos::new(p.x + dx, p.y + dy);
+                if !q.in_bounds() {
+                    return false;
+                }
+                let near = dx.abs().max(dy.abs());
+                let tile = self.surface(q);
+                (near <= WATER_REACH && tile.water)
+                    || (near <= SHADE_REACH && (tile.tree || tile.feature == Some(Feature::Hedge)))
+            })
+        })
+    }
+
+    /// Lässt das Gras eine Weile wachsen; `growth` ist, was auf gesunder Wiese nachwüchse.
+    /// In der Dürre wächst offene Wiese kaum und verdorrt, im Schatten wächst es weiter.
+    pub fn grow(&mut self, growth: f32, elapsed: f32) {
+        let drought = self.drought;
+        let shade: Vec<bool> = if drought > 0.0 {
+            Self::positions().map(|p| self.sheltered(p)).collect()
+        } else {
+            Vec::new()
+        };
+        for (i, tile) in self.surface.iter_mut().enumerate() {
+            tile.rest += elapsed;
+            // Lange nicht beweidet: Der Boden erholt sich bis zur gesunden Wiese.
+            if tile.rest > RECOVERY_AFTER_SECONDS && tile.fertility < 1.0 {
+                tile.fertility = (tile.fertility + RECOVERY_PER_SECOND * elapsed).min(1.0);
+            }
+            if tile.water {
+                continue;
+            }
+            let dry = if drought > 0.0 && !shade[i] {
+                if tile.grass > WILT_FLOOR {
+                    tile.grass = (tile.grass - WILT_PER_SECOND * drought * elapsed).max(WILT_FLOOR);
+                }
+                1.0 - (1.0 - DROUGHT_GROWTH_FACTOR) * drought
+            } else {
+                1.0 - (1.0 - SHADE_GROWTH_FACTOR) * drought
+            };
+            // Ausgelaugter Boden trägt weniger Gras, und es wächst langsamer.
+            if !tile.entrance && tile.grass < tile.fertility {
+                let speed = if tile.feature == Some(Feature::Carrots) {
+                    CARROT_GROWTH_FACTOR
+                } else if tile.clover {
+                    CLOVER_GROWTH_FACTOR
+                } else if tile.floodplain {
+                    FLOODPLAIN_GROWTH_FACTOR
+                } else {
+                    1.0
+                };
+                tile.grass = (tile.grass + growth * dry * speed * tile.fertility).min(tile.fertility);
+            }
+        }
+    }
+
     /// Wie weit das Hochwasser vom Bach aus bis zu jedem Feld laufen muss, höchstens `FLOOD_REACH`.
     /// Felder, für die `blocked` zutrifft (Dämme), hält es auf. Der Bach selbst hat Abstand 0.
     pub fn flood_distances(&self, blocked: impl Fn(TilePos) -> bool) -> HashMap<TilePos, i32> {
@@ -664,6 +765,7 @@ impl Grid {
             surface: vec![SurfaceTile::default(); count],
             underground: vec![UndergroundTile::default(); count],
             snow: 0.0,
+            drought: 0.0,
             plugs_closed: false,
             owned: Plot::starting(),
         };
@@ -759,30 +861,7 @@ fn grow_grass(time: Res<Time>, clock: Res<DayClock>, mut grid: ResMut<Grid>, mut
         Season::Autumn => AUTUMN_GROWTH_FACTOR,
         Season::Summer | Season::Winter => 1.0,
     };
-    let growth = GRASS_GROWTH_PER_SECOND * night * season * elapsed;
-    for tile in &mut grid.surface {
-        tile.rest += elapsed;
-        // Lange nicht beweidet: Der Boden erholt sich bis zur gesunden Wiese.
-        if tile.rest > RECOVERY_AFTER_SECONDS && tile.fertility < 1.0 {
-            tile.fertility = (tile.fertility + RECOVERY_PER_SECOND * elapsed).min(1.0);
-        }
-        if tile.water {
-            continue;
-        }
-        // Ausgelaugter Boden trägt weniger Gras, und es wächst langsamer.
-        if !tile.entrance && tile.grass < tile.fertility {
-            let speed = if tile.feature == Some(Feature::Carrots) {
-                CARROT_GROWTH_FACTOR
-            } else if tile.clover {
-                CLOVER_GROWTH_FACTOR
-            } else if tile.floodplain {
-                FLOODPLAIN_GROWTH_FACTOR
-            } else {
-                1.0
-            };
-            tile.grass = (tile.grass + growth * speed * tile.fertility).min(tile.fertility);
-        }
-    }
+    grid.grow(GRASS_GROWTH_PER_SECOND * night * season * elapsed, elapsed);
 }
 
 /// Farbe eines Oberflächenfeldes: Gras je nach Bewuchs, Markierungen für Aufträge und Posten.
@@ -799,6 +878,10 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
         return Color::srgb_from_array(unexplored_haze(grid, p, rgb.map(|c| c * ripple)));
     }
     let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass.min(1.0)).map(|c| c * checker);
+    if grid.drought > 0.0 && !tile.forest && !grid.sheltered(p) {
+        // In der Dürre wird die offene Wiese strohgelb.
+        rgb = mix(rgb, [0.86 * checker, 0.74 * checker, 0.44 * checker], grid.drought * 0.45);
+    }
     if tile.floodplain {
         // Die Aue ist etwas kräftiger grün.
         rgb = mix(rgb, [0.40 * checker, 0.66 * checker, 0.36 * checker], 0.2);
@@ -977,6 +1060,23 @@ mod tests {
     fn rock_never_digs() {
         let grid = grid_of(Soil::Rock);
         assert_eq!(grid.too_wide_with(TilePos::new(5, 5), 3), Some(Soil::Rock));
+    }
+
+    #[test]
+    fn in_a_drought_grass_only_stays_green_in_the_shade() {
+        let mut grid = Grid::starting_meadow();
+        let open = TilePos::new(5, 5);
+        let shaded = TilePos::new(30, 5);
+        grid.surface_mut(TilePos::new(31, 5)).feature = Some(Feature::Hedge);
+        for p in [open, shaded] {
+            grid.surface_mut(p).grass = 0.5;
+        }
+        grid.drought = 1.0;
+        for _ in 0..60 {
+            grid.grow(GRASS_GROWTH_PER_SECOND, 1.0);
+        }
+        assert!(grid.surface(open).grass < 0.45, "offene Wiese verdorrt");
+        assert!(grid.surface(shaded).grass > 0.8, "im Schatten wächst es weiter");
     }
 
     #[test]

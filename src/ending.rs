@@ -11,6 +11,8 @@ use crate::behavior::{Priorities, Reserved};
 use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Messages};
 use crate::danger::AlarmButton;
+use crate::drought::Drought;
+use crate::flood::Flood;
 use crate::daynight::DayClock;
 use crate::map::{Layer, ViewLayer};
 use crate::predator::{Fox, FoxSpawner};
@@ -189,6 +191,8 @@ pub(crate) fn restart(world: &mut World) {
     world.insert_resource(progress);
     world.insert_resource(FoxSpawner::starting(chapter.dangers.first_fox));
     world.insert_resource(Losses::default());
+    world.insert_resource(Flood::default());
+    world.insert_resource(Drought::default());
     world.resource_mut::<Scenario>().restart();
     world.insert_resource(ViewLayer(Layer::Surface));
     world.resource_mut::<Time<Virtual>>().set_relative_speed(1.0);
