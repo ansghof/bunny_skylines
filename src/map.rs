@@ -911,7 +911,8 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
     }
     match tile.feature {
         Some(Feature::Hedge) => rgb = mix(rgb, [0.25, 0.42, 0.22], 0.75),
-        Some(Feature::BoltHole) => rgb = mix(rgb, [0.36, 0.26, 0.17], 0.8),
+        // Das Fluchtloch bringt seinen kleinen Erdwall selbst mit; der Boden drumherum bleibt, wie er ist.
+        Some(Feature::BoltHole) => {}
         Some(Feature::SunSpot) => rgb = mix(rgb, [0.95, 0.85, 0.50], 0.45),
         Some(Feature::Herbs) => rgb = mix(rgb, [0.45, 0.62, 0.40], 0.4),
         Some(Feature::Playground) => rgb = mix(rgb, [0.70, 0.82, 0.45], 0.4),
