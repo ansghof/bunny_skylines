@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::ground::pick;
-use crate::map::{Grid, ViewLayer};
+use crate::map::{Grid, Layer, ViewLayer};
 
 const PAN_SPEED: f32 = 1.0;
 const ROTATE_SPEED: f32 = 0.006;
@@ -32,24 +32,76 @@ impl Plugin for CameraPlugin {
             })
             .add_systems(Startup, spawn_camera)
             .add_systems(PreUpdate, update_cursor)
-            .add_systems(Update, (pan_keyboard, pan_and_rotate_mouse, zoom, apply_orbit).chain());
+            .add_systems(Update, (pan_keyboard, pan_and_rotate_mouse, zoom, apply_orbit).chain())
+            .add_systems(
+                PostUpdate,
+                place_figures
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+            );
     }
 }
 
 #[derive(Component)]
 pub struct MainCamera;
 
-/// Zweite Kamera, die nur die Figuren zeichnet, über den Boden hinweg.
-/// So können Aufsteller voll zur Kamera schauen, ohne in Gangwände zu kippen,
-/// und Kaninchen in Gängen bleiben aus jedem Blickwinkel sichtbar.
+/// Zweite Kamera, die Figuren aus der anderen Ebene über den Boden hinweg zeichnet: Von oben
+/// sieht man die Kaninchen in den Gängen durch die Erde.
 #[derive(Component)]
 struct FigureCamera;
 
 /// Ebene für alles, was die Figuren-Kamera zeichnet.
 pub const FIGURE_LAYER: usize = 1;
 
-pub fn figure_layer() -> RenderLayers {
-    RenderLayers::layer(FIGURE_LAYER)
+/// Ein Aufsteller, der zur Kamera schaut: Teile von Figuren, getragene Beute, Futterhaufen.
+#[derive(Component)]
+pub struct Figure;
+
+pub fn figure_layer() -> (Figure, RenderLayers) {
+    (Figure, RenderLayers::layer(0))
+}
+
+/// So weit rücken Figuren auf ihrem Sichtstrahl zur Kamera hin. Ein Aufsteller, der voll zur
+/// Kamera schaut, kippt bei schräger Sicht nach hinten; so steckt er nicht in der Wand oder im
+/// Boden hinter sich, und Wände davor verdecken ihn trotzdem.
+const FIGURE_PULL: f32 = 30.0;
+
+/// Figuren in der angezeigten Ebene zeichnet die Hauptkamera mit dem Gelände zusammen, ein Stück
+/// zur Kamera gerückt: Jeder Punkt wandert auf seinem Sichtstrahl, auf dem Bildschirm bleiben
+/// Ort und Größe gleich, nur die Tiefe ändert sich. Figuren aus den Gängen zeigt bei Sicht von
+/// oben die Figuren-Kamera durch die Erde hindurch.
+fn place_figures(
+    view: Res<ViewLayer>,
+    camera: Single<&GlobalTransform, (With<MainCamera>, Without<Figure>)>,
+    parents: Query<&ChildOf>,
+    anchors: Query<&GlobalTransform, Without<Figure>>,
+    mut figures: Query<(Entity, &mut GlobalTransform, &mut RenderLayers), With<Figure>>,
+) {
+    let eye = camera.translation();
+    for (entity, mut global, mut layers) in &mut figures {
+        // Gemessen wird an den Füßen: am obersten Vorfahren, sonst an der Figur selbst.
+        let mut top = entity;
+        while let Ok(parent) = parents.get(top) {
+            top = parent.parent();
+        }
+        let foot = anchors.get(top).map_or(global.translation(), |anchor| anchor.translation());
+        let in_tunnel = foot.y < -2.0;
+        let wanted = if view.0 == Layer::Surface && in_tunnel {
+            RenderLayers::layer(FIGURE_LAYER)
+        } else {
+            RenderLayers::layer(0)
+        };
+        if *layers != wanted {
+            *layers = wanted;
+        }
+        if layers.intersects(&RenderLayers::layer(FIGURE_LAYER)) {
+            continue;
+        }
+        let distance = foot.distance(eye);
+        let k = ((distance - FIGURE_PULL) / distance.max(1.0)).clamp(0.5, 1.0);
+        let pull = bevy::math::Affine3A::from_translation(eye * (1.0 - k)) * bevy::math::Affine3A::from_scale(Vec3::splat(k));
+        *global = GlobalTransform::from(pull * global.affine());
+    }
 }
 
 /// Wo die Kamera hinschaut und von wo.
@@ -106,7 +158,7 @@ fn spawn_camera(mut commands: Commands) {
         },
         Tonemapping::None,
         DebandDither::Disabled,
-        figure_layer(),
+        RenderLayers::layer(FIGURE_LAYER),
         FigureCamera,
         // Die Anzeige gehört über alles.
         IsDefaultUiCamera,
