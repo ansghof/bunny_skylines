@@ -483,6 +483,9 @@ fn skip_intro(
         commands.run_system_cached(close_title);
         let number = script.value("kapitel").map_or(1, |n| n as u32);
         commands.run_system_cached_with(start_chapter, number);
+        // Der Kapitelstart legt eine frische Karte an: die Testaufbauten danach noch einmal.
+        commands.run_system_cached(prepare);
+        commands.run_system_cached(extra_family);
         return;
     }
     // Der Kapitelstart setzt die Ansicht zurück; `unten` gilt danach wieder.

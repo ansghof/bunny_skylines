@@ -260,9 +260,9 @@ impl Progress {
     /// Wie viele Grundstücke die Familie auf ihrer Stufe besitzen darf.
     pub fn plots_allowed(&self) -> usize {
         match self.stage {
-            Stage::Burrow => 2,
-            Stage::Warren => 4,
-            Stage::Settlement => 7,
+            Stage::Burrow => 4,
+            Stage::Warren => 6,
+            Stage::Settlement => 9,
             Stage::Town => 12,
         }
     }

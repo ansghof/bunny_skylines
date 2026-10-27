@@ -371,9 +371,9 @@ impl Plot {
         (0..PLOTS_Y).flat_map(|y| (0..PLOTS_X).map(move |x| Plot { x, y })).collect()
     }
 
-    /// Die zwei Grundstücke in der Mitte, auf denen jedes Kapitel beginnt.
+    /// Die vier Grundstücke in der Mitte, auf denen jedes Kapitel beginnt.
     pub fn starting() -> Vec<Plot> {
-        vec![Plot { x: 1, y: 1 }, Plot { x: 2, y: 1 }]
+        vec![Plot { x: 1, y: 1 }, Plot { x: 2, y: 1 }, Plot { x: 1, y: 2 }, Plot { x: 2, y: 2 }]
     }
 
     pub fn first_tile(self) -> TilePos {

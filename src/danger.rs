@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 
-use crate::behavior::{Activity, BehaviorSet, Carrying, Fear, Path, Reserved, start_flight};
+use crate::behavior::{Activity, BehaviorSet, Carrying, Fear, Path, Reserved, release, start_flight};
 use crate::audio::{Sound, Sounds};
 use crate::colony::Messages;
 use crate::ground::gizmo_circle;
@@ -20,6 +20,8 @@ const RELAY_RADIUS: f32 = TILE_SIZE * 2.5;
 /// Ab dieser Entfernung bemerkt ein Kaninchen den Fuchs selbst.
 const NOTICE_RADIUS: f32 = TILE_SIZE * 2.2;
 pub const ALARM_COOLDOWN_SECONDS: f32 = 30.0;
+/// So lange traut sich eine Wache nach einem Fuchs nicht wieder auf den Posten.
+const GUARD_FRIGHT_SECONDS: f32 = 12.0;
 const RING_SECONDS: f32 = 0.8;
 
 pub struct DangerPlugin;
@@ -90,7 +92,8 @@ fn guards_watch(
     mut guards: Query<(Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear)>,
 ) {
     for (entity, rabbit, transform, layer, mut activity, mut path, mut fear) in &mut guards {
-        if !matches!(*activity, Activity::Guarding { .. }) {
+        // Nur Wachen oben halten nach Füchsen Ausschau; die Nachtwache im Bau ist für Marder da.
+        if !matches!(*activity, Activity::Guarding { .. }) || layer.0 != Layer::Surface {
             continue;
         }
         let position = transform.translation.truncate();
@@ -106,7 +109,12 @@ fn guards_watch(
         });
         commands.entity(entity).insert(Stomping(0.6));
         messages.push(format!("{} stampft: Fuchs in Sicht!", rabbit.name));
-        start_flight(&grid, &mut reserved, transform, layer, &mut activity, &mut path, &mut fear);
+        // Kein Weg in den Bau: Die Schicht endet trotzdem, sonst stampft sie jedes Bild aufs Neue.
+        if !start_flight(&grid, &mut reserved, transform, layer, &mut activity, &mut path, &mut fear) {
+            release(&activity, &mut reserved);
+            *activity = Activity::Idle(1.0);
+            fear.0 = GUARD_FRIGHT_SECONDS;
+        }
     }
 }
 
