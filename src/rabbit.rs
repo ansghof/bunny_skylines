@@ -32,9 +32,9 @@ pub const MAX_RABBITS: usize = 600;
 /// So groß kann ein Wurf höchstens werden.
 const MAX_LITTER: usize = 5;
 /// Lebensdauer in Spieljahren, von bis.
-const LIFESPAN_YEARS: (f32, f32) = (8.0, 9.5);
+const LIFESPAN_YEARS: (f32, f32) = (3.7, 4.3);
 /// Ab diesem Alter in Spieljahren gilt ein Kaninchen als alt.
-const OLD_AGE_YEARS: f32 = 6.0;
+const OLD_AGE_YEARS: f32 = 3.0;
 /// So lange hält ein völlig ausgehungertes Kaninchen durch, in Spielsekunden.
 const STARVE_SECONDS: f32 = 60.0;
 /// So zufrieden ist ein Kaninchen, wenn alles stimmt.
@@ -1036,7 +1036,8 @@ impl SavedRabbit {
                 name: self.name,
                 female: self.female,
                 age: self.age,
-                lifespan: self.lifespan,
+                // Ältere Spielstände kannten noch längere Leben.
+                lifespan: self.lifespan.min(LIFESPAN_YEARS.1 * YEAR_LENGTH),
                 starving: self.starving,
                 parents: self.parents,
             },
