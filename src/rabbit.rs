@@ -86,12 +86,17 @@ const DUCK_SPEED: f32 = 4.0;
 const RIG_PATH: &str = "figuren/kaninchen/kaninchen.rig.ron";
 const RIG_FOLDER: &str = "figuren/kaninchen";
 
-const FUR_COLORS: [Color; 5] = [
+const BROWN: Color = Color::srgb(0.80, 0.62, 0.44);
+const GREY: Color = Color::srgb(0.68, 0.66, 0.64);
+const FUR_COLORS: [Color; 7] = [
     Color::srgb(1.0, 1.0, 1.0),
-    Color::srgb(0.80, 0.62, 0.44),
-    Color::srgb(0.68, 0.66, 0.64),
+    BROWN,
+    GREY,
     Color::srgb(0.88, 0.76, 0.58),
     Color::srgb(0.52, 0.40, 0.32),
+    // Dunkelgrau und Schwarz.
+    Color::srgb(0.40, 0.39, 0.39),
+    Color::srgb(0.22, 0.21, 0.21),
 ];
 
 const BABY_NAMES: &[&str] = &[
@@ -303,7 +308,8 @@ pub fn spawn_founders(
     mut messages: ResMut<Messages>,
 ) {
     let near_entrance = TilePos::new(19, 15).center();
-    for (name, female, fur, dx) in [("Schneeflocke", true, FUR_COLORS[0], -20.0), ("Lukas", false, FUR_COLORS[1], 20.0)] {
+    // Schneeflocke ist braun mit weißer Blume (der Name kommt vom Schwanz), Lukas grau.
+    for (name, female, fur, dx) in [("Schneeflocke", true, BROWN, -20.0), ("Lukas", false, GREY, 20.0)] {
         let position = near_entrance + Vec2::new(dx, 0.0);
         commands.spawn(rabbit_bundle(
             &asset_server,
