@@ -9,10 +9,14 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::ground::pick;
-use crate::map::{Grid, Layer, ViewLayer};
+use crate::map::{Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, ViewLayer};
 
 const PAN_SPEED: f32 = 1.0;
 const ROTATE_SPEED: f32 = 0.006;
+/// So nah am Fensterrand (in Pixeln) beginnt die Karte zu wandern.
+const EDGE_ZONE: f32 = 12.0;
+/// Am Rand wandert sie langsamer als mit den Tasten.
+const EDGE_SPEED: f32 = 0.35;
 const ZOOM_STEP: f32 = 0.1;
 const MIN_DISTANCE: f32 = 250.0;
 const MAX_DISTANCE: f32 = 3200.0;
@@ -32,7 +36,7 @@ impl Plugin for CameraPlugin {
             })
             .add_systems(Startup, spawn_camera)
             .add_systems(PreUpdate, update_cursor)
-            .add_systems(Update, (pan_keyboard, pan_and_rotate_mouse, zoom, apply_orbit).chain())
+            .add_systems(Update, (pan_keyboard, pan_at_edge, pan_and_rotate_mouse, zoom, apply_orbit).chain())
             .add_systems(
                 PostUpdate,
                 place_figures
@@ -204,6 +208,43 @@ fn pan_keyboard(keys: Res<ButtonInput<KeyCode>>, time: Res<Time<Real>>, mut orbi
     orbit.focus += (forward * input.y + right * input.x) * step;
 }
 
+/// Steht die Maus am Fensterrand, wandert die Karte langsam in diese Richtung; je näher am
+/// Rand, desto schneller. Nicht, solange eine Maustaste gedrückt ist (Ziehen, Drehen).
+fn pan_at_edge(
+    window: Single<&Window, With<PrimaryWindow>>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    time: Res<Time<Real>>,
+    mut orbit: ResMut<Orbit>,
+) {
+    let Some(cursor) = window.cursor_position().filter(|_| window.focused) else {
+        return;
+    };
+    if buttons.get_pressed().next().is_some() {
+        return;
+    }
+    let size = Vec2::new(window.width(), window.height());
+    // Gleich am Anfang der Zone schon spürbar, ganz am Rand am schnellsten.
+    let ramp = |inside: f32| 0.3 + 0.7 * (1.0 - inside / EDGE_ZONE).clamp(0.0, 1.0);
+    let push = |at: f32, extent: f32| {
+        if at < EDGE_ZONE {
+            -ramp(at)
+        } else if at > extent - EDGE_ZONE {
+            ramp(extent - at)
+        } else {
+            0.0
+        }
+    };
+    // Bildschirm-y wächst nach unten, vorwärts heißt also oberer Rand.
+    let input = Vec2::new(push(cursor.x, size.x), -push(cursor.y, size.y));
+    if input == Vec2::ZERO {
+        return;
+    }
+    let (forward, right) = orbit.ground_axes();
+    let step = PAN_SPEED * EDGE_SPEED * orbit.distance * time.delta_secs();
+    let input = input.clamp_length_max(1.0);
+    orbit.focus += (forward * input.y + right * input.x) * step;
+}
+
 fn pan_and_rotate_mouse(
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
@@ -235,7 +276,13 @@ fn zoom(scroll: Res<AccumulatedMouseScroll>, mut orbit: ResMut<Orbit>) {
     orbit.distance = (orbit.distance * (1.0 - steps * ZOOM_STEP)).clamp(MIN_DISTANCE, MAX_DISTANCE);
 }
 
-fn apply_orbit(orbit: Res<Orbit>, mut cameras: Query<&mut Transform, Or<(With<MainCamera>, With<FigureCamera>)>>) {
+fn apply_orbit(mut orbit: ResMut<Orbit>, mut cameras: Query<&mut Transform, Or<(With<MainCamera>, With<FigureCamera>)>>) {
+    // Der Blick bleibt auf der Karte, auch wenn die Maus lange am Rand steht.
+    let half = Vec2::new(MAP_WIDTH as f32, MAP_HEIGHT as f32) * TILE_SIZE / 2.0;
+    let clamped = Vec3::new(orbit.focus.x.clamp(-half.x, half.x), orbit.focus.y, orbit.focus.z.clamp(-half.y, half.y));
+    if clamped != orbit.focus {
+        orbit.focus = clamped;
+    }
     let offset = Vec3::new(
         orbit.yaw.sin() * orbit.pitch.cos(),
         orbit.pitch.sin(),
