@@ -10,6 +10,7 @@ mod daynight;
 mod devtools;
 mod effects;
 mod ending;
+mod flood;
 mod furnishing;
 mod ground;
 mod inspect;
@@ -68,6 +69,7 @@ fn main() {
             carry::CarryPlugin,
             danger::DangerPlugin,
         ))
+        .add_plugins(flood::FloodPlugin)
         // Darstellung und Bedienung
         .add_plugins((
             furnishing::FurnishingPlugin,

@@ -106,6 +106,7 @@ impl Action {
             Action::Tool(ToolKind::Clover) => "kleefeld",
             Action::Tool(ToolKind::Feature(Feature::Hedge)) => "hecke",
             Action::Tool(ToolKind::Feature(Feature::BoltHole)) => "fluchtloch",
+            Action::Tool(ToolKind::Feature(Feature::Dam)) => "damm",
             Action::Tool(ToolKind::Feature(Feature::SunSpot)) => "sonnenplatz",
             Action::Tool(ToolKind::Feature(Feature::Herbs)) => "kraeuter",
             Action::Tool(ToolKind::Feature(Feature::Playground)) => "spielwiese",

@@ -148,6 +148,39 @@ fn rustle() -> Vec<f32> {
         .collect()
 }
 
+/// Rauschendes Wasser, das anschwillt, mit ein paar gluckernden Blasen: Hochwasser kommt.
+fn water() -> Vec<f32> {
+    let mut noise = Noise(31);
+    let mut bubbles = Noise(57);
+    let length = 2.6;
+    let mut low = 0.0;
+    let mut lower = 0.0;
+    let mut sound: Vec<f32> = (0..samples(length))
+        .map(|i| {
+            let t = time(i);
+            // Zweimal geglättetes Rauschen klingt wie fließendes Wasser.
+            low += (noise.next() - low) * 0.08;
+            lower += (low - lower) * 0.3;
+            let swell = (t / 1.2).min(1.0) * ((length - t) / 0.8).clamp(0.0, 1.0);
+            let surge = 0.7 + 0.3 * (t * TAU * 0.9).sin();
+            lower * swell * surge * 2.5
+        })
+        .collect();
+    // Gluckern: kurze Töne, die schnell nach oben rutschen.
+    for k in 0..9 {
+        let at = 0.3 + k as f32 * 0.22 + bubbles.next().abs() * 0.1;
+        let base = 300.0 + bubbles.next().abs() * 400.0;
+        let blip: Vec<f32> = (0..samples(0.07))
+            .map(|i| {
+                let t = time(i);
+                (TAU * base * t * (1.0 + t * 12.0)).sin() * envelope(t, 0.005, 0.02) * 0.25
+            })
+            .collect();
+        mix_into(&mut sound, &blip, at);
+    }
+    sound
+}
+
 /// Ein kurzes „Plopp“, wenn etwas gebaut oder geplant wird.
 fn plop() -> Vec<f32> {
     let mut phase = 0.0;
@@ -230,6 +263,7 @@ fn main() {
         ("geschnappt", sad()),
         ("bauen", plop()),
         ("klick", click()),
+        ("wasser", water()),
         (
             "sieg",
             melody(&[(c5, 0.3), (c5, 0.3), (c5, 0.3), (e5, 0.5), (g5, 0.3), (e5, 0.3), (c6, 1.4)], 0.16, 0.22),

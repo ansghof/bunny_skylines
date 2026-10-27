@@ -1,6 +1,8 @@
 //! Spielkarte: ein Gitter mit Oberfläche und Untergrund auf derselben Fläche.
 //! Jedes Untergrund-Feld kann gegraben sein und hat dann einen Tiefenwert.
 
+use std::collections::{HashMap, VecDeque};
+
 use bevy::prelude::*;
 
 use crate::daynight::{DayClock, Season};
@@ -45,6 +47,12 @@ const CLOVER_NUTRITION: f32 = 1.5;
 const CARROT_NUTRITION: f32 = 3.0;
 /// … wachsen aber nur halb so schnell.
 const CARROT_GROWTH_FACTOR: f32 = 0.5;
+/// In der Aue am Bach wächst das Gras schneller.
+const FLOODPLAIN_GROWTH_FACTOR: f32 = 1.6;
+/// So weit tritt der Bach bei Hochwasser über die Ufer, in Feldern.
+pub const FLOOD_REACH: i32 = 3;
+/// In diesen Reihen liegen Trittsteine im Bach.
+const BROOK_FORDS: [i32; 3] = [5, 12, 24];
 
 pub struct MapPlugin;
 
@@ -213,6 +221,8 @@ pub enum Feature {
     Carrots,
     /// Festplatz: Kaninchen ohne Nest bleiben länger zufrieden.
     Festival,
+    /// Damm: ein Erdwall, der Hochwasser aufhält.
+    Dam,
 }
 
 impl Feature {
@@ -225,6 +235,7 @@ impl Feature {
             Feature::Playground => "Spielwiese",
             Feature::Carrots => "Möhrenbeet",
             Feature::Festival => "Festplatz",
+            Feature::Dam => "Damm",
         }
     }
 
@@ -276,6 +287,18 @@ pub struct SurfaceTile {
     /// Gehört zu einem großen Bau: das Mittelfeld, auf dem er steht.
     #[serde(default)]
     pub part_of: Option<TilePos>,
+    /// Der Bach: Hier kommt kein Kaninchen durch, außer an einer Furt.
+    #[serde(default)]
+    pub water: bool,
+    /// Trittsteine im Bach.
+    #[serde(default)]
+    pub ford: bool,
+    /// Aue: Hier wächst das Gras schneller, aber bei Hochwasser steht sie unter Wasser.
+    #[serde(default)]
+    pub floodplain: bool,
+    /// Gerade überschwemmt.
+    #[serde(default)]
+    pub flooded: bool,
 }
 
 impl SurfaceTile {
@@ -357,6 +380,9 @@ pub struct UndergroundTile {
     /// Grabauftrag mit gewünschter Tiefe.
     pub planned: Option<Depth>,
     pub chamber: Option<Chamber>,
+    /// Sekunden, bis der vollgelaufene Gang wieder trocken ist; 0 = trocken.
+    #[serde(default)]
+    pub wet: f32,
 }
 
 #[derive(Resource, serde::Serialize, serde::Deserialize)]
@@ -443,10 +469,13 @@ impl Grid {
         p.in_bounds()
             && self.owns(p)
             && match layer {
-                Layer::Surface => true,
+                Layer::Surface => {
+                    let field = self.surface(p);
+                    !field.water || field.ford
+                }
                 Layer::Underground => {
                     let tile = self.under(p);
-                    tile.dug.is_some() && !(tile.plug && self.plugs_closed)
+                    tile.dug.is_some() && !(tile.plug && self.plugs_closed) && tile.wet <= 0.0
                 }
             }
     }
@@ -502,7 +531,8 @@ impl Grid {
     pub fn chamber_tiles(&self, chamber: Chamber) -> usize {
         self.underground
             .iter()
-            .filter(|t| t.chamber == Some(chamber) && t.dug.is_some())
+            // Vollgelaufene Kammern sind nicht zu gebrauchen, bis sie trocken sind.
+            .filter(|t| t.chamber == Some(chamber) && t.dug.is_some() && t.wet <= 0.0)
             .count()
     }
 
@@ -571,6 +601,54 @@ impl Grid {
             }
         }
         grid
+    }
+
+    /// Die Wiese am Bach: Links vom Bau schlängelt sich ein Bach von Süd nach Nord, zwei Felder breit.
+    /// Hinüber geht es nur an den Furten. Daneben liegt die Aue mit saftigem Gras.
+    pub fn brook() -> Self {
+        let mut grid = Self::starting_meadow();
+        let bend = |y: i32| (13.0 + 2.2 * (y as f32 * 0.38 + 1.0).sin()).round() as i32;
+        for y in 0..MAP_HEIGHT {
+            // Mit der Biegung der Reihe darunter verbunden, damit der Bach keine Lücke hat.
+            let below = bend((y - 1).max(0));
+            for x in bend(y).min(below)..=bend(y).max(below) + 1 {
+                let p = TilePos::new(x, y);
+                let field = grid.surface_mut(p);
+                field.water = true;
+                field.ford = BROOK_FORDS.contains(&y);
+                field.grass = 0.0;
+                field.fertility = 0.0;
+                grid.under_mut(p).soil = Soil::Rock;
+            }
+        }
+        for (p, distance) in grid.flood_distances(|_| false) {
+            if distance > 0 {
+                grid.surface_mut(p).floodplain = true;
+            }
+        }
+        grid
+    }
+
+    /// Wie weit das Hochwasser vom Bach aus bis zu jedem Feld laufen muss, höchstens `FLOOD_REACH`.
+    /// Felder, für die `blocked` zutrifft (Dämme), hält es auf. Der Bach selbst hat Abstand 0.
+    pub fn flood_distances(&self, blocked: impl Fn(TilePos) -> bool) -> HashMap<TilePos, i32> {
+        let mut distances: HashMap<TilePos, i32> =
+            Self::positions().filter(|p| self.surface(*p).water).map(|p| (p, 0)).collect();
+        let mut queue: VecDeque<TilePos> = distances.keys().copied().collect();
+        while let Some(p) = queue.pop_front() {
+            let distance = distances[&p];
+            if distance >= FLOOD_REACH {
+                continue;
+            }
+            for q in p.neighbors() {
+                if distances.contains_key(&q) || blocked(q) {
+                    continue;
+                }
+                distances.insert(q, distance + 1);
+                queue.push_back(q);
+            }
+        }
+        distances
     }
 
     /// Alle Felder unter dem Steinwall, z. B. um Marder dort auftauchen zu lassen.
@@ -688,12 +766,17 @@ fn grow_grass(time: Res<Time>, clock: Res<DayClock>, mut grid: ResMut<Grid>, mut
         if tile.rest > RECOVERY_AFTER_SECONDS && tile.fertility < 1.0 {
             tile.fertility = (tile.fertility + RECOVERY_PER_SECOND * elapsed).min(1.0);
         }
+        if tile.water {
+            continue;
+        }
         // Ausgelaugter Boden trägt weniger Gras, und es wächst langsamer.
         if !tile.entrance && tile.grass < tile.fertility {
             let speed = if tile.feature == Some(Feature::Carrots) {
                 CARROT_GROWTH_FACTOR
             } else if tile.clover {
                 CLOVER_GROWTH_FACTOR
+            } else if tile.floodplain {
+                FLOODPLAIN_GROWTH_FACTOR
             } else {
                 1.0
             };
@@ -709,7 +792,17 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
         return Color::srgb(0.29, 0.20, 0.13);
     }
     let checker = if (p.x + p.y) % 2 == 0 { 1.0 } else { 0.96 };
+    if tile.water {
+        // Wasser mit leichtem Wellenmuster; Furten mit grauen Trittsteinen.
+        let ripple = 0.94 + 0.08 * noise(TilePos::new(p.x * 3 + 11, p.y * 5 - 7));
+        let rgb = if tile.ford { [0.55, 0.62, 0.66] } else { [0.30, 0.52, 0.74] };
+        return Color::srgb_from_array(unexplored_haze(grid, p, rgb.map(|c| c * ripple)));
+    }
     let mut rgb = mix([0.79, 0.70, 0.48], [0.56, 0.76, 0.37], tile.grass.min(1.0)).map(|c| c * checker);
+    if tile.floodplain {
+        // Die Aue ist etwas kräftiger grün.
+        rgb = mix(rgb, [0.40 * checker, 0.66 * checker, 0.36 * checker], 0.2);
+    }
     if tile.stones {
         rgb = mix(rgb, [0.58 * checker, 0.57 * checker, 0.52 * checker], 0.8);
     } else if tile.sand {
@@ -740,11 +833,15 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
         Some(Feature::Playground) => rgb = mix(rgb, [0.70, 0.82, 0.45], 0.4),
         Some(Feature::Carrots) => rgb = mix(rgb, [0.52, 0.40, 0.24], 0.45),
         Some(Feature::Festival) => rgb = mix(rgb, [0.86, 0.74, 0.52], 0.5),
+        Some(Feature::Dam) => rgb = mix(rgb, [0.50, 0.38, 0.24], 0.7),
         None => {}
     }
     // Gänge darunter scheinen leicht durch.
     if grid.under(p).dug.is_some() {
         rgb = rgb.map(|c| c * 0.9);
+    }
+    if tile.flooded {
+        rgb = mix(rgb, [0.36, 0.56, 0.76], 0.75);
     }
     // Schnee deckt alles zu, nur ein Hauch der Farbe darunter bleibt.
     if grid.snow > 0.0 {
@@ -796,6 +893,11 @@ pub fn underground_color(grid: &Grid, p: TilePos) -> Color {
         // Offen nur ein dunkler Erdwall, verschlossen fast schwarz.
         let closed = if grid.plugs_closed { 0.85 } else { 0.55 };
         rgb = mix(rgb, [0.22, 0.14, 0.08], closed);
+    }
+    if tile.wet > 0.0 && tile.dug.is_some() {
+        // Vollgelaufen: blau, beim Abtrocknen schlammig.
+        let water = (tile.wet / 30.0).min(1.0);
+        rgb = mix(rgb, [0.30, 0.48, 0.70], 0.35 + 0.4 * water);
     }
     Color::srgb_from_array(unexplored_haze(grid, p, rgb))
 }

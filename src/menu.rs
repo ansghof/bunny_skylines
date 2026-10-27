@@ -142,13 +142,21 @@ fn spawn_title(mut commands: Commands, asset_server: Res<AssetServer>, mut time:
     menu_button(&mut commands, menu, "Beenden").observe(on_primary(quit));
 }
 
+/// So breit sind die Knöpfe der Kapitelwahl: Jeder Kapitelname passt in eine Zeile.
+const CHAPTER_BUTTON_WIDTH: f32 = 440.0;
+
 fn menu_button<'a>(commands: &'a mut Commands, parent: Entity, label: &str) -> EntityCommands<'a> {
+    sized_button(commands, parent, label, 260.0)
+}
+
+/// Ein Knopf mit eigener Breite, z. B. für die längeren Kapitelnamen.
+fn sized_button<'a>(commands: &'a mut Commands, parent: Entity, label: &str, width: f32) -> EntityCommands<'a> {
     let button = commands
         .spawn((
             MenuButton,
             Hovered::default(),
             Node {
-                width: Val::Px(260.0),
+                width: Val::Px(width),
                 justify_content: JustifyContent::Center,
                 padding: UiRect::axes(Val::Px(22.0), Val::Px(10.0)),
                 border_radius: BorderRadius::all(Val::Px(10.0)),
@@ -244,7 +252,7 @@ pub fn new_game(
         let number = chapter.number;
         if number <= unlocked {
             let label = format!("Kapitel {number}: {}", chapter.title);
-            menu_button(&mut commands, panel, &label).observe(move |click: On<PointerClick>, mut commands: Commands| {
+            sized_button(&mut commands, panel, &label, CHAPTER_BUTTON_WIDTH).observe(move |click: On<PointerClick>, mut commands: Commands| {
                 if click.button == PointerButton::Primary {
                     commands.run_system_cached(close_title);
                     commands.run_system_cached_with(start_chapter, number);
@@ -253,7 +261,7 @@ pub fn new_game(
         } else {
             let label = format!("Kapitel {number}: {}
 (erst Kapitel {} schaffen)", chapter.title, number - 1);
-            let mut button = menu_button(&mut commands, panel, &label);
+            let mut button = sized_button(&mut commands, panel, &label, CHAPTER_BUTTON_WIDTH);
             button.insert(BackgroundColor(LOCKED));
             button.remove::<MenuButton>();
         }

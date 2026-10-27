@@ -19,9 +19,12 @@
 //! - `familie=N`: so viele erwachsene Kaninchen zusätzlich in der Schlafkammer
 //! - `fangbild` oder `fangbild=S`: 0,8 s (oder S s) nach dem ersten Fang ein Bild machen
 //! - `fuchs`: gleich einen Fuchs schicken
+//! - `hochwasser`: Der Bach tritt gleich über die Ufer (nur in Kapitel 5)
 //! - `marder`: in der nächsten Nacht sofort einen Marder schicken (mit `nacht` gleich)
 //! - `pfadziehen` (mit `zeiger`): einen Pfad von rechts oben zum Eingang ziehen
 //! - `pfade`: Trampelpfade vom Eingang nach links
+//! - `auenbau`: ein Eingang in der Aue mit Gang zum Bau und tiefer Vorratskammer (Kapitel 5)
+//! - `damm`: ein Damm vor dem Eingang aus `auenbau`
 //! - `festplatz`: ein Festplatz (3 × 3) neben dem Eingang
 //! - `fluchtloecher`: Fluchtlöcher am und um den Startplatz
 //! - `wachen`: Nachtwache im Startgang einrichten; `pfropf`: Erdpfropf im Startgang
@@ -65,6 +68,7 @@ use crate::overlay::MapOverlay;
 use crate::bird::BuzzardSpawner;
 use crate::marten::MartenSpawner;
 use crate::predator::FoxSpawner;
+use crate::flood::Flood;
 use crate::menu::{OpenMenu, TitleScreen, close_title, new_game};
 use crate::save::{load_game, save_game};
 use crate::scenario::{Chapter, Dangers, Scenario, Stage, Target, Terrain, play_on, start_chapter, start_playing};
@@ -129,6 +133,7 @@ fn prepare(
     mut buzzards: ResMut<BuzzardSpawner>,
     mut martens: ResMut<MartenSpawner>,
     mut foxes: ResMut<FoxSpawner>,
+    mut flood: ResMut<Flood>,
 ) {
     if script.has("unten") {
         view.0 = Layer::Underground;
@@ -159,6 +164,29 @@ fn prepare(
         }
         for y in [14, 16] {
             grid.surface_mut(TilePos::new(15, y)).trail = true;
+        }
+    }
+    if script.has("auenbau") {
+        // Ein Eingang in der Aue, ein flacher Gang zum Hauptbau und darunter eine tiefe Vorratskammer.
+        let entrance = TilePos::new(18, 19);
+        grid.surface_mut(entrance).entrance = true;
+        for x in 18..=21 {
+            grid.under_mut(TilePos::new(x, 19)).dug = Some(Depth::Shallow);
+        }
+        for y in 16..=18 {
+            grid.under_mut(TilePos::new(21, y)).dug = Some(Depth::Shallow);
+        }
+        for x in 19..=20 {
+            let tile = grid.under_mut(TilePos::new(x, 18));
+            tile.dug = Some(Depth::Deep);
+            tile.chamber = Some(Chamber::Storage);
+        }
+        colony.food = 20.0;
+    }
+    if script.has("damm") {
+        // Ein Damm zwischen Bach und dem Eingang aus `auenbau`.
+        for y in 16..=22 {
+            grid.surface_mut(TilePos::new(17, y)).feature = Some(Feature::Dam);
         }
     }
     if script.has("festplatz") {
@@ -241,6 +269,9 @@ fn prepare(
     }
     if script.has("marder") {
         martens.summon();
+    }
+    if script.has("hochwasser") {
+        flood.summon();
     }
     if script.has("karte_weide") {
         *overlay = MapOverlay::Pasture;

@@ -45,7 +45,7 @@ const FLEE_SPEED: f32 = 165.0;
 const EDIBLE_GRASS: f32 = 0.3;
 const GUARD_SHIFT_SECONDS: f32 = 60.0;
 /// So lange meiden Kaninchen nach einer Flucht die Oberfläche.
-const FEAR_SECONDS: f32 = 12.0;
+pub const FEAR_SECONDS: f32 = 12.0;
 
 pub struct BehaviorPlugin;
 
@@ -513,6 +513,7 @@ fn find_grass(grid: &Grid, reserved: &Reserved, start: Node) -> Option<(TilePos,
         node.layer == Layer::Surface
             && !tile.entrance
             && !tile.post
+            && !tile.flooded
             && tile.feature.is_none_or(|f| f.keeps_grass())
             && tile.grass >= EDIBLE_GRASS
             && reserved.spot_free(node.pos)

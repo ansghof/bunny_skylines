@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Damm: ein aufgeschütteter Erdwall mit hellerer Krone und Holzpflöcken -->
+  <g fill="#5e4128"><circle cx="64" cy="64" r="40.0"/></g>
+  <g fill="#8a6240"><circle cx="64" cy="64" r="34.0"/></g>
+  <g fill="#a87d52"><circle cx="64" cy="64" r="16.0"/></g>
+  <ellipse cx="56" cy="60" rx="4.5" ry="4.5" fill="#4a2e18"/><ellipse cx="70" cy="70" rx="4.5" ry="4.5" fill="#4a2e18"/>
+</svg>

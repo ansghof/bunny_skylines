@@ -71,6 +71,8 @@ pub enum Terrain {
     StoneWall,
     /// Fast überall Sand: nur schmale Gänge, wenige feste Stellen.
     SandPit,
+    /// Ein Bach mit Aue, der im Frühling und nach Gewittern über die Ufer tritt.
+    Brook,
 }
 
 impl Terrain {
@@ -80,6 +82,7 @@ impl Terrain {
             Terrain::ForestEdge => Grid::forest_edge(),
             Terrain::StoneWall => Grid::stone_wall(),
             Terrain::SandPit => Grid::sand_pit(),
+            Terrain::Brook => Grid::brook(),
         }
     }
 }
@@ -196,7 +199,36 @@ const THE_SAND_PIT: Chapter = Chapter {
     night_tools: true,
 };
 
-pub const CHAPTERS: [&Chapter; 4] = [&THE_HEDGE, &THE_FOREST_EDGE, &THE_STONE_WALL, &THE_SAND_PIT];
+const THE_BROOK: Chapter = Chapter {
+    number: 5,
+    title: "Am Bach",
+    story: "Die Familie zieht an einen munteren Bach. In der Aue am Ufer wächst das saftigste Gras \
+            weit und breit. Doch zur Schneeschmelze und nach Gewittern tritt der Bach über die Ufer, \
+            und das Wasser läuft durch die Eingänge in den Bau – zuerst in die tiefsten Gänge.\n\n\
+            Baut Eingänge lieber nicht zu nah am Wasser, schützt den Bau mit Dämmen und Erdpfropfen \
+            und legt Vorräte nicht ganz unten an. Über den Bach kommt ihr nur an den Furten. \
+            Bringt die Familie durch zwei Frühlingshochwasser.",
+    targets: &[Target::Rabbits(25), Target::Year(3)],
+    max_losses: None,
+    terrain: Terrain::Brook,
+    dangers: Dangers { first_fox: 400.0, fox_pace: 0.5, buzzard_from_start: false, marten_from_start: false },
+    known: &[
+        Tech::Posts,
+        Tech::Hedges,
+        Tech::Clover,
+        Tech::Claws,
+        Tech::DeepTunnels,
+        Tech::DriedHay,
+        Tech::BoltHoles,
+        Tech::SunSpots,
+        Tech::Nursery,
+    ],
+    relatives: 4,
+    start_earth: 25.0,
+    night_tools: true,
+};
+
+pub const CHAPTERS: [&Chapter; 5] = [&THE_HEDGE, &THE_FOREST_EDGE, &THE_STONE_WALL, &THE_SAND_PIT, &THE_BROOK];
 
 /// Das Kapitel mit dieser Nummer; unbekannte Nummern ergeben das erste.
 pub fn chapter(number: u32) -> &'static Chapter {
@@ -377,6 +409,7 @@ fn check_goals(
         Terrain::ForestEdge => "das Jahr am Waldrand überstanden",
         Terrain::StoneWall => "den Winter am Steinwall ohne große Verluste überstanden",
         Terrain::SandPit => "an der Sandgrube eine große Familie gegründet",
+        Terrain::Brook => "zwei Hochwasser am Bach überstanden",
     };
     let body = format!(
         "Die Familie Buddelberg hat {feat}: {} Kaninchen und {:.0} Futter im Vorrat, im {} von Jahr {}.\n\n{outlook}",

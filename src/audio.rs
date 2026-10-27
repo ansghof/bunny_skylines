@@ -35,10 +35,11 @@ pub enum Sound {
     Click,
     Victory,
     Extinct,
+    Flood,
 }
 
 impl Sound {
-    const ALL: [Sound; 12] = [
+    const ALL: [Sound; 13] = [
         Sound::Stomp,
         Sound::Alarm,
         Sound::Dig,
@@ -51,6 +52,7 @@ impl Sound {
         Sound::Click,
         Sound::Victory,
         Sound::Extinct,
+        Sound::Flood,
     ];
 
     fn file(self) -> &'static str {
@@ -67,6 +69,7 @@ impl Sound {
             Sound::Click => "klick",
             Sound::Victory => "sieg",
             Sound::Extinct => "ende",
+            Sound::Flood => "wasser",
         }
     }
 

@@ -15,6 +15,7 @@ use crate::behavior::{Activity, BehaviorSet, Fear, Goal, Path, Reserved, current
 use crate::camera::{Orbit, figure_layer};
 use crate::colony::{Messages, Rng};
 use crate::daynight::DayClock;
+use crate::flood::Flood;
 use crate::ground::{floor_y, to_world3};
 use crate::map::{Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
 use crate::pathfinding::{Node, find_path, neighbors};
@@ -397,19 +398,20 @@ fn nearest_exit(position: Vec2) -> Vec2 {
     .unwrap()
 }
 
-/// Solange ein Marder im Bau ist, sind alle Erdpfropfen geschlossen.
-fn close_plugs(mut grid: ResMut<Grid>, mut messages: ResMut<Messages>, martens: Query<&Marten>) {
+/// Solange ein Marder im Bau ist oder Hochwasser droht, sind alle Erdpfropfen geschlossen.
+fn close_plugs(mut grid: ResMut<Grid>, mut messages: ResMut<Messages>, flood: Res<Flood>, martens: Query<&Marten>) {
     let inside = martens.iter().any(|m| m.hunt == Hunt::Inside);
-    if grid.plugs_closed == inside {
+    let closed = inside || flood.plugs_needed();
+    if grid.plugs_closed == closed {
         return;
     }
     let any_plug = Grid::positions().any(|p| grid.under(p).plug);
-    grid.plugs_closed = inside;
+    grid.plugs_closed = closed;
     if any_plug {
-        messages.push(if inside {
-            "Die Erdpfropfen werden mit Erde verschlossen!"
-        } else {
-            "Die Erdpfropfen sind wieder offen."
+        messages.push(match (closed, inside) {
+            (true, true) => "Die Erdpfropfen werden mit Erde verschlossen!",
+            (true, false) => "Die Erdpfropfen werden gegen das Wasser verschlossen!",
+            (false, _) => "Die Erdpfropfen sind wieder offen.",
         });
     }
 }

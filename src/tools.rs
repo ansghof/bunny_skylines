@@ -104,7 +104,7 @@ pub enum Lock {
 }
 
 /// Alle Werkzeuge in der Reihenfolge der Werkzeugleiste, mit Taste und Tastenname.
-pub const TOOLS: [(ToolKind, KeyCode, &str); 21] = [
+pub const TOOLS: [(ToolKind, KeyCode, &str); 22] = [
     (ToolKind::Point, KeyCode::Escape, "Esc"),
     (ToolKind::Dig, KeyCode::KeyG, "G"),
     (ToolKind::Entrance, KeyCode::KeyE, "E"),
@@ -115,6 +115,7 @@ pub const TOOLS: [(ToolKind, KeyCode, &str); 21] = [
     (ToolKind::Post, KeyCode::KeyP, "P"),
     (ToolKind::Feature(Feature::Hedge), KeyCode::KeyH, "H"),
     (ToolKind::Feature(Feature::BoltHole), KeyCode::KeyL, "L"),
+    (ToolKind::Feature(Feature::Dam), KeyCode::Digit8, "8"),
     (ToolKind::Feature(Feature::SunSpot), KeyCode::KeyO, "O"),
     (ToolKind::Clover, KeyCode::KeyK, "K"),
     (ToolKind::Feature(Feature::Herbs), KeyCode::KeyU, "U"),
@@ -138,7 +139,7 @@ impl ToolKind {
             ToolKind::Post
             | ToolKind::Watch
             | ToolKind::Plug
-            | ToolKind::Feature(Feature::Hedge | Feature::BoltHole) => ToolGroup::Safety,
+            | ToolKind::Feature(Feature::Hedge | Feature::BoltHole | Feature::Dam) => ToolGroup::Safety,
             ToolKind::Feature(Feature::SunSpot | Feature::Playground | Feature::Festival) => ToolGroup::Community,
             ToolKind::Land | ToolKind::Trail => ToolGroup::Land,
             ToolKind::Remove => ToolGroup::Remove,
@@ -183,6 +184,10 @@ impl ToolKind {
                 "Ein kleines Versteck draußen: Flüchtende verschwinden darin, der Fuchs kommt nicht ran."
             }
             ToolKind::Feature(Feature::SunSpot) => "Kaninchen in der Nähe sonnen sich und werden zufriedener.",
+            ToolKind::Feature(Feature::Dam) => {
+                "Ein Erdwall gegen Hochwasser: Das Wasser kommt nicht hindurch, Eingänge dahinter bleiben trocken. \
+                 Wie beim Pfad zieht man ihn als Linie."
+            }
             ToolKind::Feature(Feature::Herbs) => "Kräuter zum Fressen: Wer hier frisst, wird deutlich zufriedener.",
             ToolKind::Feature(Feature::Playground) => "Jedes Feld Spielwiese macht die ganze Familie etwas zufriedener.",
             ToolKind::Feature(Feature::Carrots) => "Möhren wachsen langsam, machen aber dreimal so satt wie Gras.",
@@ -223,6 +228,7 @@ impl ToolKind {
             ToolKind::Feature(Feature::Playground) => Some((0.0, cost::PLAYGROUND_EARTH)),
             ToolKind::Feature(Feature::Carrots) => Some((cost::CARROTS_FOOD, 0.0)),
             ToolKind::Feature(Feature::Festival) => Some((0.0, cost::FESTIVAL_EARTH)),
+            ToolKind::Feature(Feature::Dam) => Some((0.0, cost::DAM_EARTH)),
             ToolKind::Trail => Some((0.0, cost::TRAIL_EARTH)),
             ToolKind::Plug => Some((0.0, cost::PLUG_EARTH)),
             ToolKind::Watch => Some((0.0, cost::WATCH_EARTH)),
@@ -371,7 +377,7 @@ fn select_tool(
 
 /// Ob ein Oberflächen-Bau auf dieses Feld passt: ein Bau pro Feld, nicht auf Eingänge.
 fn surface_free(field: &SurfaceTile) -> bool {
-    !field.entrance && !field.entrance_planned && !field.post && !field.clover && field.feature.is_none()
+    !field.entrance && !field.entrance_planned && !field.post && !field.clover && field.feature.is_none() && !field.water
 }
 
 pub(crate) fn apply_drag(
@@ -461,7 +467,7 @@ pub(crate) fn apply_drag(
             }
             ToolKind::Entrance => {
                 let field = grid.surface(p);
-                if field.entrance || field.post || field.feature.is_some() {
+                if field.entrance || field.post || field.feature.is_some() || field.water {
                     continue;
                 }
                 // Unter einem Eingang entsteht ein Gang, also gilt auch hier die Breite.
@@ -492,7 +498,7 @@ pub(crate) fn apply_drag(
             }
             ToolKind::Trail => {
                 let field = grid.surface(p);
-                if field.trail || field.entrance {
+                if field.trail || field.entrance || field.water {
                     continue;
                 }
                 if !colony.pay(0.0, cost::TRAIL_EARTH) {
@@ -675,7 +681,7 @@ fn trail_route(start: TilePos, end: TilePos) -> Vec<TilePos> {
 fn drag_tiles(kind: ToolKind, start: TilePos, end: TilePos) -> Vec<TilePos> {
     match kind {
         _ if kind.is_single() => vec![end],
-        ToolKind::Trail => trail_route(start, end),
+        ToolKind::Trail | ToolKind::Feature(Feature::Dam) => trail_route(start, end),
         _ => tiles_between(start, end).collect(),
     }
 }
@@ -736,7 +742,10 @@ fn priced_tiles(grid: &Grid, kind: ToolKind, start: TilePos, end: TilePos) -> us
                 let tile = grid.under(*p);
                 (tile.dug.is_some() || tile.planned.is_some()) && tile.chamber != Some(Chamber::Sleeping)
             }
-            ToolKind::Trail => !grid.surface(*p).trail && !grid.surface(*p).entrance,
+            ToolKind::Trail => {
+                let field = grid.surface(*p);
+                !field.trail && !field.entrance && !field.water
+            }
             _ => surface_free(grid.surface(*p)),
         })
         .count()
@@ -865,7 +874,7 @@ fn draw_preview(
         return;
     }
     // Ein Pfad zeigt seinen Weg Feld für Feld, alles andere den aufgezogenen Bereich.
-    if tool.kind == ToolKind::Trail {
+    if matches!(tool.kind, ToolKind::Trail | ToolKind::Feature(Feature::Dam)) {
         for p in trail_route(start, end) {
             let half = TILE_SIZE / 2.0 - 6.0;
             gizmo_rect(&mut gizmos, p.center() - half, p.center() + half, 0.0, color);

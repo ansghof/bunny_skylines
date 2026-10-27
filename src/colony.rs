@@ -21,6 +21,8 @@ pub mod cost {
     pub const CARROTS_FOOD: f32 = 3.0;
     /// Ein Festplatz wird aus Erde aufgeschüttet.
     pub const FESTIVAL_EARTH: f32 = 15.0;
+    /// Ein Feld Damm gegen Hochwasser.
+    pub const DAM_EARTH: f32 = 2.0;
     /// Ein Erdpfropf braucht Erde zum Verschließen.
     pub const PLUG_EARTH: f32 = 2.0;
     /// Ein Platz für die Nachtwache.
