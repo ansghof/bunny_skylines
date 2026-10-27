@@ -9,7 +9,9 @@ use crate::camera::CursorWorld;
 use crate::colony::{Colony, Messages, cost};
 use crate::daynight::DayClock;
 use crate::ground::gizmo_rect;
-use crate::map::{Plot, Chamber, Depth, Feature, Grid, Layer, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, tiles_between};
+use crate::map::{
+    Chamber, Depth, Feature, Grid, Layer, Plot, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, footprint, tiles_between,
+};
 use crate::progress::{Progress, Stage, Tech};
 use crate::toolbar::Toolbar;
 
@@ -185,7 +187,7 @@ impl ToolKind {
             ToolKind::Feature(Feature::Playground) => "Jedes Feld Spielwiese macht die ganze Familie etwas zufriedener.",
             ToolKind::Feature(Feature::Carrots) => "Möhren wachsen langsam, machen aber dreimal so satt wie Gras.",
             ToolKind::Feature(Feature::Festival) => {
-                "Hier feiert die Familie: Wer kein Nest hat, ist weniger unglücklich und zieht erst nach vier Nächten fort."
+                "Ein großer Platz (3 × 3 Felder), auf dem die Familie feiert: Wer kein Nest hat, ist weniger \n                 unglücklich und zieht erst nach vier Nächten fort."
             }
             ToolKind::Plug => {
                 "Eine Stelle im Gang, die bei einem Marder sofort mit Erde verschlossen wird. \
@@ -290,7 +292,7 @@ impl ToolKind {
                 | ToolKind::Land
                 | ToolKind::Plug
                 | ToolKind::Watch
-                | ToolKind::Feature(Feature::BoltHole | Feature::SunSpot)
+                | ToolKind::Feature(Feature::BoltHole | Feature::SunSpot | Feature::Festival)
         )
     }
 
@@ -423,6 +425,13 @@ pub(crate) fn apply_drag(
     }
     // Manche Bauten immer einzeln, ein ganzer Bereich davon ergibt keinen Sinn.
     let tiles: Vec<TilePos> = drag_tiles(tool.kind, start, end);
+
+    if let ToolKind::Feature(feature) = tool.kind
+        && feature.size() > 1
+    {
+        build_big(feature, end, &mut grid, &mut colony, &mut messages);
+        return;
+    }
 
     let mut short = false;
     let mut too_wide = None;
@@ -562,10 +571,7 @@ pub(crate) fn apply_drag(
                 if std::mem::take(&mut field.post) {
                     colony.earth += cost::POST_EARTH;
                 }
-                if let Some(feature) = field.feature.take() {
-                    let (_, earth) = ToolKind::Feature(feature).price().unwrap_or_default();
-                    colony.earth += earth;
-                }
+                remove_feature(&mut grid, &mut colony, p);
             }
         }
     }
@@ -674,6 +680,54 @@ fn drag_tiles(kind: ToolKind, start: TilePos, end: TilePos) -> Vec<TilePos> {
     }
 }
 
+/// Reißt den Bau auf `p` ab und gibt seine Erde zurück; ein großer Bau verschwindet ganz,
+/// egal welches seiner Felder man trifft.
+fn remove_feature(grid: &mut Grid, colony: &mut Colony, p: TilePos) {
+    let field = grid.surface_mut(p);
+    let Some(feature) = field.feature.take() else {
+        return;
+    };
+    let (_, earth) = ToolKind::Feature(feature).price().unwrap_or_default();
+    colony.earth += earth;
+    if let Some(center) = field.part_of.take() {
+        for q in footprint(center, feature.size()) {
+            let part = grid.surface_mut(q);
+            if part.part_of == Some(center) {
+                part.feature = None;
+                part.part_of = None;
+            }
+        }
+    }
+}
+
+/// Warum ein großer Bau hier nicht passt, oder `None`, wenn alle seine Felder frei sind.
+fn big_blocked(feature: Feature, center: TilePos, grid: &Grid) -> Option<String> {
+    let size = feature.size();
+    let fits = footprint(center, size).all(|q| q.in_bounds() && grid.owns(q) && surface_free(grid.surface(q)));
+    (!fits).then(|| format!("{} braucht {size} × {size} freie Felder auf eigenem Land.", feature.label()))
+}
+
+/// Setzt einen großen Bau mit dem Mittelfeld `center` und bezahlt ihn einmal.
+fn build_big(feature: Feature, center: TilePos, grid: &mut Grid, colony: &mut Colony, messages: &mut Messages) {
+    if let Some(reason) = big_blocked(feature, center, grid) {
+        messages.push(reason);
+        return;
+    }
+    let (food, earth) = ToolKind::Feature(feature).price().unwrap_or_default();
+    if !colony.pay(food, earth) {
+        messages.push(format!("Für {} fehlt Erde: {earth:.0} nötig.", feature.label()));
+        return;
+    }
+    for q in footprint(center, feature.size()) {
+        let field = grid.surface_mut(q);
+        field.feature = Some(feature);
+        field.part_of = Some(center);
+        if !feature.keeps_grass() {
+            field.grass = 0.0;
+        }
+    }
+}
+
 fn priced_tiles(grid: &Grid, kind: ToolKind, start: TilePos, end: TilePos) -> usize {
     drag_tiles(kind, start, end)
         .into_iter()
@@ -774,6 +828,19 @@ fn draw_preview(
             _ => format!("Boden: {}, Gänge bis {width} breit.", soil.label()),
         })
     });
+    // Ein großer Bau zeigt, was er kostet oder warum er hier nicht hinpasst.
+    let big = match tool.kind {
+        ToolKind::Feature(feature) if feature.size() > 1 => Some(feature),
+        _ => None,
+    };
+    let info = info.or_else(|| {
+        let feature = big?;
+        let center = TilePos::from_world_clamped(cursor);
+        let (_, earth) = tool.kind.price()?;
+        Some(big_blocked(feature, center, &grid).unwrap_or_else(|| {
+            format!("{}: {earth:.0} Erde (vorhanden: {:.0}).", feature.label(), colony.earth)
+        }))
+    });
     if selection.0 != info {
         selection.0 = info;
     }
@@ -789,6 +856,14 @@ fn draw_preview(
         Some(start) if buttons.pressed(MouseButton::Left) && !tool.kind.is_single() => start,
         _ => end,
     };
+    // Ein großer Bau zeigt seine ganze Fläche, rot, wenn sie nicht frei ist.
+    if let Some(feature) = big {
+        let blocked = big_blocked(feature, end, &grid).is_some();
+        let color = if blocked { Color::srgba(0.9, 0.3, 0.2, 0.8) } else { color };
+        let reach = (feature.size() / 2) as f32 * TILE_SIZE + TILE_SIZE / 2.0;
+        gizmo_rect(&mut gizmos, end.center() - reach, end.center() + reach, 0.0, color);
+        return;
+    }
     // Ein Pfad zeigt seinen Weg Feld für Feld, alles andere den aufgezogenen Bereich.
     if tool.kind == ToolKind::Trail {
         for p in trail_route(start, end) {
@@ -816,5 +891,26 @@ mod tests {
         assert_eq!(route.len(), 10);
         assert!(route.windows(2).all(|w| (w[0].x - w[1].x).abs() + (w[0].y - w[1].y).abs() == 1));
         assert!(route.contains(&TilePos::new(20, 18)), "die Ecke liegt über dem Ziel");
+    }
+
+    #[test]
+    fn a_festival_is_built_and_removed_as_a_whole() {
+        let mut grid = Grid::starting_meadow();
+        let mut colony = Colony { earth: 20.0, ..default() };
+        let mut messages = Messages::default();
+        let center = TilePos::new(16, 17);
+        build_big(Feature::Festival, center, &mut grid, &mut colony, &mut messages);
+        assert_eq!(colony.earth, 20.0 - cost::FESTIVAL_EARTH, "einmal bezahlt, nicht pro Feld");
+        assert!(footprint(center, 3).all(|q| grid.surface(q).part_of == Some(center)));
+
+        // Ein zweiter, der sich mit dem ersten überschneidet, passt nicht hin.
+        colony.earth = 100.0;
+        build_big(Feature::Festival, TilePos::new(18, 17), &mut grid, &mut colony, &mut messages);
+        assert_eq!(colony.earth, 100.0);
+
+        // Abreißen an einer Ecke entfernt alle neun Felder.
+        remove_feature(&mut grid, &mut colony, TilePos::new(15, 16));
+        assert!(footprint(center, 3).all(|q| grid.surface(q).feature.is_none()));
+        assert_eq!(colony.earth, 100.0 + cost::FESTIVAL_EARTH);
     }
 }

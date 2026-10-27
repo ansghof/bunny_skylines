@@ -56,7 +56,7 @@ impl Plugin for MapPlugin {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TilePos {
     pub x: i32,
     pub y: i32,
@@ -100,6 +100,15 @@ impl TilePos {
 
 fn map_origin() -> Vec2 {
     -Vec2::new(MAP_WIDTH as f32, MAP_HEIGHT as f32) * TILE_SIZE / 2.0
+}
+
+/// Die Felder, die ein Bau der Seitenlänge `size` um sein Mittelfeld belegt.
+pub fn footprint(center: TilePos, size: i32) -> impl Iterator<Item = TilePos> {
+    let reach = size / 2;
+    tiles_between(
+        TilePos::new(center.x - reach, center.y - reach),
+        TilePos::new(center.x + reach, center.y + reach),
+    )
 }
 
 /// Alle Felder eines Rechtecks zwischen zwei Ecken, egal in welcher Richtung gezogen wurde.
@@ -220,6 +229,14 @@ impl Feature {
     }
 
     /// Ob auf dem Feld weiter Gras zum Fressen wächst.
+    /// Seitenlänge in Feldern: Große Bauten belegen ein Quadrat um ihr Mittelfeld.
+    pub fn size(self) -> i32 {
+        match self {
+            Feature::Festival => 3,
+            _ => 1,
+        }
+    }
+
     pub fn keeps_grass(self) -> bool {
         matches!(self, Feature::Herbs | Feature::SunSpot | Feature::Playground | Feature::Carrots)
     }
@@ -256,6 +273,9 @@ pub struct SurfaceTile {
     /// Ein Trampelpfad: Hier hoppeln Kaninchen schneller, das Gras wächst trotzdem.
     #[serde(default)]
     pub trail: bool,
+    /// Gehört zu einem großen Bau: das Mittelfeld, auf dem er steht.
+    #[serde(default)]
+    pub part_of: Option<TilePos>,
 }
 
 impl SurfaceTile {

@@ -86,7 +86,8 @@ const IMAGES: [(&str, Vec2); 24] = [
     ("baum.png", Vec2::new(320.0, 440.0)),
     ("steinwall.png", Vec2::new(140.0, 114.0)),
     ("moehren.png", Vec2::new(128.0, 128.0)),
-    ("festplatz.png", Vec2::new(128.0, 128.0)),
+    // Der Festplatz ist 3 × 3 Felder groß.
+    ("festplatz.png", Vec2::new(384.0, 384.0)),
     ("pfad_punkt.png", Vec2::new(128.0, 128.0)),
     ("pfad_ende.png", Vec2::new(128.0, 128.0)),
     ("pfad_gerade.png", Vec2::new(128.0, 128.0)),
@@ -265,7 +266,10 @@ fn place_furnishing(
             wanted.insert((p, Kind::Clover), "klee.png");
         }
         // Kräuter und Möhren sieht man nur, solange sie nicht abgefressen sind; alles andere immer.
+        // Ein großer Bau hat ein einziges Bild, auf seinem Mittelfeld.
+        let big_part = surface.part_of.is_some_and(|center| center != p);
         if let Some(feature) = surface.feature
+            && !big_part
             && (!matches!(feature, Feature::Herbs | Feature::Carrots) || surface.grass > 0.25)
         {
             wanted.insert((p, Kind::Built(feature)), feature_image(feature));

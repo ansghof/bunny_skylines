@@ -1,8 +1,73 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <!-- Festplatz von oben: ein runder, festgetretener Platz mit Wimpelkette und Blumen -->
-  <circle cx="64" cy="64" r="54" fill="#d9c08a" stroke="#8a6a3a" stroke-width="3"/>
-  <circle cx="64" cy="64" r="34" fill="#e6d2a2"/>
-  <path d="M14 40 Q64 70 114 40" stroke="#5a3a22" stroke-width="2.5" fill="none"/>
-  <path d="M24 46 l5 12 l5 -10 Z" fill="#e8873a"/><path d="M42 53 l5 12 l5 -11 Z" fill="#f4cf45"/><path d="M60 56 l5 11 l5 -11 Z" fill="#6fae5a"/><path d="M78 54 l5 11 l5 -12 Z" fill="#7aa8e0"/><path d="M96 48 l5 10 l5 -12 Z" fill="#d96a8a"/>
-  <circle cx="30" cy="92" r="5" fill="#f2b8b0"/><circle cx="98" cy="96" r="5" fill="#f4e7a0"/><circle cx="64" cy="104" r="5" fill="#b98ad9"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="384" viewBox="0 0 384 384">
+  <!-- Festplatz von oben, 3 × 3 Felder: ein runder, festgetretener Platz mit Blumenmast in der Mitte,
+       Wimpelketten zu vier Pfosten, einer Festtafel mit Möhren und Klee und Blumen am Rand -->
+  <defs>
+    <radialGradient id="platz" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ead7a8"/>
+      <stop offset="70%" stop-color="#dcc28c"/>
+      <stop offset="100%" stop-color="#c9a970"/>
+    </radialGradient>
+  </defs>
+  <!-- Der Platz mit weichem Rand ins Gras -->
+  <circle cx="192" cy="192" r="176" fill="#b9985e" opacity="0.55"/>
+  <circle cx="192" cy="192" r="166" fill="url(#platz)" stroke="#8a6a3a" stroke-width="4"/>
+  <!-- Ein Tanzkreis aus kleinen Steinen -->
+  <g fill="#a8946e">
+    <ellipse cx="192" cy="110" rx="6" ry="4.5"/><ellipse cx="250" cy="134" rx="6" ry="4.5"/>
+    <ellipse cx="274" cy="192" rx="6" ry="4.5"/><ellipse cx="250" cy="250" rx="6" ry="4.5"/>
+    <ellipse cx="192" cy="274" rx="6" ry="4.5"/><ellipse cx="134" cy="250" rx="6" ry="4.5"/>
+    <ellipse cx="110" cy="192" rx="6" ry="4.5"/><ellipse cx="134" cy="134" rx="6" ry="4.5"/>
+  </g>
+  <!-- Pfotenspuren vom Tanzen -->
+  <g fill="#c2a46e" opacity="0.8">
+    <ellipse cx="160" cy="150" rx="4" ry="6"/><ellipse cx="170" cy="144" rx="4" ry="6"/>
+    <ellipse cx="226" cy="236" rx="4" ry="6"/><ellipse cx="236" cy="230" rx="4" ry="6"/>
+    <ellipse cx="148" cy="224" rx="4" ry="6"/><ellipse cx="232" cy="156" rx="4" ry="6"/>
+  </g>
+  <!-- Wimpelketten vom Mast zu den vier Pfosten -->
+  <g stroke="#5a3a22" stroke-width="3" fill="none">
+    <path d="M192 192 Q130 150 70 70"/><path d="M192 192 Q254 150 314 70"/>
+    <path d="M192 192 Q254 234 314 314"/><path d="M192 192 Q130 234 70 314"/>
+  </g>
+  <g>
+    <path d="M166 168 l10 10 l-2 -15 Z" fill="#e8873a"/><path d="M140 140 l11 9 l-3 -15 Z" fill="#f4cf45"/>
+    <path d="M114 112 l11 8 l-4 -15 Z" fill="#6fae5a"/><path d="M90 86 l11 7 l-5 -14 Z" fill="#7aa8e0"/>
+    <path d="M218 168 l-10 10 l2 -15 Z" fill="#d96a8a"/><path d="M244 140 l-11 9 l3 -15 Z" fill="#7aa8e0"/>
+    <path d="M270 112 l-11 8 l4 -15 Z" fill="#f4cf45"/><path d="M294 86 l-11 7 l5 -14 Z" fill="#e8873a"/>
+    <path d="M218 216 l-10 -10 l2 15 Z" fill="#6fae5a"/><path d="M244 244 l-11 -9 l3 15 Z" fill="#e8873a"/>
+    <path d="M270 272 l-11 -8 l4 15 Z" fill="#d96a8a"/><path d="M294 298 l-11 -7 l5 14 Z" fill="#f4cf45"/>
+    <path d="M166 216 l10 -10 l-2 15 Z" fill="#7aa8e0"/><path d="M140 244 l11 -9 l-3 15 Z" fill="#d96a8a"/>
+    <path d="M114 272 l11 -8 l-4 15 Z" fill="#e8873a"/><path d="M90 298 l11 -7 l-5 14 Z" fill="#6fae5a"/>
+  </g>
+  <!-- Vier Pfosten, von oben gesehen -->
+  <g fill="#8a5a32" stroke="#4a2e18" stroke-width="3">
+    <circle cx="70" cy="70" r="10"/><circle cx="314" cy="70" r="10"/>
+    <circle cx="314" cy="314" r="10"/><circle cx="70" cy="314" r="10"/>
+  </g>
+  <!-- Blumenmast in der Mitte mit Kranz -->
+  <circle cx="192" cy="192" r="24" fill="#6fae5a" stroke="#3f7a3a" stroke-width="3"/>
+  <g>
+    <circle cx="192" cy="170" r="6" fill="#f2b8b0"/><circle cx="213" cy="186" r="6" fill="#f4e7a0"/>
+    <circle cx="205" cy="211" r="6" fill="#b98ad9"/><circle cx="179" cy="211" r="6" fill="#f2b8b0"/>
+    <circle cx="171" cy="186" r="6" fill="#ffffff"/>
+  </g>
+  <circle cx="192" cy="192" r="11" fill="#a0703e" stroke="#5a3a22" stroke-width="3"/>
+  <!-- Festtafel unten: ein Baumstumpf mit Möhren und Kleeblättern -->
+  <ellipse cx="192" cy="318" rx="44" ry="22" fill="#a0703e" stroke="#5a3a22" stroke-width="3"/>
+  <ellipse cx="192" cy="318" rx="30" ry="13" fill="none" stroke="#7a5230" stroke-width="2"/>
+  <g stroke="#3f7a3a" stroke-width="3">
+    <path d="M172 314 l18 -4" fill="none"/><path d="M196 322 l18 -6" fill="none"/>
+  </g>
+  <path d="M160 316 l14 -3 l-12 7 Z" fill="#ee8a2e"/><path d="M184 324 l14 -5 l-12 9 Z" fill="#ee8a2e"/>
+  <g fill="#5fa04e"><circle cx="214" cy="306" r="5"/><circle cx="221" cy="310" r="5"/><circle cx="215" cy="313" r="5"/></g>
+  <!-- Blumen am Rand -->
+  <g>
+    <circle cx="44" cy="192" r="7" fill="#f2b8b0"/><circle cx="44" cy="192" r="2.5" fill="#f4cf45"/>
+    <circle cx="340" cy="192" r="7" fill="#b98ad9"/><circle cx="340" cy="192" r="2.5" fill="#f4cf45"/>
+    <circle cx="192" cy="40" r="7" fill="#f4e7a0"/><circle cx="192" cy="40" r="2.5" fill="#e8873a"/>
+    <circle cx="96" cy="300" r="6" fill="#ffffff"/><circle cx="96" cy="300" r="2.2" fill="#f4cf45"/>
+    <circle cx="290" cy="96" r="6" fill="#f2b8b0"/><circle cx="290" cy="96" r="2.2" fill="#f4cf45"/>
+    <circle cx="300" cy="286" r="6" fill="#b98ad9"/><circle cx="300" cy="286" r="2.2" fill="#f4cf45"/>
+    <circle cx="86" cy="98" r="6" fill="#f4e7a0"/><circle cx="86" cy="98" r="2.2" fill="#e8873a"/>
+  </g>
 </svg>

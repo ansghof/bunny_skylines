@@ -22,6 +22,7 @@
 //! - `marder`: in der nächsten Nacht sofort einen Marder schicken (mit `nacht` gleich)
 //! - `pfadziehen` (mit `zeiger`): einen Pfad von rechts oben zum Eingang ziehen
 //! - `pfade`: Trampelpfade vom Eingang nach links
+//! - `festplatz`: ein Festplatz (3 × 3) neben dem Eingang
 //! - `fluchtloecher`: Fluchtlöcher am und um den Startplatz
 //! - `wachen`: Nachtwache im Startgang einrichten; `pfropf`: Erdpfropf im Startgang
 //! - `bussard`: gleich einen Bussard schicken
@@ -53,7 +54,7 @@ use crate::camera::{CursorWorld, Orbit, update_cursor};
 use crate::colony::{Colony, Messages, Rng};
 use crate::daynight::{DayClock, Season};
 use crate::ending::{EndScreen, restart};
-use crate::map::{Chamber, Depth, Feature, Grid, Layer, TilePos, ViewLayer, tiles_between};
+use crate::map::{Chamber, Depth, Feature, Grid, Layer, TilePos, ViewLayer, footprint, tiles_between};
 use crate::progress::Progress;
 use crate::toolbar::{Action, ResearchOpen, Tooltip};
 use crate::tools::{Tool, ToolKind, apply_drag};
@@ -158,6 +159,15 @@ fn prepare(
         }
         for y in [14, 16] {
             grid.surface_mut(TilePos::new(15, y)).trail = true;
+        }
+    }
+    if script.has("festplatz") {
+        // Ein Festplatz (3 × 3) links unter dem Eingang.
+        let center = TilePos::new(16, 17);
+        for q in footprint(center, Feature::Festival.size()) {
+            let field = grid.surface_mut(q);
+            field.feature = Some(Feature::Festival);
+            field.part_of = Some(center);
         }
     }
     if script.has("fluchtloecher") {
