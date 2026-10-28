@@ -8,6 +8,8 @@ use crate::audio::{Sound, Sounds};
 use crate::colony::Messages;
 use crate::ground::gizmo_circle;
 use crate::map::{Grid, Layer, TILE_SIZE};
+use crate::bird::Buzzard;
+use crate::behavior::is_hidden;
 use crate::predator::Fox;
 use crate::rabbit::{OnLayer, Rabbit, Stomping};
 
@@ -32,7 +34,7 @@ impl Plugin for DangerPlugin {
             .init_resource::<AlarmButton>()
             .add_systems(
                 Update,
-                (guards_watch, notice_foxes, alarm_button, spread_alarms, draw_rings)
+                (guards_watch, notice_foxes, alarm_button, spread_alarms, keep_inside, draw_rings)
                     .chain()
                     .after(BehaviorSet),
             );
@@ -88,7 +90,7 @@ fn guards_watch(
     mut reserved: ResMut<Reserved>,
     mut alarms: ResMut<Alarms>,
     mut messages: ResMut<Messages>,
-    foxes: Query<&Transform, With<Fox>>,
+    mut foxes: Query<(&mut Fox, &Transform)>,
     mut guards: Query<(Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear)>,
 ) {
     for (entity, rabbit, transform, layer, mut activity, mut path, mut fear) in &mut guards {
@@ -98,7 +100,13 @@ fn guards_watch(
         }
         let position = transform.translation.truncate();
         // Gute Wachen sehen den Fuchs schon, wenn er noch im Gebüsch lauert.
-        let sees_fox = foxes.iter().any(|fox| fox.translation.truncate().distance(position) < GUARD_SIGHT);
+        let mut sees_fox = false;
+        for (mut fox, at) in &mut foxes {
+            if at.translation.truncate().distance(position) < GUARD_SIGHT {
+                sees_fox = true;
+                fox.known = true;
+            }
+        }
         if !sees_fox {
             continue;
         }
@@ -122,21 +130,52 @@ fn guards_watch(
 fn notice_foxes(
     grid: Res<Grid>,
     mut reserved: ResMut<Reserved>,
-    foxes: Query<(&Fox, &Transform)>,
+    mut foxes: Query<(&mut Fox, &Transform)>,
     mut rabbits: FlightQuery,
 ) {
-    let visible: Vec<Vec2> = foxes
-        .iter()
-        .filter(|(fox, _)| fox.is_out())
-        .map(|(_, t)| t.translation.truncate())
-        .collect();
-    if visible.is_empty() {
+    for (mut fox, at) in &mut foxes {
+        if !fox.is_out() {
+            continue;
+        }
+        let fox_at = at.translation.truncate();
+        for (transform, layer, mut activity, mut path, _, mut fear) in &mut rabbits {
+            if layer.0 == Layer::Surface && fox_at.distance(transform.translation.truncate()) < NOTICE_RADIUS {
+                start_flight(&grid, &mut reserved, transform, layer, &mut activity, &mut path, &mut fear);
+                fox.known = true;
+            }
+        }
+    }
+}
+
+/// So lange hält das Wissen um einen Feind noch nach, wenn er schon fort ist.
+const KEEP_INSIDE_SECONDS: f32 = 1.0;
+
+/// Solange ein bemerkter Fuchs oder Bussard noch da ist, bleibt im Bau, wer drinnen ist, und im
+/// Fluchtloch, wer dort sitzt: Ihre Angst läuft nicht ab. Zieht der letzte Feind ab, gibt es Entwarnung.
+fn keep_inside(
+    grid: Res<Grid>,
+    mut messages: ResMut<Messages>,
+    foxes: Query<&Fox>,
+    buzzards: Query<&Buzzard>,
+    mut rabbits: Query<(&Transform, &OnLayer, &mut Fear), With<Rabbit>>,
+    mut before: Local<(bool, bool)>,
+) {
+    let fox = foxes.iter().any(Fox::is_known_threat);
+    let bird = buzzards.iter().any(Buzzard::is_known_threat);
+    if before.0 && !fox {
+        messages.push("Der Fuchs ist fort. Entwarnung!");
+    }
+    if before.1 && !bird {
+        messages.push("Der Bussard ist fort. Entwarnung!");
+    }
+    *before = (fox, bird);
+    if !fox && !bird {
         return;
     }
-    for (transform, layer, mut activity, mut path, _, mut fear) in &mut rabbits {
-        let position = transform.translation.truncate();
-        if visible.iter().any(|fox| fox.distance(position) < NOTICE_RADIUS) {
-            start_flight(&grid, &mut reserved, transform, layer, &mut activity, &mut path, &mut fear);
+    for (transform, layer, mut fear) in &mut rabbits {
+        let inside = layer.0 == Layer::Underground || is_hidden(&grid, crate::behavior::current_node(transform, layer));
+        if inside && fear.0 < KEEP_INSIDE_SECONDS {
+            fear.0 = KEEP_INSIDE_SECONDS;
         }
     }
 }

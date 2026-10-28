@@ -73,6 +73,8 @@ pub enum FoxState {
 #[derive(Component)]
 pub struct Fox {
     pub state: FoxState,
+    /// Eine Wache oder ein Kaninchen hat ihn gesehen: Solange er bleibt, bleiben alle im Bau.
+    pub known: bool,
     stay: f32,
     no_prey: f32,
     velocity: Vec2,
@@ -83,6 +85,11 @@ impl Fox {
     /// Ob der Fuchs schon aus dem Gebüsch heraus ist.
     pub fn is_out(&self) -> bool {
         !matches!(self.state, FoxState::Lurking(_))
+    }
+
+    /// Gesehen und noch nicht auf dem Rückzug: Draußen ist es nicht sicher.
+    pub fn is_known_threat(&self) -> bool {
+        self.known && self.state != FoxState::Leaving
     }
 }
 
@@ -159,6 +166,7 @@ fn spawn_foxes(
     commands.spawn((
         Fox {
             state: FoxState::Lurking(LURK_SECONDS),
+            known: false,
             stay: 0.0,
             no_prey: 0.0,
             velocity: Vec2::ZERO,
@@ -251,7 +259,10 @@ fn hunt(
                 let exit = nearest_exit(position);
                 if position.distance(exit) < 4.0 {
                     commands.entity(fox_entity).despawn();
-                    messages.push("Der Fuchs ist wieder fort.");
+                    // Wer ihn gesehen hat, bekam schon beim Abzug Entwarnung.
+                    if !fox.known {
+                        messages.push("Der Fuchs ist wieder fort.");
+                    }
                     continue;
                 }
                 (Some(exit), LEAVE_SPEED)

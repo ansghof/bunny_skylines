@@ -37,6 +37,8 @@ const LEAVE_SPEED: f32 = 160.0;
 const HUNT_RANGE: f32 = TILE_SIZE * 9.0;
 /// So weit sieht eine Wache einen kreisenden Bussard.
 const GUARD_SIGHT: f32 = TILE_SIZE * 7.0;
+/// So lange bleibt eine Wache ohne Weg in Deckung vorsichtig.
+const GUARD_FRIGHT_SECONDS: f32 = 12.0;
 /// So weit hört man das Stampfen der Wache.
 const STOMP_RADIUS: f32 = TILE_SIZE * 7.0;
 /// Wer so nah am Ziel ist, bemerkt den Sturzflug vielleicht.
@@ -88,10 +90,19 @@ pub struct Buzzard {
     center: Vec2,
     angle: f32,
     tries: u32,
-    /// Ob die Wachen ihn schon gemeldet haben.
+    /// Ob die Wachen ihn über seinem jetzigen Kreis schon gemeldet haben.
     spotted: bool,
+    /// Ob ihn überhaupt schon jemand bemerkt hat: Dann bleiben alle im Bau, bis er abzieht.
+    known: bool,
     /// Ob er über seinem jetzigen Kreis schon geschrien hat.
     cried: bool,
+}
+
+impl Buzzard {
+    /// Bemerkt und noch nicht auf dem Rückzug: Draußen ist es nicht sicher.
+    pub fn is_known_threat(&self) -> bool {
+        self.known && self.flight != Flight::Leaving
+    }
 }
 
 #[derive(Component)]
@@ -208,6 +219,7 @@ fn spawn_buzzards(
                 angle: 0.0,
                 tries: 0,
                 spotted: false,
+                known: false,
                 cried: false,
             },
         ))
@@ -250,6 +262,7 @@ fn fly(
                 // Über seinem Kreis angekommen, schreit er einmal: Manche laufen gleich in Deckung.
                 if !bird.cried && bird.position.distance(bird.center) < CIRCLE_RADIUS * 1.5 {
                     bird.cried = true;
+                    bird.known = true;
                     sounds.play(Sound::Buzzard);
                     let center = bird.center;
                     for (_, _, transform, layer, mut activity, mut path, mut fear, _) in rabbits.iter_mut() {
@@ -280,6 +293,7 @@ fn fly(
                 match prey {
                     Some((target, _)) => {
                         bird.flight = Flight::Diving { target };
+                        bird.known = true;
                         sounds.play(Sound::Buzzard);
                         warn_neighbors(&grid, &mut reserved, &mut rng, &mut rabbits, target);
                     }
@@ -377,33 +391,49 @@ fn give_up_or_circle(
     }
     bird.flight = Flight::Circling { left: rng.range(CIRCLING_SECONDS.0, CIRCLING_SECONDS.1) * 0.6 };
     bird.cried = false;
+    // Über dem neuen Kreis darf eine Wache ihn noch einmal melden.
+    bird.spotted = false;
 }
 
-/// Wachen sehen den kreisenden Bussard und stampfen; alle in Hörweite rennen in Deckung.
+/// Wachen sehen den Bussard und stampfen; alle in Hörweite rennen in Deckung. Jede Wache, die ihn
+/// sieht, warnt selbst und flüchtet dann, auch wenn eine andere schon gewarnt hat: Eine zweite
+/// Wache weiter weg hat das erste Stampfen vielleicht gar nicht gehört.
 fn guards_watch_sky(
     mut commands: Commands,
+    grid: Res<Grid>,
+    mut reserved: ResMut<Reserved>,
     mut alarms: ResMut<Alarms>,
     mut messages: ResMut<Messages>,
     mut buzzards: Query<&mut Buzzard>,
-    guards: Query<(Entity, &Rabbit, &Transform, &Activity)>,
+    mut guards: Query<(Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear)>,
 ) {
     for mut bird in &mut buzzards {
-        if bird.spotted || bird.flight == Flight::Leaving {
+        if bird.flight == Flight::Leaving {
             continue;
         }
-        let watcher = guards.iter().find(|(_, _, t, activity)| {
-            matches!(activity, Activity::Guarding { .. }) && t.translation.truncate().distance(bird.position) < GUARD_SIGHT
-        });
-        if let Some((guard, rabbit, transform, _)) = watcher {
-            bird.spotted = true;
-            raise_alarm(&mut alarms, transform.translation.truncate(), STOMP_RADIUS);
+        for (guard, rabbit, transform, layer, mut activity, mut path, mut fear) in &mut guards {
+            let at = transform.translation.truncate();
+            if !matches!(*activity, Activity::Guarding { .. }) || at.distance(bird.position) >= GUARD_SIGHT {
+                continue;
+            }
+            raise_alarm(&mut alarms, at, STOMP_RADIUS);
             commands.entity(guard).insert(Stomping(0.6));
-            messages.push(format!("{} stampft: Bussard am Himmel!", rabbit.name));
+            // Pro Runde nur eine Meldung, auch wenn mehrere Wachen stampfen.
+            if !bird.spotted {
+                messages.push(format!("{} stampft: Bussard am Himmel!", rabbit.name));
+            }
+            bird.spotted = true;
+            bird.known = true;
+            // Die Wache bleibt nicht auf dem Posten stehen. Ohne Weg in Deckung endet die Schicht trotzdem.
+            if !start_flight(&grid, &mut reserved, transform, layer, &mut activity, &mut path, &mut fear) {
+                release(&activity, &mut reserved);
+                *activity = Activity::Idle(1.0);
+                fear.0 = GUARD_FRIGHT_SECONDS;
+            }
         }
     }
 }
 
-/// Der Vogel schaut immer zur Kamera; seinen Schatten wirft die Sonne von selbst.
 fn show_buzzards(
     time: Res<Time>,
     orbit: Res<Orbit>,

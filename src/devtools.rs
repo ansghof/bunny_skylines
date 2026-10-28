@@ -28,6 +28,7 @@
 //! - `damm`: ein Damm vor dem Eingang aus `auenbau`
 //! - `festplatz`: ein Festplatz (3 × 3) neben dem Eingang
 //! - `fluchtloecher`: Fluchtlöcher am und um den Startplatz
+//! - `posten`: zwei Wachposten auf der Wiese
 //! - `wachen`: Nachtwache im Startgang einrichten; `pfropf`: Erdpfropf im Startgang
 //! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
@@ -209,6 +210,11 @@ fn prepare(
     }
     if script.has("wachen") {
         grid.under_mut(TilePos::new(21, 15)).watch = true;
+    }
+    if script.has("posten") {
+        for p in [TilePos::new(17, 13), TilePos::new(25, 18)] {
+            grid.surface_mut(p).post = true;
+        }
     }
     if script.has("pfropf") {
         grid.under_mut(TilePos::new(21, 15)).plug = true;
