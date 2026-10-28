@@ -19,6 +19,7 @@ use crate::camera::Orbit;
 use crate::colony::{Colony, Messages, Rng};
 use crate::daynight::{DayClock, figure_light};
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
+use crate::monument::{Monument, Standing};
 use crate::rabbit::{Mood, OnLayer, Rabbit};
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
@@ -203,6 +204,7 @@ fn cat_moves(
     time: Res<Time>,
     clock: Res<DayClock>,
     grid: Res<Grid>,
+    standing: Res<Standing>,
     mut bond: ResMut<CatBond>,
     mut rest: ResMut<CatRest>,
     mut messages: ResMut<Messages>,
@@ -274,8 +276,12 @@ fn cat_moves(
                 let sun = nearest_tile(position, |p| grid.owns(p) && grid.surface(p).feature == Some(Feature::SunSpot));
                 let home = sun.map_or(position, |p| p.center());
                 let entrance = nearest_tile(home, |p| grid.surface(p).entrance);
+                // Hat sie ihren eigenen Korb, döst sie tagsüber darin.
+                let basket = standing.0.get(&Monument::CatBasket).copied();
                 let spot = if clock.is_night() {
                     entrance.map(|p| p.center())
+                } else if basket.is_some() {
+                    basket
                 } else {
                     // Neben dem Eingang, nicht davor, damit sie keinem im Weg liegt.
                     sun.map(|p| p.center()).or(entrance.map(|p| p.center() + Vec2::new(TILE_SIZE * 0.6, 0.0)))

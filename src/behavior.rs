@@ -10,6 +10,7 @@ use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
 use crate::daynight::{DayClock, Season};
 use crate::map::{Chamber, Depth, Feature, Grid, Layer, TILE_SIZE, TilePos};
+use crate::monument::{ARCH_SPEED, CRYSTAL_EARTH, Monument, SHOVEL_DIG_FACTOR, SNOW_HUNGER, Standing};
 use crate::progress::{Progress, Tech};
 use crate::pathfinding::{Node, find_path, find_path_where};
 use crate::rabbit::{Hunger, Mood, Offset, OnLayer, Rabbit, z_for};
@@ -296,8 +297,15 @@ pub fn is_hidden(grid: &Grid, node: Node) -> bool {
     node.layer == Layer::Surface && grid.surface(node.pos).feature == Some(Feature::BoltHole)
 }
 
-fn tick_needs(time: Res<Time>, mut rabbits: Query<(&Activity, &mut Hunger, &mut Fear)>) {
+fn tick_needs(
+    time: Res<Time>,
+    clock: Res<DayClock>,
+    standing: Res<Standing>,
+    mut rabbits: Query<(&Activity, &mut Hunger, &mut Fear)>,
+) {
     let dt = time.delta_secs();
+    // Das Winterkaninchen hilft durch die kalte Zeit.
+    let winter = if clock.season() == Season::Winter && standing.has(Monument::SnowRabbit) { SNOW_HUNGER } else { 1.0 };
     for (activity, mut hunger, mut fear) in &mut rabbits {
         // Im Schlaf verbraucht ein Kaninchen weniger.
         // Im Schlaf und in der Winterruhe verbraucht ein Kaninchen viel weniger.
@@ -306,7 +314,7 @@ fn tick_needs(time: Res<Time>, mut rabbits: Query<(&Activity, &mut Hunger, &mut 
         } else {
             1.0
         };
-        hunger.0 = (hunger.0 + HUNGER_PER_SECOND * rate * dt).min(1.0);
+        hunger.0 = (hunger.0 + HUNGER_PER_SECOND * rate * winter * dt).min(1.0);
         fear.0 = (fear.0 - dt).max(0.0);
     }
 }
@@ -622,7 +630,8 @@ fn walk(
     mut colony: ResMut<Colony>,
     mut rng: ResMut<Rng>,
     mut reserved: ResMut<Reserved>,
-    progress: Res<Progress>,
+    mut progress: ResMut<Progress>,
+    standing: Res<Standing>,
     mut rabbits: Query<(
         &mut Transform,
         &mut OnLayer,
@@ -635,6 +644,8 @@ fn walk(
     )>,
 ) {
     let dig_factor = if progress.has(Tech::Claws) { CLAWS_DIG_FACTOR } else { 1.0 };
+    let dig_factor = if standing.has(Monument::Shovel) { dig_factor * SHOVEL_DIG_FACTOR } else { dig_factor };
+    let arch = if standing.has(Monument::BuilderArch) { ARCH_SPEED } else { 1.0 };
     for (mut transform, mut layer, mut path, mut activity, mut hunger, mut carrying, offset, rabbit) in &mut rabbits
     {
         let speed = match *activity {
@@ -648,6 +659,7 @@ fn walk(
         let speed = if rabbit.is_old() { speed * 0.8 } else { speed };
         let wide = layer.0 == Layer::Underground && progress.has(Tech::WideTunnels);
         let speed = if wide { speed * WIDE_TUNNEL_SPEED } else { speed };
+        let speed = if layer.0 == Layer::Underground { speed * arch } else { speed };
         // Auf dem Trampelpfad geht es schneller, auf der Flucht schneller als der Fuchs.
         let here = TilePos::from_world_clamped(transform.translation.truncate());
         let on_trail = layer.0 == Layer::Surface && grid.surface(here).trail;
@@ -705,7 +717,9 @@ fn walk(
             Goal::Store(tile) => {
                 reserved.free_spot(tile);
                 let capacity = colony.food_capacity(&grid);
+                let before = colony.food;
                 colony.food = (colony.food + carrying.0).min(capacity);
+                progress.feats.food_stored += (colony.food - before).max(0.0);
                 carrying.0 = 0.0;
                 Activity::Idle(0.5)
             }
@@ -733,6 +747,7 @@ fn work(
     mut rng: ResMut<Rng>,
     mut reserved: ResMut<Reserved>,
     mut progress: ResMut<Progress>,
+    standing: Res<Standing>,
     mut sounds: ResMut<Sounds>,
     mut rabbits: Query<(
         &Rabbit,
@@ -789,8 +804,10 @@ fn work(
                 }
                 let target = *target;
                 let earth = finish_digging(&mut grid, target);
+                let earth = if standing.has(Monument::CrystalObelisk) { earth * CRYSTAL_EARTH } else { earth };
                 sounds.play(Sound::Dig);
                 colony.earth += earth;
+                progress.feats.earth_dug += earth;
                 reserved.dig.remove(&target);
                 hunger.0 = (hunger.0 + 0.08).min(1.0);
                 Activity::Idle(0.3)

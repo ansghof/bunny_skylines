@@ -1,6 +1,7 @@
 //! Werkzeugleiste unten: oben die Bauwerkzeuge, darunter Grabtiefe, Vorräte, Alarm, Tempo,
 //! Ansicht und der Forschungsbaum. Fährt man mit der Maus darüber, erscheint ein Tooltip mit
 //! Name, Taste, Preis und Beschreibung. Noch nicht Erforschtes trägt ein Schloss.
+//! Über der Leiste öffnen sich der Forschungsbaum und die Übersicht der Errungenschaften.
 
 use bevy::picking::Pickable;
 use bevy::picking::hover::Hovered;
@@ -8,14 +9,20 @@ use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
 use crate::behavior::Priorities;
+use crate::cat::CatBond;
+use crate::furnishing::monument_image_size;
+use crate::monument::{Monument, Standing, Tally, score};
+use crate::rabbit::Rabbit;
 use crate::colony::Messages;
 use crate::danger::{ALARM_COOLDOWN_SECONDS, AlarmButton};
-use crate::map::{Depth, Layer, ViewLayer};
+use crate::map::{Depth, Feature, Grid, Layer, ViewLayer};
 use crate::audio::{Sound, Sounds};
 use crate::menu::OpenMenu;
 use crate::overlay::MapOverlay;
 use crate::progress::{Blocked, Branch, Progress, Tech};
-use crate::tools::{Lock, TOOLS, Tool, ToolGroup, ToolKind, depth_available, locked_message, select, select_tool};
+use crate::tools::{
+    Lock, TOOLS, Tool, ToolGroup, ToolKind, all_tools, depth_available, locked_message, select, select_tool,
+};
 use crate::inspect::pick_rabbit;
 
 const BUTTON_SIZE: f32 = 46.0;
@@ -38,10 +45,19 @@ impl Plugin for ToolbarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Tooltip>()
             .init_resource::<ResearchOpen>()
-            .add_systems(Startup, (spawn_toolbar, spawn_research_panel))
+            .init_resource::<FeatsOpen>()
+            .add_systems(Startup, (spawn_toolbar, spawn_research_panel, spawn_feats_panel))
             .add_systems(
                 Update,
-                (toolbar_keys.before(select_tool).before(pick_rabbit), show_group_tools, highlight_buttons, update_tooltip, show_research_panel, update_research_panel),
+                (
+                    toolbar_keys.before(select_tool).before(pick_rabbit),
+                    show_group_tools,
+                    highlight_buttons,
+                    update_tooltip,
+                    show_research_panel,
+                    update_research_panel,
+                    update_feats_panel,
+                ),
             );
     }
 }
@@ -63,6 +79,8 @@ pub(crate) enum Action {
     View(Layer),
     /// Den Forschungsbaum öffnen oder schließen.
     Research,
+    /// Die Übersicht der Errungenschaften öffnen oder schließen.
+    Feats,
     /// Eine Übersichtskarte ein- oder ausschalten.
     Overlay(MapOverlay),
     /// Das Pausenmenü öffnen.
@@ -92,9 +110,13 @@ pub(crate) struct Tooltip(pub(crate) Option<Action>);
 #[derive(Resource, Default)]
 pub(crate) struct ResearchOpen(pub(crate) bool);
 
+/// Ob die Übersicht der Errungenschaften offen ist.
+#[derive(Resource, Default)]
+pub(crate) struct FeatsOpen(pub(crate) bool);
+
 impl Action {
     fn icon(self) -> Option<&'static str> {
-        use crate::map::{Chamber, Feature};
+        use crate::map::Chamber;
         Some(match self {
             Action::Tool(ToolKind::Point) => "zeigen",
             Action::Tool(ToolKind::Dig) => "graben",
@@ -126,6 +148,10 @@ impl Action {
             Action::View(Layer::Surface) => "ansicht_oben",
             Action::View(Layer::Underground) => "ansicht_unten",
             Action::Research => "forschung",
+            Action::Feats => "errungenschaften",
+            // Denkmäler zeigen ihr eigenes Bild, siehe `spawn_button`.
+            Action::Tool(ToolKind::Feature(Feature::Monument(_))) => return None,
+            Action::Group(ToolGroup::Monuments) => "denkmaeler",
             Action::Menu => "menue",
             Action::Group(group) => return Action::Tool(group.icon_tool()).icon(),
             Action::Overlay(MapOverlay::Mood) => "karte_stimmung",
@@ -156,9 +182,20 @@ impl Action {
     fn tooltip(self, alarm: &AlarmButton, progress: &Progress) -> String {
         let text = match self {
             Action::Tool(kind) => {
-                let key = TOOLS.iter().find(|(k, _, _)| *k == kind).map_or("", |(_, _, key)| *key);
+                // Denkmäler haben keine Taste.
+                let key = TOOLS
+                    .iter()
+                    .find(|(k, _, _)| *k == kind)
+                    .map_or(String::new(), |(_, _, key)| format!("  [{key}]"));
                 let cost = kind.cost_label().map_or(String::new(), |c| format!("\nKosten: {c}"));
-                format!("{}  [{key}]\n{}{cost}", kind.label(), kind.description())
+                let reward = match kind {
+                    ToolKind::Feature(Feature::Monument(m)) if progress.feats.has(m) => {
+                        let size = if m.size() > 1 { "2 × 2 Felder" } else { "1 Feld" };
+                        format!("\nVerdient: {}. Kostenlos, {size}, einmal aufstellbar.", m.condition())
+                    }
+                    _ => String::new(),
+                };
+                format!("{}{key}\n{}{cost}{reward}", kind.label(), kind.description())
             }
             Action::Depth(depth) => format!(
                 "Grabtiefe {}  [R wechselt]\nNeue Gänge werden {} gegraben, {:.1} s pro Feld.",
@@ -197,6 +234,12 @@ impl Action {
                     _ => "Zeigt, wo die Wiese gesund ist und wo sie abgefressen und ausgelaugt ist.",
                 }
             ),
+            Action::Feats => format!(
+                "Errungenschaften  [9]\nWas die Familie schon geschafft hat und welche Denkmäler noch warten. \
+                 Verdient: {} von {}",
+                progress.feats.earned.len(),
+                Monument::ALL.len()
+            ),
             Action::Research => format!(
                 "Forschungsbaum  [T]\nWeisheit aus der Erzählkammer in Neues stecken. Weisheit: {:.0}",
                 progress.wisdom
@@ -205,6 +248,7 @@ impl Action {
         match self.locked_by(progress) {
             Some(Lock::Tech(tech)) => format!("{text}\nGesperrt: erst „{}“ erforschen.", tech.label()),
             Some(Lock::Stage(stage)) => format!("{text}\nGesperrt: erst ab der Stufe „{}“.", stage.label()),
+            Some(Lock::Feat(monument)) => format!("{text}\nBelohnung für: {}.", monument.condition()),
             None => text,
         }
     }
@@ -239,7 +283,7 @@ fn centered_row(commands: &mut Commands, bottom: f32) -> Entity {
 
 fn spawn_toolbar(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Oben alle Werkzeuge und die Grabtiefen; sichtbar sind nur die der aktiven Gruppe.
-    let mut tools: Vec<Action> = TOOLS.iter().map(|(kind, _, _)| Action::Tool(*kind)).collect();
+    let mut tools: Vec<Action> = all_tools().map(Action::Tool).collect();
     tools.extend([Depth::Shallow, Depth::Medium, Depth::Deep].map(Action::Depth));
     let controls: [Vec<Action>; 6] = [
         ToolGroup::ALL.map(Action::Group).to_vec(),
@@ -252,7 +296,7 @@ fn spawn_toolbar(mut commands: Commands, asset_server: Res<AssetServer>) {
         ],
         vec![Action::View(Layer::Surface), Action::View(Layer::Underground)],
         vec![Action::Overlay(MapOverlay::Pasture), Action::Overlay(MapOverlay::Mood)],
-        vec![Action::Research, Action::Menu],
+        vec![Action::Research, Action::Feats, Action::Menu],
     ];
 
     let row = centered_row(&mut commands, 12.0);
@@ -361,8 +405,27 @@ fn spawn_button(commands: &mut Commands, asset_server: &AssetServer, parent: Ent
         })
         .id();
 
-    match action.icon() {
-        Some(icon) => commands.spawn((
+    // Ein Denkmal zeigt sich selbst, verkleinert und ohne Verzerrung.
+    let monument = match action {
+        Action::Tool(ToolKind::Feature(Feature::Monument(monument))) => Some(monument),
+        _ => None,
+    };
+    match (monument, action.icon()) {
+        (Some(monument), _) => {
+            let size = monument_image_size(monument.image());
+            let scale = (ICON_SIZE + 4.0) / size.x.max(size.y);
+            commands.spawn((
+                ImageNode::new(asset_server.load(format!("einrichtung/{}", monument.image()))),
+                Node {
+                    width: Val::Px(size.x * scale),
+                    height: Val::Px(size.y * scale),
+                    ..default()
+                },
+                Pickable::IGNORE,
+                ChildOf(button),
+            ))
+        }
+        (None, Some(icon)) => commands.spawn((
             ImageNode::new(asset_server.load(format!("ui/{icon}.png"))),
             Node {
                 width: Val::Px(ICON_SIZE),
@@ -372,7 +435,7 @@ fn spawn_button(commands: &mut Commands, asset_server: &AssetServer, parent: Ent
             Pickable::IGNORE,
             ChildOf(button),
         )),
-        None => commands.spawn((Text::new(action.caption()), text_style(17.0), Pickable::IGNORE, ChildOf(button))),
+        (None, None) => commands.spawn((Text::new(action.caption()), text_style(17.0), Pickable::IGNORE, ChildOf(button))),
     };
     // Ein kleines Schloss unten rechts, sichtbar solange gesperrt.
     commands.spawn((
@@ -401,6 +464,7 @@ struct ActionTargets<'w> {
     alarm: ResMut<'w, AlarmButton>,
     priorities: ResMut<'w, Priorities>,
     research: ResMut<'w, ResearchOpen>,
+    feats: ResMut<'w, FeatsOpen>,
     progress: Res<'w, Progress>,
     messages: ResMut<'w, Messages>,
     overlay: ResMut<'w, MapOverlay>,
@@ -436,7 +500,15 @@ impl ActionTargets<'_> {
                 self.time.unpause();
             }
             Action::View(layer) => self.view.0 = layer,
-            Action::Research => self.research.0 = !self.research.0,
+            // Forschungsbaum und Errungenschaften liegen an derselben Stelle: immer nur eins offen.
+            Action::Research => {
+                self.research.0 = !self.research.0;
+                self.feats.0 = false;
+            }
+            Action::Feats => {
+                self.feats.0 = !self.feats.0;
+                self.research.0 = false;
+            }
             Action::Menu => self.menu.0 = true,
             // Eine Gruppe wählen heißt ihr erstes freie Werkzeug wählen, außer man ist schon darin.
             Action::Group(group) => {
@@ -463,16 +535,23 @@ fn toolbar_keys(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut priorities: ResMut<Priorities>,
     mut research: ResMut<ResearchOpen>,
+    mut feats: ResMut<FeatsOpen>,
 ) {
     if keys.just_pressed(KeyCode::KeyB) {
         priorities.gather_first = !priorities.gather_first;
     }
     if keys.just_pressed(KeyCode::KeyT) {
         research.0 = !research.0;
+        feats.0 = false;
     }
-    // Escape schließt nur den Forschungsbaum: Werkzeug und Auswahl bleiben, wie sie sind.
-    if keys.just_pressed(KeyCode::Escape) && research.0 {
+    if keys.just_pressed(KeyCode::Digit9) {
+        feats.0 = !feats.0;
         research.0 = false;
+    }
+    // Escape schließt nur das offene Fenster: Werkzeug und Auswahl bleiben, wie sie sind.
+    if keys.just_pressed(KeyCode::Escape) && (research.0 || feats.0) {
+        research.0 = false;
+        feats.0 = false;
         keys.clear_just_pressed(KeyCode::Escape);
     }
 }
@@ -503,6 +582,7 @@ fn highlight_buttons(
     alarm: Res<AlarmButton>,
     priorities: Res<Priorities>,
     research: Res<ResearchOpen>,
+    feats: Res<FeatsOpen>,
     progress: Res<Progress>,
     overlay: Res<MapOverlay>,
     mut buttons: Query<(&ActionButton, &Hovered, &Children, &mut BackgroundColor, &mut BorderColor)>,
@@ -519,6 +599,7 @@ fn highlight_buttons(
             Action::Speed(Some(speed)) => (!time.is_paused() && time.relative_speed() == speed, false),
             Action::View(layer) => (view.0 == layer, false),
             Action::Research => (research.0, false),
+            Action::Feats => (feats.0, false),
             Action::Overlay(which) => (*overlay == which, false),
             Action::Menu => (false, false),
             Action::Group(group) => (
@@ -743,6 +824,164 @@ fn update_research_panel(
             background.0 = fill;
         }
         let edge = if ready { BORDER_ACTIVE } else { Color::NONE };
+        if border.top != edge {
+            *border = BorderColor::all(edge);
+        }
+    }
+}
+
+
+// --- Errungenschaften ---
+
+#[derive(Component)]
+struct FeatsPanel;
+
+#[derive(Component)]
+struct FeatsHeader;
+
+#[derive(Component)]
+struct FeatCard(Monument);
+
+#[derive(Component)]
+struct FeatText(Monument);
+
+/// Breite einer Karte; fünf passen nebeneinander.
+const FEAT_CARD: f32 = 228.0;
+
+/// Fünf Karten nebeneinander, je mit Bild, Bedingung und wie weit die Familie ist.
+fn spawn_feats_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let row = centered_row(&mut commands, TOOLBAR_HEIGHT + 8.0);
+    // Über der Tastenhilfe, die sonst die untere Reihe verdeckt.
+    commands.entity(row).insert(GlobalZIndex(5));
+    let panel = commands
+        .spawn((
+            FeatsPanel,
+            Toolbar,
+            Hovered::default(),
+            Node {
+                display: Display::None,
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(6.0),
+                padding: UiRect::all(Val::Px(10.0)),
+                border_radius: BorderRadius::all(Val::Px(10.0)),
+                ..default()
+            },
+            BackgroundColor(PANEL),
+            ChildOf(row),
+        ))
+        .id();
+    commands.spawn((FeatsHeader, Text::default(), text_style(16.0), Pickable::IGNORE, ChildOf(panel)));
+    let cards = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Row,
+                flex_wrap: FlexWrap::Wrap,
+                column_gap: Val::Px(6.0),
+                row_gap: Val::Px(6.0),
+                width: Val::Px(5.0 * FEAT_CARD + 4.0 * 6.0),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(panel),
+        ))
+        .id();
+    for monument in Monument::ALL {
+        let card = commands
+            .spawn((
+                FeatCard(monument),
+                Node {
+                    width: Val::Px(FEAT_CARD),
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(8.0),
+                    padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(8.0)),
+                    ..default()
+                },
+                BackgroundColor(BUTTON_DIMMED),
+                BorderColor::all(Color::NONE),
+                Pickable::IGNORE,
+                ChildOf(cards),
+            ))
+            .id();
+        let size = monument_image_size(monument.image());
+        let scale = 56.0 / size.x.max(size.y);
+        commands.spawn((
+            ImageNode::new(asset_server.load(format!("einrichtung/{}", monument.image()))),
+            Node {
+                width: Val::Px(size.x * scale),
+                height: Val::Px(size.y * scale),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(card),
+        ));
+        commands.spawn((FeatText(monument), Text::default(), text_style(12.5), Pickable::IGNORE, ChildOf(card)));
+    }
+}
+
+fn update_feats_panel(
+    open: Res<FeatsOpen>,
+    progress: Res<Progress>,
+    grid: Res<Grid>,
+    cat: Res<CatBond>,
+    standing: Res<Standing>,
+    rabbits: Query<(), With<Rabbit>>,
+    mut panel: Single<&mut Node, With<FeatsPanel>>,
+    mut header: Single<&mut Text, (With<FeatsHeader>, Without<FeatText>)>,
+    mut texts: Query<(&FeatText, &mut Text, &mut TextColor), Without<FeatsHeader>>,
+    mut cards: Query<(&FeatCard, &mut BackgroundColor, &mut BorderColor)>,
+) {
+    let display = if open.0 { Display::Flex } else { Display::None };
+    if panel.display != display {
+        panel.display = display;
+    }
+    if !open.0 {
+        return;
+    }
+    let earned = progress.feats.earned.len();
+    let content = format!(
+        "Errungenschaften  [9, Esc: schließen]    Verdient: {earned} von {}\n\
+         Jede Errungenschaft schenkt ein Denkmal. Aufstellen unter „Denkmäler“: kostenlos, jedes einmal.",
+        Monument::ALL.len()
+    );
+    if header.0 != content {
+        header.0 = content;
+    }
+    let tally = Tally::of(&grid, rabbits.iter().count(), &cat);
+    for (feat, mut text, mut color) in &mut texts {
+        let monument = feat.0;
+        let state = if !progress.feats.has(monument) {
+            let goal = monument.goal();
+            let now = score(monument, &progress, &tally).min(goal);
+            if goal <= 1.0 { "Noch nicht geschafft".to_string() } else { format!("Geschafft: {now:.0} von {goal:.0}") }
+        } else if standing.has(monument) {
+            "Verdient – steht schon".into()
+        } else {
+            "Verdient – jetzt aufstellen!".into()
+        };
+        let content = format!("{}\n{}\n{state}", monument.label(), monument.condition());
+        if text.0 != content {
+            text.0 = content;
+        }
+        let wanted = if progress.feats.has(monument) { TEXT } else { TEXT_QUIET };
+        if color.0 != wanted {
+            color.0 = wanted;
+        }
+    }
+    for (card, mut background, mut border) in &mut cards {
+        let monument = card.0;
+        let (fill, edge) = match (progress.feats.has(monument), standing.has(monument)) {
+            (true, true) => (Color::srgb(0.30, 0.42, 0.24), Color::NONE),
+            // Verdient, aber noch nicht aufgestellt: golden umrandet.
+            (true, false) => (BUTTON, BORDER_ACTIVE),
+            (false, _) => (BUTTON_DIMMED, Color::NONE),
+        };
+        if background.0 != fill {
+            background.0 = fill;
+        }
         if border.top != edge {
             *border = BorderColor::all(edge);
         }

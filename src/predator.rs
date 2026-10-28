@@ -12,6 +12,7 @@ use crate::daynight::{DayClock, figure_light};
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
 use crate::rabbit::{Fur, OnLayer, Rabbit, z_for};
 use crate::scenario::Scenario;
+use crate::monument::{Monument, Standing};
 use crate::progress::{Progress, Tech};
 use crate::camera::Orbit;
 use crate::carry::{CarryPoint, carry_off};
@@ -75,6 +76,8 @@ pub struct Fox {
     pub state: FoxState,
     /// Eine Wache oder ein Kaninchen hat ihn gesehen: Solange er bleibt, bleiben alle im Bau.
     pub known: bool,
+    /// Hat ein Kaninchen erwischt; sonst zieht er ohne Beute ab.
+    caught: bool,
     stay: f32,
     no_prey: f32,
     velocity: Vec2,
@@ -167,6 +170,7 @@ fn spawn_foxes(
         Fox {
             state: FoxState::Lurking(LURK_SECONDS),
             known: false,
+            caught: false,
             stay: 0.0,
             no_prey: 0.0,
             velocity: Vec2::ZERO,
@@ -191,11 +195,16 @@ fn hunt(
     mut reserved: ResMut<Reserved>,
     mut sounds: ResMut<Sounds>,
     grid: Res<Grid>,
-    progress: Res<Progress>,
+    mut progress: ResMut<Progress>,
+    standing: Res<Standing>,
     mut foxes: Query<(Entity, &mut Fox, &mut Transform)>,
     rabbits: Query<(Entity, &Rabbit, &Transform, &OnLayer, &Activity, &Fur), Without<Fox>>,
 ) {
     let dt = time.delta_secs();
+    // Am Fuchsschreck traut er sich nicht heran: Wer dort hockt, wird nicht gejagt.
+    let catchable = |t: &Transform, layer: &OnLayer| {
+        catchable(&grid, t, layer) && !standing.near(Monument::FoxStone, t.translation.truncate())
+    };
     for (fox_entity, mut fox, mut transform) in &mut foxes {
         let position = transform.translation.truncate();
         fox.stay += dt;
@@ -205,7 +214,7 @@ fn hunt(
 
         let nearest_outside = rabbits
             .iter()
-            .filter(|(_, _, t, layer, _, _)| catchable(&grid, t, layer))
+            .filter(|(_, _, t, layer, _, _)| catchable(t, layer))
             .map(|(entity, _, t, _, _, _)| (entity, t.translation.truncate()))
             .min_by(|a, b| a.1.distance(position).total_cmp(&b.1.distance(position)));
 
@@ -235,7 +244,7 @@ fn hunt(
                 }
             },
             FoxState::Chasing(rabbit) => match rabbits.get(rabbit) {
-                Ok((_, prey, at, layer, activity, fur)) if catchable(&grid, at, layer) => {
+                Ok((_, prey, at, layer, activity, fur)) if catchable(at, layer) => {
                     let at = at.translation.truncate();
                     if at.distance(position) < CATCH_DISTANCE {
                         release(activity, &mut reserved);
@@ -243,6 +252,7 @@ fn hunt(
                         carry_off(&mut commands, fox_entity, fur.0);
                         messages.push(format!("{} wurde vom Fuchs erwischt.", prey.name));
                         sounds.play(Sound::Caught);
+                        fox.caught = true;
                         fox.state = FoxState::Leaving;
                         (None, 0.0)
                     } else {
@@ -259,6 +269,9 @@ fn hunt(
                 let exit = nearest_exit(position);
                 if position.distance(exit) < 4.0 {
                     commands.entity(fox_entity).despawn();
+                    if !fox.caught {
+                        progress.feats.foxes_repelled += 1;
+                    }
                     // Wer ihn gesehen hat, bekam schon beim Abzug Entwarnung.
                     if !fox.known {
                         messages.push("Der Fuchs ist wieder fort.");

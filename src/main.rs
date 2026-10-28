@@ -18,6 +18,7 @@ mod ground;
 mod inspect;
 mod map;
 mod molehill;
+mod monument;
 mod marten;
 mod menu;
 mod overlay;
@@ -72,7 +73,7 @@ fn main() {
             carry::CarryPlugin,
             danger::DangerPlugin,
         ))
-        .add_plugins((flood::FloodPlugin, drought::DroughtPlugin, molehill::MolehillPlugin, cat::CatPlugin))
+        .add_plugins((flood::FloodPlugin, drought::DroughtPlugin, molehill::MolehillPlugin, cat::CatPlugin, monument::MonumentPlugin))
         // Darstellung und Bedienung
         .add_plugins((
             furnishing::FurnishingPlugin,

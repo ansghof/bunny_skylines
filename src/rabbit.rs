@@ -10,6 +10,7 @@ use crate::effects::{DirtAssets, throw_dirt};
 use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Messages, Rng};
 use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer};
+use crate::monument::{ANCESTOR_GROWTH, CLOVER_MOOD, Monument, STATUE_MOOD, Standing};
 use crate::camera::{Orbit, figure_layer};
 use crate::daynight::{DayClock, Season, YEAR_LENGTH, figure_light};
 use crate::rig::{Avatar, AvatarLink, FigureShadow, Part, RigRoot, RigSource, pose_part};
@@ -153,6 +154,8 @@ pub struct Rabbit {
     starving: f32,
     /// Mutter und Vater; die Gründer haben keine.
     pub parents: Option<(String, String)>,
+    /// Die Gründer sind die erste Generation, ihre Jungen die zweite und so weiter.
+    pub generation: u32,
 }
 
 impl Rabbit {
@@ -253,6 +256,7 @@ fn rabbit_bundle(
     layer: Layer,
     position: Vec2,
     parents: Option<(String, String)>,
+    generation: u32,
     rng: &mut Rng,
 ) -> impl Bundle {
     (
@@ -265,6 +269,7 @@ fn rabbit_bundle(
                 lifespan: rng.range(LIFESPAN_YEARS.0, LIFESPAN_YEARS.1) * YEAR_LENGTH,
                 starving: 0.0,
                 parents,
+                generation,
             },
             Fur(fur),
             Hunger(rng.range(0.1, 0.3)),
@@ -322,18 +327,27 @@ pub fn spawn_founders(
             Layer::Surface,
             position,
             None,
+            1,
             &mut rng,
         ));
     }
     messages.push("Schneeflocke und Lukas gründen die Familie Buddelberg.");
 }
 
-fn grow_up(time: Res<Time>, grid: Res<Grid>, mut rabbits: Query<&mut Rabbit>, mut messages: ResMut<Messages>) {
-    // Mit Kinderstube wachsen Junge doppelt so schnell heran.
+fn grow_up(
+    time: Res<Time>,
+    grid: Res<Grid>,
+    standing: Res<Standing>,
+    mut rabbits: Query<&mut Rabbit>,
+    mut messages: ResMut<Messages>,
+) {
+    // Mit Kinderstube wachsen Junge doppelt so schnell heran, beim Ahnenstein noch etwas schneller.
     let nursery = grid.chamber_tiles(Chamber::Nursery) > 0;
+    let ancestors = if standing.has(Monument::AncestorStone) { ANCESTOR_GROWTH } else { 1.0 };
     for mut rabbit in &mut rabbits {
         let was_adult = rabbit.is_adult();
         let speed = if nursery && !was_adult { 2.0 } else { 1.0 };
+        let speed = if was_adult { speed } else { speed * ancestors };
         rabbit.age += time.delta_secs() * speed;
         if !was_adult && rabbit.is_adult() {
             messages.push(format!("{} ist erwachsen geworden.", rabbit.name));
@@ -463,6 +477,7 @@ fn update_mood(
     time: Res<Time>,
     clock: Res<DayClock>,
     grid: Res<Grid>,
+    standing: Res<Standing>,
     mut rabbits: Query<(&Hunger, &Fear, &Activity, &Transform, &OnLayer, &mut Mood)>,
 ) {
     let dt = time.delta_secs();
@@ -472,6 +487,8 @@ fn update_mood(
         .filter(|p| grid.surface(*p).feature == Some(Feature::Playground))
         .count();
     let content = CONTENT + (playgrounds as f32 * PLAYGROUND_MOOD).min(PLAYGROUND_MOOD_MAX);
+    // Das Goldene Kleeblatt macht alle ein wenig froh.
+    let content = if standing.has(Monument::GoldenClover) { content + CLOVER_MOOD } else { content };
     // Gibt es mehr Kaninchen als Schlafplätze, fehlt manchen ein Nest, auch wenn sie gerade fressen.
     let crowded = rabbits.iter().count() > Colony::sleeping_places(&grid);
     // Mit Festplatz trösten die Feste über ein fehlendes Nest hinweg.
@@ -485,6 +502,9 @@ fn update_mood(
         let near_cat = cat.dozing.is_some_and(|spot| spot.distance(transform.translation.truncate()) < crate::cat::CALM_REACH);
         if layer.0 == Layer::Surface && near_cat {
             target += CAT_MOOD;
+        }
+        if layer.0 == Layer::Surface && standing.near(Monument::Statue, transform.translation.truncate()) {
+            target += STATUE_MOOD;
         }
         if hunger.0 >= SHOW_HUNGER {
             target -= 0.5;
@@ -532,11 +552,14 @@ pub fn near_sun_spot(grid: &Grid, transform: &Transform) -> bool {
 fn emigrate(
     time: Res<Time>,
     grid: Res<Grid>,
+    standing: Res<Standing>,
     mut reserved: ResMut<Reserved>,
     mut messages: ResMut<Messages>,
     mut rabbits: Query<(&Rabbit, &Transform, &OnLayer, &mut Mood, &mut Activity, &mut Path)>,
 ) {
     let bad_nights_limit = if has_festival(&grid) { LEAVE_AFTER_BAD_NIGHTS_FESTIVAL } else { LEAVE_AFTER_BAD_NIGHTS };
+    // Unter dem Maibaum feiert es sich noch eine Nacht länger.
+    let bad_nights_limit = bad_nights_limit + u32::from(has_festival(&grid) && standing.has(Monument::Maypole));
     let dt = time.delta_secs();
     for (rabbit, transform, layer, mut mood, mut activity, mut path) in &mut rabbits {
         if matches!(*activity, Activity::Walking(Goal::Leave) | Activity::Gone) {
@@ -703,6 +726,7 @@ fn give_birth(
                 layer.0,
                 position,
                 Some((mother.name.clone(), pregnant.father.clone())),
+                mother.generation + 1,
                 &mut rng,
             ));
             names.push(name);
@@ -968,6 +992,7 @@ pub fn spawn_relatives(
             Layer::Surface,
             position,
             parents,
+            2,
             &mut rng,
         ));
     }
@@ -978,7 +1003,12 @@ pub fn spawn_relatives(
 pub fn spawn_extra(commands: &mut Commands, asset_server: &AssetServer, rng: &mut Rng, name: String, layer: Layer, position: Vec2) {
     let female = rng.chance(0.5);
     let fur = FUR_COLORS[rng.below(FUR_COLORS.len())];
-    commands.spawn(rabbit_bundle(asset_server, name, female, ADULT_AGE * 2.0, fur, layer, position, None, rng));
+    commands.spawn(rabbit_bundle(asset_server, name, female, ADULT_AGE * 2.0, fur, layer, position, None, 1, rng));
+}
+
+/// Ältere Spielstände kannten keine Generationen: Dann gilt jeder als Gründer.
+fn first_generation() -> u32 {
+    1
 }
 
 /// Ein Kaninchen, wie es im Spielstand steht. Was es gerade tut, wird nicht gespeichert:
@@ -991,6 +1021,8 @@ pub struct SavedRabbit {
     lifespan: f32,
     starving: f32,
     parents: Option<(String, String)>,
+    #[serde(default = "first_generation")]
+    generation: u32,
     fur: [f32; 4],
     hunger: f32,
     mood: f32,
@@ -1022,6 +1054,7 @@ impl SavedRabbit {
             lifespan: rabbit.lifespan,
             starving: rabbit.starving,
             parents: rabbit.parents.clone(),
+            generation: rabbit.generation,
             fur: fur.0.to_srgba().to_f32_array(),
             hunger: hunger.0,
             mood: mood.value,
@@ -1046,6 +1079,7 @@ impl SavedRabbit {
             self.layer,
             position,
             self.parents.clone(),
+            self.generation,
             rng,
         ));
         entity.insert((
@@ -1057,6 +1091,7 @@ impl SavedRabbit {
                 lifespan: self.lifespan.min(LIFESPAN_YEARS.1 * YEAR_LENGTH),
                 starving: self.starving,
                 parents: self.parents,
+                generation: self.generation,
             },
             Hunger(self.hunger),
             Mood {

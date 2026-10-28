@@ -36,6 +36,11 @@
 //! - `menue`: nach zwei Sekunden das Pausenmenü öffnen
 //! - `posten_wahl`, `sonne_wahl`, `wache_wahl`: dieses Werkzeug wählen (mit `zeiger` für den Wirkungskreis)
 //! - `katze`: Minka kommt gleich zu Besuch; `katzenfreundin`: Minka ist schon Freundin
+//! - `denkmaeler`: alle Denkmäler verdient; `denkmaeler_stehen`: alle stehen rund um den Startbau
+//! - `errungenschaft`: gleich eine Errungenschaft mit Fanfare (Schaufelmonument)
+//! - `errungenschaften`: die Übersicht der Errungenschaften ist offen
+//! - `denkmal_wahl`: die Kaninchenstatue zum Aufstellen gewählt (mit `zeiger` für den Wirkungskreis)
+//! - `aufstellen` (mit `zeiger` und `denkmaeler`): die Kaninchenstatue neben dem Startbau aufstellen
 //! - `landkauf`: das Werkzeug „Land kaufen“ mit 50 Erde wählen
 //! - `kapitel=N`: gleich mit Kapitel N beginnen
 //! - `kapitelwahl`: auf dem Titelbild die Kapitelwahl öffnen
@@ -221,6 +226,32 @@ fn prepare(
     }
     if script.has("sonnenplatz") {
         grid.surface_mut(TilePos::new(24, 18)).feature = Some(Feature::SunSpot);
+    }
+    if script.has("denkmaeler_stehen") {
+        use crate::monument::Monument;
+        let spots = [
+            (Monument::Statue, 13, 16),
+            (Monument::FoxStone, 13, 12),
+            (Monument::GiantCarrot, 25, 16),
+            (Monument::CrystalObelisk, 25, 12),
+            (Monument::Maypole, 16, 19),
+            (Monument::BuilderArch, 21, 19),
+            (Monument::GoldenClover, 19, 10),
+            (Monument::Shovel, 16, 12),
+            (Monument::FeatherMast, 22, 12),
+            (Monument::SnowRabbit, 16, 14),
+            (Monument::AncestorStone, 22, 17),
+            (Monument::CatBasket, 23, 14),
+            (Monument::MoleMonument, 17, 17),
+        ];
+        for (monument, x, y) in spots {
+            let center = TilePos::new(x, y);
+            for q in footprint(center, monument.size()) {
+                let field = grid.surface_mut(q);
+                field.feature = Some(Feature::Monument(monument));
+                field.part_of = Some(center);
+            }
+        }
     }
     if script.has("posten") {
         for p in [TilePos::new(17, 13), TilePos::new(25, 18)] {
@@ -438,6 +469,16 @@ fn fake_press(
             mouse.release(MouseButton::Left);
         }
     }
+    // `aufstellen`: einmal klicken mit der Kaninchenstatue.
+    if script.has("aufstellen") {
+        let now = time.elapsed_secs();
+        if (1.0..1.2).contains(&now) && !mouse.pressed(MouseButton::Left) {
+            tool.kind = ToolKind::Feature(Feature::Monument(crate::monument::Monument::Statue));
+            mouse.press(MouseButton::Left);
+        } else if now >= 1.2 && mouse.pressed(MouseButton::Left) {
+            mouse.release(MouseButton::Left);
+        }
+    }
 }
 
 /// Klickt mit der simulierten Maus auf Schneeflocke: Zeiger auf die Figur, drücken, im nächsten
@@ -596,6 +637,7 @@ fn skip_intro(
     mut tool: ResMut<Tool>,
     mut colony: ResMut<Colony>,
     mut world_cat: ResMut<crate::cat::CatBond>,
+    mut feats: ResMut<crate::toolbar::FeatsOpen>,
     mut done: Local<(bool, bool)>,
 ) {
     if script.has("ziel") {
@@ -648,6 +690,18 @@ fn skip_intro(
     if script.has("katzenfreundin") {
         world_cat.friend = true;
         world_cat.friendship = 1.0;
+    }
+    if script.has("denkmaeler") || script.has("denkmaeler_stehen") {
+        progress.feats.earned = crate::monument::Monument::ALL.to_vec();
+    }
+    if script.has("errungenschaft") {
+        progress.feats.earth_dug = 100.0;
+    }
+    if script.has("errungenschaften") {
+        feats.0 = true;
+    }
+    if script.has("denkmal_wahl") {
+        tool.kind = ToolKind::Feature(Feature::Monument(crate::monument::Monument::Statue));
     }
     if script.has("landkauf") {
         tool.kind = ToolKind::Land;

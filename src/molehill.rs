@@ -7,6 +7,8 @@ use bevy::prelude::*;
 use crate::colony::{Colony, Messages, Rng};
 use crate::daynight::DayClock;
 use crate::map::{Grid, Layer, TILE_SIZE, TilePos};
+use crate::monument::{MOLE_WAIT, Monument, Standing};
+use crate::progress::Progress;
 use crate::rabbit::{OnLayer, Rabbit};
 
 /// So viel Erde bringt ein eingeebneter Hügel.
@@ -60,6 +62,7 @@ fn raise_molehills(
     mut moles: ResMut<MoleClock>,
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
+    standing: Res<Standing>,
 ) {
     // Im gefrorenen Boden gräbt auch kein Maulwurf.
     if clock.is_ground_frozen() {
@@ -69,7 +72,9 @@ fn raise_molehills(
     if moles.next > 0.0 {
         return;
     }
-    moles.next = rng.range(MOLEHILL_SECONDS.0, MOLEHILL_SECONDS.1);
+    // Das Maulwurfsdenkmal lockt die Maulwürfe an.
+    let wait = if standing.has(Monument::MoleMonument) { MOLE_WAIT } else { 1.0 };
+    moles.next = rng.range(MOLEHILL_SECONDS.0, MOLEHILL_SECONDS.1) * wait;
     if Grid::positions().filter(|p| grid.surface(*p).molehill).count() >= MAX_MOLEHILLS {
         return;
     }
@@ -98,6 +103,7 @@ fn level_molehills(
     mut grid: ResMut<Grid>,
     mut colony: ResMut<Colony>,
     mut messages: ResMut<Messages>,
+    mut progress: ResMut<Progress>,
     rabbits: Query<(&Rabbit, &Transform, &OnLayer)>,
 ) {
     for (rabbit, transform, layer) in &rabbits {
@@ -111,6 +117,7 @@ fn level_molehills(
             if p.in_bounds() && grid.surface(p).molehill && p.center().distance(at) < LEVEL_REACH {
                 grid.surface_mut(p).molehill = false;
                 colony.earth += MOLEHILL_EARTH;
+                progress.feats.molehills += 1;
                 messages.push(format!("{} hat einen Maulwurfshügel eingeebnet: {MOLEHILL_EARTH:.0} Erde.", rabbit.name));
             }
         }

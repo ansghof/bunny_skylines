@@ -14,8 +14,10 @@ use crate::marten::{STOMP_RANGE, WATCH_RANGE, tunnel_distances};
 use crate::pathfinding::Node;
 use crate::rabbit::SUN_SPOT_REACH;
 use crate::map::{
-    Chamber, Depth, Feature, Grid, Layer, Plot, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, footprint, tiles_between,
+    Chamber, Depth, Feature, Grid, Layer, Plot, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, footprint,
+    footprint_corners, footprint_middle, tiles_between,
 };
+use crate::monument::{Monument, Unveil};
 use crate::progress::{Progress, Stage, Tech};
 use crate::toolbar::Toolbar;
 
@@ -60,18 +62,20 @@ pub enum ToolGroup {
     Food,
     Safety,
     Community,
+    Monuments,
     Land,
     Remove,
 }
 
 impl ToolGroup {
-    pub const ALL: [ToolGroup; 8] = [
+    pub const ALL: [ToolGroup; 9] = [
         ToolGroup::Point,
         ToolGroup::Dig,
         ToolGroup::Chambers,
         ToolGroup::Food,
         ToolGroup::Safety,
         ToolGroup::Community,
+        ToolGroup::Monuments,
         ToolGroup::Land,
         ToolGroup::Remove,
     ];
@@ -84,6 +88,7 @@ impl ToolGroup {
             ToolGroup::Food => "Futter",
             ToolGroup::Safety => "Schutz",
             ToolGroup::Community => "Gemeinschaft",
+            ToolGroup::Monuments => "Denkmäler",
             ToolGroup::Land => "Land und Wege",
             ToolGroup::Remove => "Entfernen",
         }
@@ -91,7 +96,7 @@ impl ToolGroup {
 
     /// Die Werkzeuge der Gruppe, in der Reihenfolge der Leiste.
     pub fn tools(self) -> impl Iterator<Item = ToolKind> {
-        TOOLS.into_iter().map(|(kind, _, _)| kind).filter(move |kind| kind.group() == self)
+        all_tools().filter(move |kind| kind.group() == self)
     }
 
     /// Das Werkzeug, dessen Bild die Gruppe zeigt.
@@ -105,6 +110,16 @@ impl ToolGroup {
 pub enum Lock {
     Tech(Tech),
     Stage(Stage),
+    /// Ein Denkmal, das erst eine Errungenschaft freischaltet.
+    Feat(Monument),
+}
+
+/// Alle Werkzeuge der Leiste: die mit Taste und dahinter die Denkmäler, die keine Taste haben.
+pub fn all_tools() -> impl Iterator<Item = ToolKind> {
+    TOOLS
+        .into_iter()
+        .map(|(kind, _, _)| kind)
+        .chain(Monument::ALL.map(|m| ToolKind::Feature(Feature::Monument(m))))
 }
 
 /// Alle Werkzeuge in der Reihenfolge der Werkzeugleiste, mit Taste und Tastenname.
@@ -145,6 +160,7 @@ impl ToolKind {
             | ToolKind::Plug
             | ToolKind::Feature(Feature::Hedge | Feature::BoltHole | Feature::Dam) => ToolGroup::Safety,
             ToolKind::Feature(Feature::SunSpot | Feature::Playground | Feature::Festival) => ToolGroup::Community,
+            ToolKind::Feature(Feature::Monument(_)) => ToolGroup::Monuments,
             ToolKind::Land | ToolKind::Trail => ToolGroup::Land,
             ToolKind::Remove => ToolGroup::Remove,
         }
@@ -216,6 +232,7 @@ impl ToolKind {
                  vor dem Fuchs. Das Gras wächst weiter."
             }
             ToolKind::Remove => "Aufträge, Kammern und Bauten an der Oberfläche entfernen.",
+            ToolKind::Feature(Feature::Monument(monument)) => monument.effect(),
         }
     }
 
@@ -287,6 +304,11 @@ impl ToolKind {
         if let Some(tech) = self.required_tech().filter(|tech| !progress.has(*tech)) {
             return Some(Lock::Tech(tech));
         }
+        if let ToolKind::Feature(Feature::Monument(monument)) = self
+            && !progress.feats.has(monument)
+        {
+            return Some(Lock::Feat(monument));
+        }
         // Kennt die Familie Nachtwache und Erdpfropf schon aus früheren Kapiteln, gibt es sie gleich.
         if matches!(self, ToolKind::Plug | ToolKind::Watch) && progress.night_tools {
             return None;
@@ -302,7 +324,7 @@ impl ToolKind {
                 | ToolKind::Land
                 | ToolKind::Plug
                 | ToolKind::Watch
-                | ToolKind::Feature(Feature::BoltHole | Feature::SunSpot | Feature::Festival)
+                | ToolKind::Feature(Feature::BoltHole | Feature::SunSpot | Feature::Festival | Feature::Monument(_))
         )
     }
 
@@ -336,6 +358,9 @@ pub fn locked_message(lock: Lock) -> String {
     match lock {
         Lock::Tech(tech) => format!("{} ist noch nicht erforscht. Öffne den Forschungsbaum mit T.", tech.label()),
         Lock::Stage(stage) => format!("Das gibt es erst ab der Stufe „{}“.", stage.label()),
+        Lock::Feat(monument) => {
+            format!("Das Denkmal „{}“ gibt es als Belohnung für: {}.", monument.label(), monument.condition())
+        }
     }
 }
 
@@ -396,6 +421,7 @@ pub(crate) fn apply_drag(
     mut messages: ResMut<Messages>,
     mut sounds: ResMut<Sounds>,
     clock: Res<DayClock>,
+    mut unveil: ResMut<Unveil>,
     toolbar: Query<&Hovered, With<Toolbar>>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
@@ -436,10 +462,15 @@ pub(crate) fn apply_drag(
     // Manche Bauten immer einzeln, ein ganzer Bereich davon ergibt keinen Sinn.
     let tiles: Vec<TilePos> = drag_tiles(tool.kind, start, end);
 
+    // Große Bauten und Denkmäler stehen als Ganzes, mit dem Feld unter dem Zeiger als Mittelfeld.
     if let ToolKind::Feature(feature) = tool.kind
-        && feature.size() > 1
+        && placed_whole(feature)
     {
-        build_big(feature, end, &mut grid, &mut colony, &mut messages);
+        if build_big(feature, end, &mut grid, &mut colony, &mut messages)
+            && let Feature::Monument(monument) = feature
+        {
+            unveil.0.push((monument, end));
+        }
         return;
     }
 
@@ -730,23 +761,35 @@ fn remove_feature(grid: &mut Grid, colony: &mut Colony, p: TilePos) {
     }
 }
 
-/// Warum ein großer Bau hier nicht passt, oder `None`, wenn alle seine Felder frei sind.
-fn big_blocked(feature: Feature, center: TilePos, grid: &Grid) -> Option<String> {
-    let size = feature.size();
-    let fits = footprint(center, size).all(|q| q.in_bounds() && grid.owns(q) && surface_free(grid.surface(q)));
-    (!fits).then(|| format!("{} braucht {size} × {size} freie Felder auf eigenem Land.", feature.label()))
+/// Ob ein Bau als Ganzes aufgestellt wird statt Feld für Feld: große Bauten und alle Denkmäler.
+fn placed_whole(feature: Feature) -> bool {
+    feature.size() > 1 || matches!(feature, Feature::Monument(_))
 }
 
-/// Setzt einen großen Bau mit dem Mittelfeld `center` und bezahlt ihn einmal.
-fn build_big(feature: Feature, center: TilePos, grid: &mut Grid, colony: &mut Colony, messages: &mut Messages) {
+/// Warum ein großer Bau hier nicht passt, oder `None`, wenn alle seine Felder frei sind.
+/// Jedes Denkmal gibt es nur einmal.
+fn big_blocked(feature: Feature, center: TilePos, grid: &Grid) -> Option<String> {
+    if matches!(feature, Feature::Monument(_)) && Grid::positions().any(|p| grid.surface(p).feature == Some(feature)) {
+        return Some(format!("{} steht schon. Jedes Denkmal gibt es nur einmal.", feature.label()));
+    }
+    let size = feature.size();
+    let fits = footprint(center, size).all(|q| q.in_bounds() && grid.owns(q) && surface_free(grid.surface(q)));
+    (!fits).then(|| match size {
+        1 => format!("{} braucht ein freies Feld auf eigenem Land.", feature.label()),
+        _ => format!("{} braucht {size} × {size} freie Felder auf eigenem Land.", feature.label()),
+    })
+}
+
+/// Setzt einen großen Bau mit dem Mittelfeld `center` und bezahlt ihn einmal; sagt, ob er steht.
+fn build_big(feature: Feature, center: TilePos, grid: &mut Grid, colony: &mut Colony, messages: &mut Messages) -> bool {
     if let Some(reason) = big_blocked(feature, center, grid) {
         messages.push(reason);
-        return;
+        return false;
     }
     let (food, earth) = ToolKind::Feature(feature).price().unwrap_or_default();
     if !colony.pay(food, earth) {
         messages.push(format!("Für {} fehlt Erde: {earth:.0} nötig.", feature.label()));
-        return;
+        return false;
     }
     for q in footprint(center, feature.size()) {
         let field = grid.surface_mut(q);
@@ -756,6 +799,7 @@ fn build_big(feature: Feature, center: TilePos, grid: &mut Grid, colony: &mut Co
             field.grass = 0.0;
         }
     }
+    true
 }
 
 fn priced_tiles(grid: &Grid, kind: ToolKind, start: TilePos, end: TilePos) -> usize {
@@ -871,15 +915,16 @@ fn draw_preview(
     });
     // Ein großer Bau zeigt, was er kostet oder warum er hier nicht hinpasst.
     let big = match tool.kind {
-        ToolKind::Feature(feature) if feature.size() > 1 => Some(feature),
+        ToolKind::Feature(feature) if placed_whole(feature) => Some(feature),
         _ => None,
     };
     let info = info.or_else(|| {
         let feature = big?;
         let center = TilePos::from_world_clamped(cursor);
-        let (_, earth) = tool.kind.price()?;
-        Some(big_blocked(feature, center, &grid).unwrap_or_else(|| {
-            format!("{}: {earth:.0} Erde (vorhanden: {:.0}).", feature.label(), colony.earth)
+        Some(big_blocked(feature, center, &grid).unwrap_or_else(|| match (feature, tool.kind.price()) {
+            (Feature::Monument(monument), _) => format!("{}: kostenlos. {}", monument.label(), monument.effect()),
+            (_, Some((_, earth))) => format!("{}: {earth:.0} Erde (vorhanden: {:.0}).", feature.label(), colony.earth),
+            (_, None) => feature.label().to_string(),
         }))
     });
     let info = info.or_else(|| reach_note(tool.kind)).map(|text| match family_wide(tool.kind) {
@@ -908,8 +953,8 @@ fn draw_preview(
     if let Some(feature) = big {
         let blocked = big_blocked(feature, end, &grid).is_some();
         let color = if blocked { Color::srgba(0.9, 0.3, 0.2, 0.8) } else { color };
-        let reach = (feature.size() / 2) as f32 * TILE_SIZE + TILE_SIZE / 2.0;
-        gizmo_rect(&mut gizmos, end.center() - reach, end.center() + reach, 0.0, color);
+        let (low, high) = footprint_corners(end, feature.size());
+        gizmo_rect(&mut gizmos, low.center() - TILE_SIZE / 2.0, high.center() + TILE_SIZE / 2.0, 0.0, color);
         return;
     }
     // Ein Pfad zeigt seinen Weg Feld für Feld, alles andere den aufgezogenen Bereich.
@@ -967,6 +1012,12 @@ fn draw_reach(gizmos: &mut Gizmos, grid: &Grid, kind: ToolKind, at: TilePos) {
         ToolKind::Post => {
             gizmo_circle(gizmos, at.center(), GUARD_SIGHT, 0.0, sight);
             gizmo_circle(gizmos, at.center(), STOMP_RADIUS, 0.0, stomp);
+        }
+        ToolKind::Feature(Feature::Monument(monument)) => {
+            if let Some(reach) = monument.reach() {
+                let middle = footprint_middle(at, monument.size());
+                gizmo_circle(gizmos, middle, reach, 0.0, Color::srgba(1.0, 0.85, 0.3, 0.85));
+            }
         }
         ToolKind::Watch if grid.under(at).dug.is_some() => {
             let start = Node::new(Layer::Underground, at);

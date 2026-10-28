@@ -15,6 +15,7 @@ use crate::daynight::DayClock;
 use crate::danger::{Alarms, raise_alarm};
 use crate::ground::to_world3;
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, ViewLayer};
+use crate::monument::{MAST_SIGHT, Monument, Standing};
 use crate::progress::{Progress, Stage};
 use crate::rabbit::{Fur, OnLayer, Rabbit, Stomping};
 use crate::scenario::Scenario;
@@ -404,6 +405,8 @@ fn guards_watch_sky(
     mut reserved: ResMut<Reserved>,
     mut alarms: ResMut<Alarms>,
     mut messages: ResMut<Messages>,
+    mut progress: ResMut<Progress>,
+    standing: Res<Standing>,
     mut buzzards: Query<&mut Buzzard>,
     mut guards: Query<(Entity, &Rabbit, &Transform, &OnLayer, &mut Activity, &mut Path, &mut Fear)>,
 ) {
@@ -413,7 +416,9 @@ fn guards_watch_sky(
         }
         for (guard, rabbit, transform, layer, mut activity, mut path, mut fear) in &mut guards {
             let at = transform.translation.truncate();
-            if !matches!(*activity, Activity::Guarding { .. }) || at.distance(bird.position) >= GUARD_SIGHT {
+            // Beim Federmast sieht eine Wache den Bussard früher.
+            let sight = if standing.near(Monument::FeatherMast, at) { GUARD_SIGHT * MAST_SIGHT } else { GUARD_SIGHT };
+            if !matches!(*activity, Activity::Guarding { .. }) || at.distance(bird.position) >= sight {
                 continue;
             }
             raise_alarm(&mut alarms, at, STOMP_RADIUS);
@@ -421,6 +426,7 @@ fn guards_watch_sky(
             // Pro Runde nur eine Meldung, auch wenn mehrere Wachen stampfen.
             if !bird.spotted {
                 messages.push(format!("{} stampft: Bussard am Himmel!", rabbit.name));
+                progress.feats.buzzard_warnings += 1;
             }
             bird.spotted = true;
             bird.known = true;

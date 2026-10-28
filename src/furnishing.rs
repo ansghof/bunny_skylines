@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use crate::camera::{Orbit, figure_layer};
 use crate::colony::Colony;
 use crate::ground::{depth_y, to_world3};
-use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer};
+use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer, footprint_middle};
 
 const FOLDER: &str = "einrichtung";
 /// Bilder sind in doppelter Spielgröße gemalt.
@@ -66,7 +66,15 @@ impl Kind {
 
     /// Steht aufrecht wie eine Figur, statt flach am Boden zu liegen.
     fn upright(self) -> bool {
-        matches!(self, Kind::Pile | Kind::Plug | Kind::Tree | Kind::Stones | Kind::Molehill | Kind::Built(Feature::Hedge))
+        matches!(
+            self,
+            Kind::Pile
+                | Kind::Plug
+                | Kind::Tree
+                | Kind::Stones
+                | Kind::Molehill
+                | Kind::Built(Feature::Hedge | Feature::Monument(_))
+        )
     }
 }
 
@@ -75,7 +83,7 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 32] = [
+const IMAGES: [(&str, Vec2); 45] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
     ("maulwurfshuegel.png", Vec2::new(72.0, 40.0)),
     // Die ausgeworfene Erde reicht über das Feld hinaus.
@@ -111,7 +119,26 @@ const IMAGES: [(&str, Vec2); 32] = [
     ("damm_kurve.png", Vec2::new(128.0, 128.0)),
     ("damm_t.png", Vec2::new(128.0, 128.0)),
     ("damm_kreuz.png", Vec2::new(128.0, 128.0)),
+    // Denkmäler: Die großen stehen auf 2 × 2 Feldern und ragen wie Bäume auf.
+    ("denkmal_statue.png", Vec2::new(240.0, 340.0)),
+    ("denkmal_schaufel.png", Vec2::new(128.0, 184.0)),
+    ("denkmal_fuchsschreck.png", Vec2::new(260.0, 210.0)),
+    ("denkmal_federmast.png", Vec2::new(104.0, 260.0)),
+    ("denkmal_winterkaninchen.png", Vec2::new(132.0, 168.0)),
+    ("denkmal_riesenmoehre.png", Vec2::new(220.0, 320.0)),
+    ("denkmal_ahnenstein.png", Vec2::new(128.0, 168.0)),
+    ("denkmal_obelisk.png", Vec2::new(200.0, 360.0)),
+    ("denkmal_katzenkorb.png", Vec2::new(152.0, 112.0)),
+    ("denkmal_maibaum.png", Vec2::new(250.0, 420.0)),
+    ("denkmal_maulwurf.png", Vec2::new(128.0, 152.0)),
+    ("denkmal_bogen.png", Vec2::new(288.0, 248.0)),
+    ("denkmal_kleeblatt.png", Vec2::new(220.0, 320.0)),
 ];
+
+/// Bildgröße eines Denkmals in Bildpixeln, z. B. für die Knöpfe der Werkzeugleiste.
+pub fn monument_image_size(file: &str) -> Vec2 {
+    IMAGES.iter().find(|(f, _)| *f == file).map_or(Vec2::ONE, |(_, size)| *size)
+}
 
 /// Die Pfadstücke, wie gezeichnet (oben = Norden), mit den Nachbarn, zu denen sie führen.
 const TRAIL_PIECES: [(&str, u8); 6] = [
@@ -186,6 +213,7 @@ fn feature_image(feature: Feature) -> &'static str {
         Feature::Carrots => "moehren.png",
         Feature::Festival => "festplatz.png",
         Feature::Dam => "damm_punkt.png",
+        Feature::Monument(monument) => monument.image(),
     }
 }
 
@@ -354,7 +382,12 @@ fn place_furnishing(
             _ => 1.0,
         };
         let size = image_size(image);
-        let at = Transform::from_translation(to_world3(pos.center(), floor + lift));
+        // Ein großes Denkmal steht in der Mitte seiner Fläche, nicht auf dem Mittelfeld.
+        let middle = match kind {
+            Kind::Built(feature @ Feature::Monument(_)) => footprint_middle(pos, feature.size()),
+            _ => pos.center(),
+        };
+        let at = Transform::from_translation(to_world3(middle, floor + lift));
         let mut entity = commands.spawn((
             Furnishing(kind.layer()),
             MeshMaterial3d(assets.materials[image].clone()),

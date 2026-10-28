@@ -10,7 +10,7 @@ use crate::map::{Grid, ViewLayer};
 use crate::rabbit::{Hunger, Mood, Rabbit, SHOW_HUNGER};
 use crate::scenario::{Losses, Scenario, Snapshot};
 use crate::speed;
-use crate::toolbar::TOOLBAR_HEIGHT;
+use crate::toolbar::{FeatsOpen, ResearchOpen, TOOLBAR_HEIGHT};
 use crate::tools::{SelectionCost, Tool, ToolKind};
 
 /// Werkzeuge stehen in der Werkzeugleiste; hier nur noch die Kamera und das Markieren.
@@ -25,7 +25,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_ui)
-            .add_systems(Update, (update_status, update_messages, update_selection_cost));
+            .add_systems(Update, (update_status, update_messages, update_selection_cost, hide_help));
     }
 }
 
@@ -34,6 +34,10 @@ struct StatusText;
 
 #[derive(Component)]
 struct MessageText;
+
+/// Die Tastenhilfe unten links.
+#[derive(Component)]
+struct HelpText;
 
 /// Kosten des gerade aufgezogenen Bereichs, rechts über der Werkzeugleiste.
 #[derive(Component)]
@@ -64,7 +68,7 @@ fn spawn_ui(mut commands: Commands) {
     commands.spawn((Text::default(), StatusText, panel(Some(12.0), None, Some(12.0), None)));
     commands.spawn((Text::default(), MessageText, panel(None, Some(12.0), Some(12.0), None)));
     // Über der Werkzeugleiste, damit sich beide nicht überdecken.
-    commands.spawn((Text::new(HELP), panel(Some(12.0), None, None, Some(TOOLBAR_HEIGHT + 20.0))));
+    commands.spawn((Text::new(HELP), HelpText, panel(Some(12.0), None, None, Some(TOOLBAR_HEIGHT + 20.0))));
     // Versteckt sich selbst, solange kein Bereich aufgezogen wird.
     commands.spawn((Text::default(), SelectionText, panel(None, Some(12.0), None, Some(TOOLBAR_HEIGHT + 20.0))));
 }
@@ -155,5 +159,13 @@ fn update_selection_cost(
 fn update_messages(messages: Res<Messages>, mut text: Single<&mut Text, With<MessageText>>) {
     if messages.is_changed() {
         text.0 = messages.0.iter().cloned().collect::<Vec<_>>().join("\n");
+    }
+}
+
+/// Forschungsbaum und Errungenschaften liegen über der Tastenhilfe: Solange eins offen ist, verschwindet sie.
+fn hide_help(research: Res<ResearchOpen>, feats: Res<FeatsOpen>, mut help: Single<&mut Node, With<HelpText>>) {
+    let display = if research.0 || feats.0 { Display::None } else { Display::Flex };
+    if help.display != display {
+        help.display = display;
     }
 }

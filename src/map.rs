@@ -6,6 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use bevy::prelude::*;
 
 use crate::daynight::{DayClock, Season};
+use crate::monument::{CARROT_GROWTH, Monument};
 
 pub const TILE_SIZE: f32 = 64.0;
 pub const MAP_WIDTH: i32 = 40;
@@ -120,13 +121,27 @@ fn map_origin() -> Vec2 {
     -Vec2::new(MAP_WIDTH as f32, MAP_HEIGHT as f32) * TILE_SIZE / 2.0
 }
 
-/// Die Felder, die ein Bau der Seitenlänge `size` um sein Mittelfeld belegt.
+/// Die Felder, die ein Bau der Seitenlänge `size` um sein Mittelfeld belegt. Bei gerader
+/// Seitenlänge ist das Mittelfeld das linke untere der mittleren vier.
 pub fn footprint(center: TilePos, size: i32) -> impl Iterator<Item = TilePos> {
-    let reach = size / 2;
-    tiles_between(
-        TilePos::new(center.x - reach, center.y - reach),
-        TilePos::new(center.x + reach, center.y + reach),
+    let (low, high) = footprint_corners(center, size);
+    tiles_between(low, high)
+}
+
+/// Das linke untere und das rechte obere Feld eines Baus.
+pub fn footprint_corners(center: TilePos, size: i32) -> (TilePos, TilePos) {
+    let below = (size - 1) / 2;
+    let above = size / 2;
+    (
+        TilePos::new(center.x - below, center.y - below),
+        TilePos::new(center.x + above, center.y + above),
     )
+}
+
+/// Die Mitte der Fläche eines Baus in Weltmaß; bei gerader Seitenlänge eine Feldecke.
+pub fn footprint_middle(center: TilePos, size: i32) -> Vec2 {
+    let (low, high) = footprint_corners(center, size);
+    (low.center() + high.center()) / 2.0
 }
 
 /// Alle Felder eines Rechtecks zwischen zwei Ecken, egal in welcher Richtung gezogen wurde.
@@ -242,6 +257,8 @@ pub enum Feature {
     Festival,
     /// Damm: ein Erdwall, der Hochwasser aufhält.
     Dam,
+    /// Ein Denkmal, verdient mit einer Errungenschaft.
+    Monument(Monument),
 }
 
 impl Feature {
@@ -255,6 +272,7 @@ impl Feature {
             Feature::Carrots => "Möhrenbeet",
             Feature::Festival => "Festplatz",
             Feature::Dam => "Damm",
+            Feature::Monument(monument) => monument.label(),
         }
     }
 
@@ -263,12 +281,17 @@ impl Feature {
     pub fn size(self) -> i32 {
         match self {
             Feature::Festival => 3,
+            Feature::Monument(monument) => monument.size(),
             _ => 1,
         }
     }
 
     pub fn keeps_grass(self) -> bool {
-        matches!(self, Feature::Herbs | Feature::SunSpot | Feature::Playground | Feature::Carrots)
+        // Um Denkmäler bleibt die Wiese stehen, sie stehen ja nur darauf.
+        matches!(
+            self,
+            Feature::Herbs | Feature::SunSpot | Feature::Playground | Feature::Carrots | Feature::Monument(_)
+        )
     }
 }
 
@@ -860,6 +883,15 @@ impl Grid {
         } else {
             Vec::new()
         };
+        // Bei der Riesenmöhre wächst das Gras schneller.
+        let carrot = Self::positions().find_map(|p| {
+            let tile = self.surface(p);
+            (tile.feature == Some(Feature::Monument(Monument::GiantCarrot)) && tile.part_of == Some(p))
+                .then(|| footprint_middle(p, Monument::GiantCarrot.size()))
+        });
+        let carrot_reach = Monument::GiantCarrot.reach().unwrap_or(0.0);
+        let boosted: Vec<bool> =
+            Self::positions().map(|p| carrot.is_some_and(|c| c.distance(p.center()) < carrot_reach)).collect();
         for (i, tile) in self.surface.iter_mut().enumerate() {
             tile.rest += elapsed;
             // Lange nicht beweidet: Der Boden erholt sich bis zur gesunden Wiese.
@@ -888,6 +920,7 @@ impl Grid {
                 } else {
                     1.0
                 };
+                let speed = if boosted[i] { speed * CARROT_GROWTH } else { speed };
                 tile.grass = (tile.grass + growth * dry * speed * tile.fertility).min(tile.fertility);
             }
         }
@@ -1098,7 +1131,7 @@ pub fn surface_color(grid: &Grid, p: TilePos) -> Color {
         Some(Feature::Carrots) => rgb = mix(rgb, [0.52, 0.40, 0.24], 0.45),
         Some(Feature::Festival) => rgb = mix(rgb, [0.86, 0.74, 0.52], 0.5),
         Some(Feature::Dam) => rgb = mix(rgb, [0.50, 0.38, 0.24], 0.7),
-        None => {}
+        Some(Feature::Monument(_)) | None => {}
     }
     // Gänge darunter scheinen leicht durch.
     if grid.under(p).dug.is_some() {

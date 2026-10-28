@@ -10,6 +10,7 @@ use bevy::prelude::*;
 
 use crate::colony::{Colony, FOOD_PER_STORAGE_TILE, Messages};
 use crate::daynight::{DayClock, Season};
+use crate::monument::Feats;
 use crate::rabbit::Rabbit;
 
 pub struct ProgressPlugin;
@@ -229,6 +230,9 @@ pub struct Progress {
     /// Nachtwache und Erdpfropf sind schon bekannt, nicht erst ab der Siedlung.
     #[serde(default)]
     pub night_tools: bool,
+    /// Zähler für die Errungenschaften und die verdienten Denkmäler.
+    #[serde(default)]
+    pub feats: Feats,
 }
 
 impl Default for Progress {
@@ -239,6 +243,7 @@ impl Default for Progress {
             winters_survived: 0,
             unlocked: HashSet::new(),
             night_tools: false,
+            feats: Feats::default(),
         }
     }
 }
@@ -265,6 +270,11 @@ impl Progress {
             Stage::Settlement => 9,
             Stage::Town => 12,
         }
+    }
+
+    /// Wie viele Forschungen schon abgeschlossen sind.
+    pub fn researched(&self) -> usize {
+        self.unlocked.len()
     }
 
     pub fn has(&self, tech: Tech) -> bool {

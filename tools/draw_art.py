@@ -2,7 +2,7 @@
 ohne dicke Umrisse, damit sie zu den Bodentexturen passen. Licht kommt immer von links oben.
 
 Aufruf aus dem Projektordner: `python tools/draw_art.py .`, danach `cargo run -p art_export`.
-Trampelpfade und Dämme zeichnet `tools/draw_paths.py`."""
+Trampelpfade und Dämme zeichnet `tools/draw_paths.py`, die Denkmäler `tools/draw_monuments.py`."""
 import math
 import os
 import random
@@ -877,14 +877,15 @@ def cat():
     s.save('figuren/katze/auge_zu.svg')
 
 
-cat()
-festival()
-burrow()
-rabbit()
-fox()
-marten()
-buzzard()
-plants()
-stuff()
-places()
-print('ok')
+if __name__ == '__main__':
+    cat()
+    festival()
+    burrow()
+    rabbit()
+    fox()
+    marten()
+    buzzard()
+    plants()
+    stuff()
+    places()
+    print('ok')
