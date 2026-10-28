@@ -5,6 +5,7 @@ use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
+use crate::cat::{CatBond, CatRest};
 use crate::bird::{BuzzardSpawner, Sky};
 use crate::marten::MartenSpawner;
 use crate::behavior::{Priorities, Reserved};
@@ -193,6 +194,8 @@ pub(crate) fn restart(world: &mut World) {
     world.insert_resource(Losses::default());
     world.insert_resource(Flood::default());
     world.insert_resource(Drought::default());
+    world.insert_resource(CatBond::default());
+    world.insert_resource(CatRest::default());
     world.resource_mut::<Scenario>().restart();
     world.insert_resource(ViewLayer(Layer::Surface));
     world.resource_mut::<Time<Virtual>>().set_relative_speed(1.0);

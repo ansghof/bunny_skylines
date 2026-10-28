@@ -1,0 +1,15 @@
+// Bauplan der Katze. Aufbau und Bedeutung der Felder wie bei kaninchen.rig.ron.
+(
+    pixel_massstab: 0.42,
+    teile: [
+        (name: "bein_hinten_fern", bild: "bein_fern.png", position: (-36, 38), drehpunkt: (0.5, 0.92), ebene: 0, faerben: false),
+        (name: "bein_vorne_fern",  bild: "bein_fern.png", position: (46, 38),  drehpunkt: (0.5, 0.92), ebene: 0, faerben: false),
+        (name: "schwanz",          bild: "schwanz.png",   position: (-58, 60), drehpunkt: (0.97, 0.5), drehung: -35, ebene: 1, faerben: false),
+        (name: "koerper",          bild: "koerper.png",   position: (0, 50),   drehpunkt: (0.5, 0.5),  ebene: 2, faerben: false),
+        (name: "bein_hinten_nah",  bild: "bein_nah.png",  position: (-44, 36), drehpunkt: (0.5, 0.92), ebene: 3, faerben: false),
+        (name: "bein_vorne_nah",   bild: "bein_nah.png",  position: (54, 36),  drehpunkt: (0.5, 0.92), ebene: 3, faerben: false),
+        (name: "kopf",             bild: "kopf.png",      position: (64, 76),  drehpunkt: (0.3, 0.4),  ebene: 4, faerben: false),
+        (name: "auge",             bild: "auge_offen.png", position: (85, 83), drehpunkt: (0.5, 0.5),  ebene: 5, faerben: false,
+            varianten: {"zu": "auge_zu.png"}),
+    ],
+)

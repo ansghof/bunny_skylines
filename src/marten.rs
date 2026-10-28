@@ -19,7 +19,8 @@ use crate::daynight::{DayClock, figure_light};
 use crate::flood::Flood;
 use crate::ground::{floor_y, to_world3};
 use crate::map::{Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
-use crate::pathfinding::{Node, find_path, neighbors};
+use crate::cat::{CAT_NAME, CatRest};
+use crate::pathfinding::{Node, find_path, find_path_where, neighbors};
 use crate::progress::{Progress, Stage};
 use crate::rabbit::{Fur, OnLayer, Pregnant, Rabbit, Stomping};
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
@@ -164,6 +165,7 @@ fn assign_night_watch(
 }
 
 fn spawn_martens(
+    cat: Res<CatRest>,
     mut commands: Commands,
     time: Res<Time>,
     clock: Res<DayClock>,
@@ -209,7 +211,13 @@ fn spawn_martens(
         .min_by(|a, b| a.center().distance(position).total_cmp(&b.center().distance(position)))
         .unwrap_or(TilePos::from_world_clamped(position));
     let start = Node::new(Layer::Surface, edge);
-    let Some(mut steps) = find_path(&grid, start, |node| node.layer == Layer::Underground) else {
+    // Durch den Eingang, an dem die Katze schläft, traut er sich nicht.
+    let guarded = cat.guarded_entrance;
+    let allowed = |node: Node| !(node.layer == Layer::Surface && Some(node.pos) == guarded);
+    let Some(mut steps) = find_path_where(&grid, start, allowed, |node| node.layer == Layer::Underground) else {
+        if guarded.is_some() {
+            messages.push(format!("Ein Marder schleicht um den Bau, riecht aber {CAT_NAME} am Eingang und zieht ab."));
+        }
         return;
     };
     steps.insert(0, start);

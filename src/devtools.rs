@@ -28,12 +28,14 @@
 //! - `damm`: ein Damm vor dem Eingang aus `auenbau`
 //! - `festplatz`: ein Festplatz (3 × 3) neben dem Eingang
 //! - `fluchtloecher`: Fluchtlöcher am und um den Startplatz
+//! - `kraeuter`: ein Kräutergarten, `sonnenplatz`: ein Sonnenplatz neben dem Startbau
 //! - `posten`: zwei Wachposten auf der Wiese
 //! - `wachen`: Nachtwache im Startgang einrichten; `pfropf`: Erdpfropf im Startgang
 //! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
 //! - `menue`: nach zwei Sekunden das Pausenmenü öffnen
 //! - `posten_wahl`, `sonne_wahl`, `wache_wahl`: dieses Werkzeug wählen (mit `zeiger` für den Wirkungskreis)
+//! - `katze`: Minka kommt gleich zu Besuch; `katzenfreundin`: Minka ist schon Freundin
 //! - `landkauf`: das Werkzeug „Land kaufen“ mit 50 Erde wählen
 //! - `kapitel=N`: gleich mit Kapitel N beginnen
 //! - `kapitelwahl`: auf dem Titelbild die Kapitelwahl öffnen
@@ -211,6 +213,14 @@ fn prepare(
     }
     if script.has("wachen") {
         grid.under_mut(TilePos::new(21, 15)).watch = true;
+    }
+    if script.has("kraeuter") {
+        for p in [TilePos::new(17, 18), TilePos::new(18, 18)] {
+            grid.surface_mut(p).feature = Some(Feature::Herbs);
+        }
+    }
+    if script.has("sonnenplatz") {
+        grid.surface_mut(TilePos::new(24, 18)).feature = Some(Feature::SunSpot);
     }
     if script.has("posten") {
         for p in [TilePos::new(17, 13), TilePos::new(25, 18)] {
@@ -585,6 +595,7 @@ fn skip_intro(
     mut progress: ResMut<Progress>,
     mut tool: ResMut<Tool>,
     mut colony: ResMut<Colony>,
+    mut world_cat: ResMut<crate::cat::CatBond>,
     mut done: Local<(bool, bool)>,
 ) {
     if script.has("ziel") {
@@ -630,6 +641,13 @@ fn skip_intro(
     }
     if let Some(wisdom) = script.value("weisheit") {
         progress.wisdom = wisdom;
+    }
+    if script.has("katze") {
+        world_cat.summon();
+    }
+    if script.has("katzenfreundin") {
+        world_cat.friend = true;
+        world_cat.friendship = 1.0;
     }
     if script.has("landkauf") {
         tool.kind = ToolKind::Land;

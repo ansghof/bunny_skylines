@@ -2,6 +2,7 @@ mod audio;
 mod behavior;
 mod bird;
 mod camera;
+mod cat;
 mod carry;
 mod colony;
 mod danger;
@@ -71,7 +72,7 @@ fn main() {
             carry::CarryPlugin,
             danger::DangerPlugin,
         ))
-        .add_plugins((flood::FloodPlugin, drought::DroughtPlugin, molehill::MolehillPlugin))
+        .add_plugins((flood::FloodPlugin, drought::DroughtPlugin, molehill::MolehillPlugin, cat::CatPlugin))
         // Darstellung und Bedienung
         .add_plugins((
             furnishing::FurnishingPlugin,

@@ -13,6 +13,7 @@ use crate::ending::clear_world;
 use crate::map::{Grid, Layer, ViewLayer};
 use crate::progress::Progress;
 use crate::rabbit::{BirthCooldown, Fur, Hunger, Mood, OnLayer, Pregnant, Rabbit, SavedRabbit};
+use crate::cat::{CatBond, CatRest};
 use crate::scenario::{Losses, Scenario, Stage, chapter};
 
 /// Ändert sich der Aufbau des Spielstands, wird die Zahl erhöht; alte Stände lassen sich dann nicht laden.
@@ -40,6 +41,7 @@ struct SaveRef<'a> {
     stage: Stage,
     view: Layer,
     rabbits: Vec<SavedRabbit>,
+    cat: &'a CatBond,
 }
 
 /// Zum Lesen: dieselben Felder, diesmal mit Besitz.
@@ -58,6 +60,8 @@ struct SaveGame {
     stage: Stage,
     view: Layer,
     rabbits: Vec<SavedRabbit>,
+    #[serde(default)]
+    cat: CatBond,
 }
 
 fn first_chapter() -> u32 {
@@ -169,6 +173,7 @@ pub fn save_game(world: &mut World) {
         stage,
         view: world.resource::<ViewLayer>().0,
         rabbits,
+        cat: world.resource::<CatBond>(),
     };
     let path = save_path();
     let written = ron::to_string(&save)
@@ -216,6 +221,8 @@ pub fn load_game(world: &mut World) {
     world.resource_mut::<Scenario>().stage = save.stage;
     world.resource_mut::<Scenario>().chapter = chapter(save.chapter);
     world.insert_resource(Losses(save.losses));
+    world.insert_resource(save.cat);
+    world.insert_resource(CatRest::default());
     world.run_system_cached_with(spawn_saved, save.rabbits).ok();
     world.resource_mut::<Messages>().push("Spielstand geladen.");
 }

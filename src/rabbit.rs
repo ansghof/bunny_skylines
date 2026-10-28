@@ -58,6 +58,8 @@ fn has_festival(grid: &Grid) -> bool {
 }
 /// Sonnenplatz in der Nähe und Spielwiesen heben die Stimmung.
 const SUN_SPOT_MOOD: f32 = 0.15;
+/// Eine dösende Katze in der Nähe auch.
+const CAT_MOOD: f32 = 0.1;
 const PLAYGROUND_MOOD: f32 = 0.05;
 const PLAYGROUND_MOOD_MAX: f32 = 0.15;
 /// So viele Sekunden braucht die Stimmung ungefähr, um sich auf eine neue Lage einzustellen.
@@ -457,6 +459,7 @@ fn show_hunger(
 
 /// Die Stimmung folgt langsam dem, was ein Kaninchen gerade erlebt.
 fn update_mood(
+    cat: Res<crate::cat::CatRest>,
     time: Res<Time>,
     clock: Res<DayClock>,
     grid: Res<Grid>,
@@ -477,6 +480,11 @@ fn update_mood(
         let mut target = content;
         if layer.0 == Layer::Surface && near_sun_spot(&grid, transform) {
             target += SUN_SPOT_MOOD;
+        }
+        // Wo die Katze döst, ist es gemütlich.
+        let near_cat = cat.dozing.is_some_and(|spot| spot.distance(transform.translation.truncate()) < crate::cat::CALM_REACH);
+        if layer.0 == Layer::Surface && near_cat {
+            target += CAT_MOOD;
         }
         if hunger.0 >= SHOW_HUNGER {
             target -= 0.5;

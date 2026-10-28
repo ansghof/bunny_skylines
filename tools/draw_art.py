@@ -810,6 +810,74 @@ def festival():
     s.save('einrichtung/festplatz.svg')
 
 
+def cat():
+    """Minka, die Hofkatze: rot getigert, weiße Brust und Pfoten, in Teilen wie der Fuchs."""
+    base = '#d48a4a'
+    hair = ['#f0b27a', '#8e4e20', '#e09a5a', '#a8602a']
+    white = '#f6f0e6'
+    white_hair = ['#ffffff', '#d8d0c4']
+
+    def tabby(s, clip, x0, x1, y0, y1, n, angle=90):
+        """Dunkle Tigerstreifen quer über das Fell."""
+        out = ''
+        for i in range(n):
+            x = x0 + (x1 - x0) * (i + 0.5) / n + s.rng.uniform(-3, 3)
+            out += (f'<path d="M{f(x)} {y0} q{f(s.rng.uniform(-6, 6))} {f((y1 - y0) / 2)} {f(s.rng.uniform(-4, 4))} {y1 - y0}" '
+                    f'stroke="#7a3e14" stroke-width="{f(s.rng.uniform(3, 5))}" fill="none" opacity="0.55" {s.blur(1.2)}/>')
+        return f'<g {clip}>{out}</g>'
+
+    s = Svg(140, 60, 'Körper der Katze: schlank, rot getigert, weiße Brust vorne unten', 91)
+    d = 'M8 36 C8 18 30 8 62 8 C96 8 124 12 132 28 C138 42 128 54 108 56 L36 56 C18 56 8 50 8 36 Z'
+    c = s.clip_d(d)
+    chest = (f'<g {c}><path d="M100 58 C118 56 134 46 138 30 C142 48 130 60 112 60 Z" fill="{white}" {s.blur(2)}/>'
+             f'<ellipse cx="70" cy="58" rx="36" ry="7" fill="{white}" opacity="0.7" {s.blur(3)}/></g>')
+    furry(s, d, base, (6, 6, 138, 58), 182, 1.4, 5, hair=hair, extra=tabby(s, c, 20, 120, 6, 40, 6) + chest, light_at=(0.5, 0.2))
+    s.save('figuren/katze/koerper.svg')
+
+    s = Svg(62, 58, 'Kopf der Katze: rund, spitze Ohren, weiße Schnauze, rosa Nase', 92)
+    for ear, inner in (('M8 26 L12 2 L26 16 Z', 'M12 20 L14 8 L22 16 Z'), ('M30 14 L44 2 L46 24 Z', 'M34 14 L43 7 L43 20 Z')):
+        furry(s, ear, dark(base, 0.05), (8, 2, 46, 26), 270, 1.2, 2.5, 1, hair=hair)
+        s.add(f'<path d="{inner}" fill="#e8a8a0" opacity="0.85" {s.blur(0.6)}/>')
+    d = 'M6 34 C6 20 16 12 30 12 C44 12 52 22 54 30 C58 34 58 40 54 44 C48 52 38 56 28 56 C14 56 6 46 6 34 Z'
+    c = s.clip_d(d)
+    muzzle = (f'<g {c}><ellipse cx="48" cy="44" rx="13" ry="10" fill="{white}" {s.blur(1.8)}/>'
+              f'<ellipse cx="24" cy="54" rx="16" ry="6" fill="{white}" opacity="0.8" {s.blur(2)}/></g>')
+    stripes = (f'<g {c} stroke="#7a3e14" stroke-width="2.4" fill="none" opacity="0.5">'
+               '<path d="M22 14 q2 6 0 10"/><path d="M30 13 q1 6 -1 10"/><path d="M38 15 q0 5 -2 9"/><path d="M10 30 q6 1 10 4"/></g>')
+    furry(s, d, base, (5, 11, 58, 57), 200, 1.4, 3.5, hair=hair, extra=stripes + muzzle, light_at=(0.35, 0.2))
+    s.add('<path d="M53.4 37 C55 36 57.6 36.2 58 37.6 C57.4 39.2 56.2 39.8 55.6 41 C54.8 39.8 53.6 38.6 53.4 37 Z" fill="#d88a8a"/>'
+          '<path d="M55.6 41 L55.6 43.6 C54.6 45.2 52.8 45.4 51.4 44.6 M55.6 43.6 C56.4 45 57.4 45.2 58 45" fill="none" stroke="#8a5a54" stroke-width="0.9"/>'
+          '<g fill="none" stroke="#ffffff" stroke-width="0.6" opacity="0.8" stroke-linecap="round">'
+          '<path d="M50 42 Q55 41 61.5 39"/><path d="M50 44 Q56 44.5 61.5 46"/><path d="M49 46 Q53 49 58 52"/></g>')
+    s.save('figuren/katze/kopf.svg')
+
+    for name, t_ in (('nah', 0.0), ('fern', 0.18)):
+        s = Svg(18, 40, 'Bein der Katze: schlank, mit weißer Pfote', 93 + int(t_ * 10))
+        d = 'M4 4 C4 1 14 1 14 4 L13.4 32 C14 34 16 35 16 37 C16 39.4 3 39.4 2.4 37 C2.4 35 4.4 34 4.6 32 Z'
+        paw = f'<g {s.clip_d(d)}><rect x="0" y="29" width="18" height="12" fill="{dark(white, t_)}" {s.blur(1.4)}/></g>'
+        furry(s, d, dark(base, t_), (2, 1, 16, 39), 90, 1.2, 3, 1.1, hair=hair, extra=paw)
+        s.save(f'figuren/katze/bein_{name}.svg')
+
+    s = Svg(90, 30, 'Schwanz der Katze: lang, geringelt, am Ende dunkler', 95)
+    d = 'M89 13 C70 8 44 6 20 9 C8 10 2 14 3 17 C4 21 10 22 20 21 C44 20 70 19 89 18 Z'
+    c = s.clip_d(d)
+    rings = f'<g {c}>' + ''.join(f'<rect x="{x}" y="0" width="5" height="30" fill="#7a3e14" opacity="0.5" {s.blur(1.2)}/>'
+                                 for x in range(6, 84, 12)) + '</g>'
+    furry(s, d, base, (2, 6, 90, 23), 182, 1.5, 5, 2.4, hair=hair, extra=rings, light_at=(0.6, 0.2))
+    s.save('figuren/katze/schwanz.svg')
+
+    s = Svg(12, 10, 'Offenes Katzenauge: grün, mit schmaler Pupille', 96)
+    iris = s.radial(6, 4.6, 5, [(0, '#c8e070'), (0.7, '#7aa83a'), (1, '#3e5a1c')])
+    s.add(f'<path d="M1.2 5.4 Q6 0.6 10.8 4.4 Q7 9.6 1.2 5.4 Z" fill="{iris}" stroke="#2a1a0c" stroke-width="0.9"/>'
+          '<ellipse cx="6.4" cy="5" rx="0.8" ry="2.6" fill="#0c0603"/><circle cx="5" cy="3.6" r="0.8" fill="#ffffff" opacity="0.9"/>')
+    s.save('figuren/katze/auge_offen.svg')
+
+    s = Svg(12, 10, 'Geschlossenes Katzenauge: ein zufriedener Strich', 97)
+    s.add('<path d="M1.6 4.6 Q6 7.6 10.4 4" fill="none" stroke="#2a1a0c" stroke-width="1.2" stroke-linecap="round"/>')
+    s.save('figuren/katze/auge_zu.svg')
+
+
+cat()
 festival()
 burrow()
 rabbit()
