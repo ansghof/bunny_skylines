@@ -15,7 +15,8 @@ use crate::audio::{Sound, Sounds};
 use crate::menu::OpenMenu;
 use crate::overlay::MapOverlay;
 use crate::progress::{Blocked, Branch, Progress, Tech};
-use crate::tools::{Lock, TOOLS, Tool, ToolGroup, ToolKind, depth_available, locked_message, select};
+use crate::tools::{Lock, TOOLS, Tool, ToolGroup, ToolKind, depth_available, locked_message, select, select_tool};
+use crate::inspect::pick_rabbit;
 
 const BUTTON_SIZE: f32 = 46.0;
 const ICON_SIZE: f32 = 36.0;
@@ -40,7 +41,7 @@ impl Plugin for ToolbarPlugin {
             .add_systems(Startup, (spawn_toolbar, spawn_research_panel))
             .add_systems(
                 Update,
-                (toolbar_keys, show_group_tools, highlight_buttons, update_tooltip, show_research_panel, update_research_panel),
+                (toolbar_keys.before(select_tool).before(pick_rabbit), show_group_tools, highlight_buttons, update_tooltip, show_research_panel, update_research_panel),
             );
     }
 }
@@ -459,7 +460,7 @@ impl ActionTargets<'_> {
 }
 
 fn toolbar_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
     mut priorities: ResMut<Priorities>,
     mut research: ResMut<ResearchOpen>,
 ) {
@@ -469,8 +470,10 @@ fn toolbar_keys(
     if keys.just_pressed(KeyCode::KeyT) {
         research.0 = !research.0;
     }
+    // Escape schließt nur den Forschungsbaum: Werkzeug und Auswahl bleiben, wie sie sind.
     if keys.just_pressed(KeyCode::Escape) && research.0 {
         research.0 = false;
+        keys.clear_just_pressed(KeyCode::Escape);
     }
 }
 

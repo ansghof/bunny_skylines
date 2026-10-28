@@ -353,7 +353,7 @@ impl Drag {
     }
 }
 
-fn select_tool(
+pub(crate) fn select_tool(
     keys: Res<ButtonInput<KeyCode>>,
     progress: Res<Progress>,
     mut tool: ResMut<Tool>,
