@@ -12,7 +12,7 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
 use crate::overlay::{MapOverlay, pasture_color};
-use crate::map::{Depth, Grid, Layer, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer, surface_color, underground_color};
+use crate::map::{Depth, Grid, Layer, MAP_WIDTH, Soil, TILE_SIZE, TilePos, ViewLayer, surface_color, underground_color};
 
 const SOIL_WALL: [f32; 3] = [0.42, 0.29, 0.17];
 /// So viele Felder deckt eine Bodentextur ab, bevor sie sich wiederholt.
@@ -388,6 +388,18 @@ impl MeshBuilder {
         self.indices.extend([start, start + 1, start + 2, start, start + 2, start + 3]);
     }
 
+    /// Wie `quad`, aber jede Ecke mit eigener Farbe.
+    fn quad_shaded(&mut self, corners: [Vec3; 4], uvs: [Vec2; 4], normal: Vec3, colors: [[f32; 3]; 4]) {
+        let start = self.positions.len() as u32;
+        self.quad(corners, uvs, normal, colors[0]);
+        // `quad` dreht die Reihenfolge womöglich um; die Farben folgen den Ecken.
+        for i in 0..4 {
+            let corner = Vec3::from_array(self.positions[start as usize + i]);
+            let k = corners.iter().position(|c| *c == corner).unwrap_or(0);
+            self.colors[start as usize + i] = Color::srgb(colors[k][0], colors[k][1], colors[k][2]).to_linear().to_f32_array();
+        }
+    }
+
     /// Ein flaches Feld aus vier Dreiecken um die Mitte, jede Ecke mit eigener Farbe.
     fn fan(&mut self, middle: Vec3, middle_uv: Vec2, middle_color: [f32; 3], corners: [Vec3; 4], uvs: [Vec2; 4], colors: [[f32; 3]; 4]) {
         let linear = |c: [f32; 3]| Color::srgb(c[0], c[1], c[2]).to_linear().to_f32_array();
@@ -589,5 +601,94 @@ fn build_meshes(grid: &Grid, layer: Layer, overlay: MapOverlay) -> Vec<Mesh> {
             );
         }
     }
+    map_sides(grid, layer, &tiles, &mut builders, slot);
     builders.into_iter().chain(edges).map(MeshBuilder::build).collect()
+}
+
+/// So tief reicht die Erdscholle, als die die Karte am Rand zu sehen ist: unter den tiefsten Gängen
+/// noch Unterboden, ganz unten Fels.
+const SOD_DEPTH: f32 = 7.0;
+const SUBSOIL_FROM: f32 = -92.0;
+const BEDROCK_FROM: f32 = -150.0;
+const CLOD_BOTTOM: f32 = -196.0;
+
+/// Die Karte ist kein dünnes Blatt, sondern eine Scholle Erde: An allen vier Rändern sieht man den
+/// Boden im Schnitt. Oben die Grasnarbe, darunter die Bodenart des Randfelds bis unter die tiefsten
+/// Gänge, dann dunklerer Unterboden und ganz unten Fels. Die Schichtgrenzen wellen sich leicht, und
+/// die Farben gehen von Feld zu Feld ineinander über.
+fn map_sides(
+    grid: &Grid,
+    layer: Layer,
+    tiles: &[(Texture, f32, [f32; 3])],
+    builders: &mut [MeshBuilder],
+    slot: impl Fn(Texture) -> usize,
+) {
+    let half = TILE_SIZE / 2.0;
+    let index = |p: TilePos| (p.y * MAP_WIDTH + p.x) as usize;
+    // Wie an den Gangwänden läuft die Textur waagerecht an der Kante entlang und senkrecht nach unten.
+    let side = |point: Vec2, h: f32| Vec2::new((point.x + point.y) / TEXTURE_SPAN, -h / TEXTURE_SPAN);
+    // Eine Schichtgrenze, die sich an der Kante entlang leicht hebt und senkt.
+    let wave = |point: Vec2, base: f32, amount: f32| {
+        base + amount * (0.6 * (point.x * 0.013 + point.y * 0.007).sin() + 0.4 * (point.y * 0.021 - point.x * 0.017 + 1.3).sin())
+    };
+    let soil_color = |p: TilePos| match grid.under(p).soil {
+        Soil::Sand => [0.80, 0.66, 0.42],
+        Soil::Earth => [0.62, 0.45, 0.28],
+        Soil::Roots => [0.50, 0.43, 0.25],
+        Soil::Rock => [0.52, 0.52, 0.50],
+    };
+    let shade = |rgb: [f32; 3], k: f32| rgb.map(|c| c * k);
+    let blend = |a: [f32; 3], b: [f32; 3]| [0, 1, 2].map(|i| (a[i] + b[i]) / 2.0);
+    for p in Grid::positions() {
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            if TilePos::new(p.x + dx, p.y + dy).in_bounds() {
+                continue;
+            }
+            let center = p.center();
+            let out = Vec2::new(dx as f32, dy as f32);
+            let step = Vec2::new(-(dy as f32), dx as f32);
+            let (a, b) = (center + (out - step) * half, center + (out + step) * half);
+            // Die Nachbarn an der Kante entlang, für weiche Übergänge an den Ecken des Stücks.
+            let beside = |sign: i32| {
+                let q = TilePos::new(p.x - dy * sign, p.y + dx * sign);
+                if q.in_bounds() { q } else { p }
+            };
+            let (before, after) = (beside(-1), beside(1));
+            let normal = to_world3(out, 0.0);
+            let (_, top, top_color) = tiles[index(p)];
+            let mut band = |texture: Texture, from: [f32; 2], to: [f32; 2], colors: [[f32; 3]; 2]| {
+                if from[0] <= to[0] && from[1] <= to[1] {
+                    return;
+                }
+                let to = [to[0].min(from[0]), to[1].min(from[1])];
+                builders[slot(texture)].quad_shaded(
+                    [to_world3(a, from[0]), to_world3(b, from[1]), to_world3(b, to[1]), to_world3(a, to[0])],
+                    [side(a, from[0]), side(b, from[1]), side(b, to[1]), side(a, to[0])],
+                    normal,
+                    [colors[0], colors[1], colors[1], colors[0]],
+                );
+            };
+            let surface = grid.surface(p);
+            let soil = grid.under(p).soil;
+            let edge_colors = |k: f32| {
+                [shade(blend(soil_color(p), soil_color(before)), k), shade(blend(soil_color(p), soil_color(after)), k)]
+            };
+            // Oben die Grasnarbe in der Farbe des Feldes, an Wasser ohne Gras.
+            let mut below = [top, top];
+            if top >= 0.0 && !surface.water {
+                let (texture, color) = match layer {
+                    Layer::Surface => (if surface.sand { Texture::Sand } else { Texture::Meadow }, shade(top_color, 0.8)),
+                    Layer::Underground => (Texture::Meadow, [0.36, 0.46, 0.22]),
+                };
+                below = [wave(a, top - SOD_DEPTH, 2.0), wave(b, top - SOD_DEPTH, 2.0)];
+                band(texture, [top, top], below, [color, color]);
+            }
+            let subsoil = [wave(a, SUBSOIL_FROM, 8.0), wave(b, SUBSOIL_FROM, 8.0)];
+            let bedrock = [wave(a + 300.0, BEDROCK_FROM, 6.0), wave(b + 300.0, BEDROCK_FROM, 6.0)];
+            let soil_texture = if soil == Soil::Rock { Texture::Stones } else { Texture::Soil };
+            band(soil_texture, below, subsoil, edge_colors(0.85));
+            band(Texture::Soil, [below[0].min(subsoil[0]), below[1].min(subsoil[1])], bedrock, edge_colors(0.6));
+            band(Texture::Stones, bedrock, [CLOD_BOTTOM, CLOD_BOTTOM], [[0.42, 0.41, 0.39]; 2]);
+        }
+    }
 }
