@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use crate::camera::{Orbit, figure_layer};
 use crate::colony::Colony;
 use crate::ground::{depth_y, to_world3};
-use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer, footprint_middle};
+use crate::map::{Chamber, Depth, Feature, Grid, Layer, TilePos, ViewLayer, footprint_middle};
 use crate::monument::{Feats, Monument};
 use crate::progress::Progress;
 
@@ -224,9 +224,9 @@ struct FurnishingAssets {
     materials: HashMap<&'static str, Handle<StandardMaterial>>,
 }
 
-/// Welche Einrichtung auf welchem Feld steht und mit welchem Bild.
+/// Welche Einrichtung auf welchem Feld steht, mit welchem Bild und auf welcher Tiefe.
 #[derive(Resource, Default)]
-struct Placed(HashMap<(TilePos, Kind), (Entity, &'static str)>);
+struct Placed(HashMap<(TilePos, Kind), (Entity, &'static str, Option<Depth>)>);
 
 fn prepare_assets(
     mut commands: Commands,
@@ -349,9 +349,15 @@ fn place_furnishing(
         }
     }
 
-    // Weg, was nicht mehr gebraucht wird oder ein anderes Bild braucht.
-    placed.0.retain(|key, (entity, image)| {
-        let keep = wanted.get(key) == Some(image);
+    // Wie tief es steht: Wird ein Feld tiefer gegraben, muss alles darauf mit nach unten.
+    let depth = |(pos, kind): (TilePos, Kind)| match kind.layer() {
+        Layer::Surface => None,
+        Layer::Underground => grid.under(pos).dug,
+    };
+
+    // Weg, was nicht mehr gebraucht wird, ein anderes Bild braucht oder nun tiefer liegt.
+    placed.0.retain(|key, (entity, image, at)| {
+        let keep = wanted.get(key) == Some(image) && *at == depth(*key);
         if !keep {
             commands.entity(*entity).despawn();
         }
@@ -363,10 +369,7 @@ fn place_furnishing(
             continue;
         }
         let (pos, kind) = key;
-        let floor = match kind.layer() {
-            Layer::Surface => 0.0,
-            Layer::Underground => grid.under(pos).dug.map_or(0.0, depth_y),
-        };
+        let floor = depth(key).map_or(0.0, depth_y);
         // Leicht über dem Boden, damit nichts flimmert.
         let lift = match kind {
             // Pfade ganz unten, darüber Klee, Kräuter und Bauten.
@@ -410,7 +413,7 @@ fn place_furnishing(
                 at.with_rotation(rotation).with_scale(Vec3::new(size.x, 1.0, size.y)),
             ));
         }
-        placed.0.insert(key, (entity.id(), image));
+        placed.0.insert(key, (entity.id(), image, depth(key)));
     }
 }
 
