@@ -33,6 +33,7 @@
 //! - `bussard`: gleich einen Bussard schicken
 //! - `karte_weide` / `karte_stimmung`: mit dieser Übersichtskarte starten
 //! - `menue`: nach zwei Sekunden das Pausenmenü öffnen
+//! - `posten_wahl`, `sonne_wahl`, `wache_wahl`: dieses Werkzeug wählen (mit `zeiger` für den Wirkungskreis)
 //! - `landkauf`: das Werkzeug „Land kaufen“ mit 50 Erde wählen
 //! - `kapitel=N`: gleich mit Kapitel N beginnen
 //! - `kapitelwahl`: auf dem Titelbild die Kapitelwahl öffnen
@@ -392,6 +393,8 @@ fn fake_cursor(script: Res<TestScript>, time: Res<Time<Real>>, mut cursor: ResMu
     // Mit `auswahl` wandert der Zeiger nach dem Drücken fünf Felder weiter.
     let dragged = script.has("auswahl") && time.elapsed_secs() > 1.5;
     let tile = if dragged { TilePos::new(25, 12) } else { TilePos::new(21, 13) };
+    // Die Nachtwache gehört in einen Gang: auf den Startgang.
+    let tile = if script.has("wache_wahl") { TilePos::new(21, 15) } else { tile };
     // Mit `pfadziehen` von rechts oben bis vor den Eingang, wie im Spiel.
     let tile = if script.has("pfadziehen") {
         if time.elapsed_secs() > 1.5 { TilePos::new(19, 15) } else { TilePos::new(26, 19) }
@@ -631,6 +634,16 @@ fn skip_intro(
     if script.has("landkauf") {
         tool.kind = ToolKind::Land;
         colony.earth = 50.0;
+    }
+    // Werkzeug mit Wirkungskreis wählen, zusammen mit `zeiger` für die Vorschau.
+    if script.has("posten_wahl") {
+        tool.kind = ToolKind::Post;
+    }
+    if script.has("sonne_wahl") {
+        tool.kind = ToolKind::Feature(Feature::SunSpot);
+    }
+    if script.has("wache_wahl") {
+        tool.kind = ToolKind::Watch;
     }
     commands.run_system_cached(start_playing);
 }

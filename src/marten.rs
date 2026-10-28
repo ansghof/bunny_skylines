@@ -37,9 +37,9 @@ const PATIENCE_SECONDS: f32 = 8.0;
 /// Länger bleibt er nie.
 const MAX_STAY_SECONDS: f32 = 60.0;
 /// So viele Felder Gang weit hört und sieht die Nachtwache.
-const WATCH_RANGE: usize = 10;
+pub(crate) const WATCH_RANGE: usize = 10;
 /// So weit läuft das Stampfen durch die Gänge.
-const STOMP_RANGE: usize = 14;
+pub(crate) const STOMP_RANGE: usize = 14;
 /// Wache Kaninchen bemerken ihn selbst erst, wenn er so nah ist.
 const NOTICE_DISTANCE: f32 = TILE_SIZE * 1.5;
 
@@ -378,7 +378,7 @@ fn close_plugs(mut grid: ResMut<Grid>, mut messages: ResMut<Messages>, flood: Re
 }
 
 /// Wie weit jedes Gangfeld vom Start entfernt ist, höchstens `range` Felder.
-fn tunnel_distances(grid: &Grid, start: Node, range: usize) -> HashMap<TilePos, usize> {
+pub(crate) fn tunnel_distances(grid: &Grid, start: Node, range: usize) -> HashMap<TilePos, usize> {
     let mut distance = HashMap::from([(start.pos, 0)]);
     let mut queue = VecDeque::from([start]);
     while let Some(node) = queue.pop_front() {

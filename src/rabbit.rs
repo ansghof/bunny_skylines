@@ -506,11 +506,14 @@ fn update_mood(
     }
 }
 
-/// Liegt ein Sonnenplatz höchstens zwei Felder entfernt?
+/// So viele Felder weit wärmt ein Sonnenplatz die Stimmung, auch schräg.
+pub const SUN_SPOT_REACH: i32 = 2;
+
+/// Liegt ein Sonnenplatz höchstens `SUN_SPOT_REACH` Felder entfernt?
 pub fn near_sun_spot(grid: &Grid, transform: &Transform) -> bool {
     let here = TilePos::from_world_clamped(transform.translation.truncate());
-    (-2..=2).any(|dy| {
-        (-2..=2).any(|dx| {
+    (-SUN_SPOT_REACH..=SUN_SPOT_REACH).any(|dy| {
+        (-SUN_SPOT_REACH..=SUN_SPOT_REACH).any(|dx| {
             let p = TilePos::new(here.x + dx, here.y + dy);
             p.in_bounds() && grid.surface(p).feature == Some(Feature::SunSpot)
         })

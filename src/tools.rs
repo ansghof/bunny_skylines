@@ -8,7 +8,11 @@ use crate::audio::{Sound, Sounds};
 use crate::camera::CursorWorld;
 use crate::colony::{Colony, Messages, cost};
 use crate::daynight::DayClock;
-use crate::ground::gizmo_rect;
+use crate::danger::{GUARD_SIGHT, STOMP_RADIUS};
+use crate::ground::{floor_y, gizmo_circle, gizmo_rect};
+use crate::marten::{STOMP_RANGE, WATCH_RANGE, tunnel_distances};
+use crate::pathfinding::Node;
+use crate::rabbit::SUN_SPOT_REACH;
 use crate::map::{
     Chamber, Depth, Feature, Grid, Layer, Plot, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, footprint, tiles_between,
 };
@@ -878,8 +882,15 @@ fn draw_preview(
             format!("{}: {earth:.0} Erde (vorhanden: {:.0}).", feature.label(), colony.earth)
         }))
     });
+    let info = info.or_else(|| reach_note(tool.kind)).map(|text| match family_wide(tool.kind) {
+        Some(note) if !text.contains(note) => format!("{text} {note}"),
+        _ => text,
+    });
     if selection.0 != info {
         selection.0 = info;
+    }
+    if !dragging {
+        draw_reach(&mut gizmos, &grid, tool.kind, TilePos::from_world_clamped(cursor));
     }
     let wrong_view = tool.kind.layer().is_some_and(|layer| layer != view.0);
     let color = if wrong_view {
@@ -913,6 +924,61 @@ fn draw_preview(
     let max = start.center().max(end.center()) + TILE_SIZE / 2.0;
     // Auf der Oberkante, sonst steckt der Rahmen dort, wo noch nicht gegraben ist, in der Erde.
     gizmo_rect(&mut gizmos, min, max, 0.0, color);
+}
+
+/// Bauten, die ohne Radius auf die ganze Familie wirken, sagen das in der Anzeige.
+fn family_wide(kind: ToolKind) -> Option<&'static str> {
+    match kind {
+        ToolKind::Feature(Feature::Festival) => Some("Wirkt auf die ganze Familie, egal wo er steht."),
+        ToolKind::Feature(Feature::Playground) => Some("Wirkt auf die ganze Familie, egal wo sie liegt."),
+        _ => None,
+    }
+}
+
+/// Was der gezeigte Wirkungskreis bedeutet.
+fn reach_note(kind: ToolKind) -> Option<String> {
+    let tiles = |r: f32| (r / TILE_SIZE).round();
+    match kind {
+        ToolKind::Feature(Feature::SunSpot) => {
+            Some(format!("Sonnenplatz: macht alle im gelben Feld zufriedener ({SUN_SPOT_REACH} Felder rundum)."))
+        }
+        ToolKind::Post => Some(format!(
+            "Wachposten: Die Wache sieht Füchse im orangen Kreis ({:.0} Felder), ihr Stampfen hört man im blauen ({:.0} Felder).",
+            tiles(GUARD_SIGHT),
+            tiles(STOMP_RADIUS),
+        )),
+        ToolKind::Watch => Some(format!(
+            "Nachtwache: hört den Marder auf den orangen Gangfeldern ({WATCH_RANGE} Felder Gang), ihr Stampfen läuft bis zu den blauen ({STOMP_RANGE})."
+        )),
+        _ => family_wide(kind).map(str::to_string),
+    }
+}
+
+/// Zeigt beim Platzieren, wie weit ein Bau wirkt: Sonnenplatz als Feld rundum, Wachposten als
+/// Kreise für Sicht und Stampfen, Nachtwache als die Gangfelder, die sie hört und weckt.
+fn draw_reach(gizmos: &mut Gizmos, grid: &Grid, kind: ToolKind, at: TilePos) {
+    let sight = Color::srgba(1.0, 0.62, 0.2, 0.85);
+    let stomp = Color::srgba(0.5, 0.8, 1.0, 0.7);
+    match kind {
+        ToolKind::Feature(Feature::SunSpot) => {
+            let reach = (SUN_SPOT_REACH as f32 + 0.5) * TILE_SIZE;
+            gizmo_rect(gizmos, at.center() - reach, at.center() + reach, 0.0, Color::srgba(1.0, 0.85, 0.3, 0.85));
+        }
+        ToolKind::Post => {
+            gizmo_circle(gizmos, at.center(), GUARD_SIGHT, 0.0, sight);
+            gizmo_circle(gizmos, at.center(), STOMP_RADIUS, 0.0, stomp);
+        }
+        ToolKind::Watch if grid.under(at).dug.is_some() => {
+            let start = Node::new(Layer::Underground, at);
+            let half = TILE_SIZE / 2.0 - 5.0;
+            for (p, distance) in tunnel_distances(grid, start, STOMP_RANGE) {
+                let color = if distance <= WATCH_RANGE { sight } else { stomp };
+                let y = floor_y(grid, Layer::Underground, p);
+                gizmo_rect(gizmos, p.center() - half, p.center() + half, y, color);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]

@@ -14,9 +14,9 @@ use crate::predator::Fox;
 use crate::rabbit::{OnLayer, Rabbit, Stomping};
 
 /// So weit sieht eine Wache.
-const GUARD_SIGHT: f32 = TILE_SIZE * 6.0;
+pub(crate) const GUARD_SIGHT: f32 = TILE_SIZE * 6.0;
 /// So weit hört man das Stampfen einer Wache.
-const STOMP_RADIUS: f32 = TILE_SIZE * 7.0;
+pub(crate) const STOMP_RADIUS: f32 = TILE_SIZE * 7.0;
 /// So weit geben flüchtende Kaninchen die Warnung weiter.
 const RELAY_RADIUS: f32 = TILE_SIZE * 2.5;
 /// Ab dieser Entfernung bemerkt ein Kaninchen den Fuchs selbst.
