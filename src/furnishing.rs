@@ -12,6 +12,8 @@ use crate::camera::{Orbit, figure_layer};
 use crate::colony::Colony;
 use crate::ground::{depth_y, to_world3};
 use crate::map::{Chamber, Feature, Grid, Layer, TilePos, ViewLayer, footprint_middle};
+use crate::monument::{Feats, Monument};
+use crate::progress::Progress;
 
 const FOLDER: &str = "einrichtung";
 /// Bilder sind in doppelter Spielgröße gemalt.
@@ -83,7 +85,7 @@ fn visibility_in(layer: Layer, view: Layer) -> Visibility {
 }
 
 /// Bild und Größe in Bildpixeln, wie in `art_src/einrichtung` gezeichnet.
-const IMAGES: [(&str, Vec2); 45] = [
+const IMAGES: [(&str, Vec2); 32] = [
     ("heunest.png", Vec2::new(112.0, 72.0)),
     ("maulwurfshuegel.png", Vec2::new(72.0, 40.0)),
     // Die ausgeworfene Erde reicht über das Feld hinaus.
@@ -119,25 +121,14 @@ const IMAGES: [(&str, Vec2); 45] = [
     ("damm_kurve.png", Vec2::new(128.0, 128.0)),
     ("damm_t.png", Vec2::new(128.0, 128.0)),
     ("damm_kreuz.png", Vec2::new(128.0, 128.0)),
-    // Denkmäler: Die großen stehen auf 2 × 2 Feldern und ragen wie Bäume auf.
-    ("denkmal_statue.png", Vec2::new(240.0, 340.0)),
-    ("denkmal_schaufel.png", Vec2::new(128.0, 184.0)),
-    ("denkmal_fuchsschreck.png", Vec2::new(260.0, 210.0)),
-    ("denkmal_federmast.png", Vec2::new(104.0, 260.0)),
-    ("denkmal_winterkaninchen.png", Vec2::new(132.0, 168.0)),
-    ("denkmal_riesenmoehre.png", Vec2::new(220.0, 320.0)),
-    ("denkmal_ahnenstein.png", Vec2::new(128.0, 168.0)),
-    ("denkmal_obelisk.png", Vec2::new(200.0, 360.0)),
-    ("denkmal_katzenkorb.png", Vec2::new(152.0, 112.0)),
-    ("denkmal_maibaum.png", Vec2::new(250.0, 420.0)),
-    ("denkmal_maulwurf.png", Vec2::new(128.0, 152.0)),
-    ("denkmal_bogen.png", Vec2::new(288.0, 248.0)),
-    ("denkmal_kleeblatt.png", Vec2::new(220.0, 320.0)),
 ];
 
-/// Bildgröße eines Denkmals in Bildpixeln, z. B. für die Knöpfe der Werkzeugleiste.
-pub fn monument_image_size(file: &str) -> Vec2 {
-    IMAGES.iter().find(|(f, _)| *f == file).map_or(Vec2::ONE, |(_, size)| *size)
+/// Alle Bilder: die Einrichtung und die Denkmäler in jeder Stufe. Die großen Denkmäler stehen
+/// auf 2 × 2 Feldern und ragen wie Bäume auf.
+fn all_images() -> impl Iterator<Item = (&'static str, Vec2)> {
+    IMAGES
+        .into_iter()
+        .chain(Monument::ALL.into_iter().flat_map(|m| m.images().map(|file| (file, m.picture_size()))))
 }
 
 /// Die Pfadstücke, wie gezeichnet (oben = Norden), mit den Nachbarn, zu denen sie führen.
@@ -203,7 +194,7 @@ fn neighbor_mask(p: TilePos, joins: impl Fn(TilePos) -> bool) -> u8 {
     u8::from(leads(0, 1)) | u8::from(leads(1, 0)) << 1 | u8::from(leads(0, -1)) << 2 | u8::from(leads(-1, 0)) << 3
 }
 
-fn feature_image(feature: Feature) -> &'static str {
+fn feature_image(feature: Feature, feats: &Feats) -> &'static str {
     match feature {
         Feature::Hedge => "hecke.png",
         Feature::BoltHole => "fluchtloch.png",
@@ -213,7 +204,7 @@ fn feature_image(feature: Feature) -> &'static str {
         Feature::Carrots => "moehren.png",
         Feature::Festival => "festplatz.png",
         Feature::Dam => "damm_punkt.png",
-        Feature::Monument(monument) => monument.image(),
+        Feature::Monument(monument) => monument.image(feats.tier(monument)),
     }
 }
 
@@ -243,10 +234,9 @@ fn prepare_assets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let materials = IMAGES
-        .iter()
+    let materials = all_images()
         .map(|(file, _)| {
-            let light = *file == "lichtschein.png";
+            let light = file == "lichtschein.png";
             let material = materials.add(StandardMaterial {
                 base_color_texture: Some(asset_server.load(format!("{FOLDER}/{file}"))),
                 // Der Lichtschein hellt auf, statt zu verdecken.
@@ -256,7 +246,7 @@ fn prepare_assets(
                 cull_mode: None,
                 ..default()
             });
-            (*file, material)
+            (file, material)
         })
         .collect();
     commands.insert_resource(FurnishingAssets {
@@ -267,7 +257,7 @@ fn prepare_assets(
 }
 
 fn image_size(file: &str) -> Vec2 {
-    IMAGES.iter().find(|(f, _)| *f == file).map_or(Vec2::ONE, |(_, size)| *size) * PIXEL_SCALE
+    all_images().find(|(f, _)| *f == file).map_or(Vec2::ONE, |(_, size)| size) * PIXEL_SCALE
 }
 
 fn place_furnishing(
@@ -276,11 +266,16 @@ fn place_furnishing(
     grid: Res<Grid>,
     colony: Res<Colony>,
     view: Res<ViewLayer>,
+    progress: Res<Progress>,
     mut placed: ResMut<Placed>,
+    mut tiers: Local<usize>,
 ) {
-    if !grid.is_changed() && !colony.is_changed() {
+    // Eine neue Stufe macht ein Denkmal prächtiger, also ein neues Bild.
+    let tiers_now = progress.feats.tiers_earned();
+    if !grid.is_changed() && !colony.is_changed() && *tiers == tiers_now {
         return;
     }
+    *tiers = tiers_now;
 
     // Was jetzt dastehen soll; Futterhaufen bekommen ihr Bild nach Füllstand.
     let mut wanted: HashMap<(TilePos, Kind), &'static str> = HashMap::new();
@@ -350,7 +345,7 @@ fn place_furnishing(
             && !big_part
             && (!matches!(feature, Feature::Herbs | Feature::Carrots) || surface.grass > 0.25)
         {
-            wanted.insert((p, Kind::Built(feature)), feature_image(feature));
+            wanted.insert((p, Kind::Built(feature)), feature_image(feature, &progress.feats));
         }
     }
 

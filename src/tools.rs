@@ -17,7 +17,7 @@ use crate::map::{
     Chamber, Depth, Feature, Grid, Layer, Plot, Soil, SurfaceTile, TILE_SIZE, TilePos, ViewLayer, footprint,
     footprint_corners, footprint_middle, tiles_between,
 };
-use crate::monument::{Monument, Unveil};
+use crate::monument::{Celebrate, Monument, Unveil};
 use crate::progress::{Progress, Stage, Tech};
 use crate::toolbar::Toolbar;
 
@@ -359,7 +359,7 @@ pub fn locked_message(lock: Lock) -> String {
         Lock::Tech(tech) => format!("{} ist noch nicht erforscht. Öffne den Forschungsbaum mit T.", tech.label()),
         Lock::Stage(stage) => format!("Das gibt es erst ab der Stufe „{}“.", stage.label()),
         Lock::Feat(monument) => {
-            format!("Das Denkmal „{}“ gibt es als Belohnung für: {}.", monument.label(), monument.condition())
+            format!("Das Denkmal „{}“ gibt es als Belohnung für: {}.", monument.label(), monument.condition(1))
         }
     }
 }
@@ -414,7 +414,7 @@ pub(crate) fn apply_drag(
     cursor: Res<CursorWorld>,
     tool: Res<Tool>,
     view: Res<ViewLayer>,
-    progress: Res<Progress>,
+    mut progress: ResMut<Progress>,
     mut drag: ResMut<Drag>,
     mut grid: ResMut<Grid>,
     mut colony: ResMut<Colony>,
@@ -469,7 +469,7 @@ pub(crate) fn apply_drag(
         if build_big(feature, end, &mut grid, &mut colony, &mut messages)
             && let Feature::Monument(monument) = feature
         {
-            unveil.0.push((monument, end));
+            unveil.0.push((monument, footprint_middle(end, monument.size()), Celebrate::Placed));
         }
         return;
     }
@@ -568,6 +568,7 @@ pub(crate) fn apply_drag(
                 } else {
                     tile.watch = true;
                 }
+                progress.feats.safety_built += 1;
             }
             ToolKind::Post | ToolKind::Clover | ToolKind::Feature(_) => {
                 let field = grid.surface_mut(p);
@@ -578,6 +579,13 @@ pub(crate) fn apply_drag(
                 if !colony.pay(food, earth) {
                     short = true;
                     continue;
+                }
+                // Schutzbauten zählen für die Alarmglocke.
+                if matches!(
+                    tool.kind,
+                    ToolKind::Post | ToolKind::Feature(Feature::Hedge | Feature::BoltHole | Feature::Dam)
+                ) {
+                    progress.feats.safety_built += 1;
                 }
                 match tool.kind {
                     ToolKind::Post => field.post = true,

@@ -2,6 +2,9 @@
 `draw_art.py`: weich schattiert, ohne dicke Umrisse, Licht von links oben. Alle stehen aufrecht auf
 der Wiese wie Bäume; unten in der Mitte ist der Boden.
 
+Jedes Denkmal gibt es in drei Stufen, gleich groß und an derselben Stelle: Stufe 1 ist schlicht,
+Stufe 2 geschmückt mit Blumen und Bändern, Stufe 3 prächtig mit Gold, Schein und Funkeln.
+
 Aufruf aus dem Projektordner: `python tools/draw_monuments.py .`, danach `cargo run -p art_export`."""
 import math
 import os
@@ -11,6 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from draw_art import Svg, dark, f, flower, foliage, glow, light, mix, ring  # noqa: E402
 
 STONE = '#b2ad9f'
+GOLD = '#e0b440'
+FLOWERS = ['#ffffff', '#f2b8b0', '#f4e7a0', '#b98ad9', '#ffffff']
 GRASS = ['#8ab858', '#5e8a34', '#a8cc70']
 
 
@@ -97,24 +102,112 @@ def earth_mound(s, d, box):
     s.add(f'<g {s.clip_d(d)}>{crumbs}</g>')
 
 
+def halo(s, cx, cy, rx, ry, color='#fff0a0'):
+    """Stufe 3: ein warmer Schein hinter dem Denkmal. Er verläuft weich und bleibt im Bild, damit
+    man keine Kante sieht."""
+    rx = min(rx, cx - 1, s.w - cx - 1)
+    ry = min(ry, cy - 1, s.h - cy - 1)
+    name = s.id('h')
+    s.defs.append(f'<radialGradient id="{name}"><stop offset="0" stop-color="{color}" stop-opacity="0.7"/>'
+                  f'<stop offset="0.55" stop-color="{color}" stop-opacity="0.35"/>'
+                  f'<stop offset="1" stop-color="{color}" stop-opacity="0"/></radialGradient>')
+    s.add(f'<ellipse cx="{f(cx)}" cy="{f(cy)}" rx="{f(rx)}" ry="{f(ry)}" fill="url(#{name})"/>')
+
+
+def glitter(s, points, color='#fffbe0'):
+    for x, y, r in points:
+        sparkle(s, x, y, r, color)
+
+
+def flower_row(s, x0, x1, y, n):
+    """Blumen am Fuß, etwas unregelmäßig verteilt."""
+    for i in range(n):
+        x = x0 + (x1 - x0) * (i + 0.5) / n + s.rng.uniform(-3, 3)
+        s.add(flower(s, x, y + s.rng.uniform(-2, 2), s.rng.uniform(3.5, 5), s.rng.choice(FLOWERS)))
+
+
+def garland(s, x0, x1, y, sag, n):
+    """Eine Blumengirlande, die zwischen zwei Punkten durchhängt."""
+    s.add(f'<path d="M{f(x0)} {f(y)} Q{f((x0 + x1) / 2)} {f(y + sag * 2)} {f(x1)} {f(y)}" stroke="#3e7a2a" '
+          f'stroke-width="5" fill="none" stroke-linecap="round"/>'
+          f'<path d="M{f(x0)} {f(y - 1)} Q{f((x0 + x1) / 2)} {f(y + sag * 2 - 1)} {f(x1)} {f(y - 1)}" stroke="#6aa848" '
+          f'stroke-width="2" fill="none" stroke-linecap="round"/>')
+    for i in range(n + 1):
+        t = i / n
+        x = x0 + (x1 - x0) * t
+        yy = y + sag * 4 * t * (1 - t)
+        s.add(flower(s, x, yy, 4.5, FLOWERS[i % len(FLOWERS)] if i % 2 else '#f2b8b0'))
+
+
+def bunting(s, x0, y0, x1, y1, sag, n, colors=('#d8503a', '#f0c040', '#5a8ad0', '#5a9a48')):
+    """Eine Wimpelkette: eine Schnur mit kleinen Dreiecken."""
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2 + sag * 2
+    s.add(f'<path d="M{f(x0)} {f(y0)} Q{f(mx)} {f(my)} {f(x1)} {f(y1)}" stroke="#6e5a3a" stroke-width="1.2" fill="none"/>')
+    for i in range(n):
+        t = (i + 0.5) / n
+        x = (1 - t) ** 2 * x0 + 2 * (1 - t) * t * mx + t ** 2 * x1
+        y = (1 - t) ** 2 * y0 + 2 * (1 - t) * t * my + t ** 2 * y1
+        w = abs(x1 - x0) / n * 0.42
+        c = colors[i % len(colors)]
+        s.add(f'<path d="M{f(x - w)} {f(y)} L{f(x + w)} {f(y)} L{f(x)} {f(y + w * 2.2)} Z" fill="{c}"/>'
+              f'<path d="M{f(x - w)} {f(y)} L{f(x)} {f(y)} L{f(x)} {f(y + w * 2.2)} Z" fill="{light(c, 0.25)}" opacity="0.6"/>')
+
+
+def laurel(s, cx, cy, r, a0, a1, n, color=GOLD, leaf=6.0):
+    """Ein Lorbeerzweig aus goldenen Blättern auf einem Bogen von `a0` bis `a1` (Grad)."""
+    for i in range(n):
+        a = math.radians(a0 + (a1 - a0) * i / (n - 1))
+        x, y = cx + math.cos(a) * r, cy + math.sin(a) * r
+        for side in (-1, 1):
+            tilt = math.degrees(a) + 90 + side * 35
+            lx = x + math.cos(math.radians(tilt)) * leaf * 0.6
+            ly = y + math.sin(math.radians(tilt)) * leaf * 0.6
+            s.add(f'<ellipse cx="{f(lx)}" cy="{f(ly)}" rx="{f(leaf)}" ry="{f(leaf * 0.42)}" '
+                  f'transform="rotate({f(tilt)} {f(lx)} {f(ly)})" '
+                  f'fill="{s.radial(lx - 2, ly - 2, leaf * 1.4, [(0, light(color, 0.45)), (1, dark(color, 0.3))])}"/>')
+
+
+def medal(s, x, y, r, color=GOLD):
+    """Eine Rosette mit zwei Bändern: ein Ehrenpreis."""
+    for dx, c in ((-0.5, '#d8503a'), (0.5, '#5a8ad0')):
+        s.add(f'<path d="M{f(x + dx * r * 0.4)} {f(y)} L{f(x + dx * r * 1.4)} {f(y + r * 2.2)} L{f(x + dx * r * 0.6)} {f(y + r * 1.8)} '
+              f'L{f(x)} {f(y + r * 2.3)} Z" fill="{c}"/>')
+    petals = ''.join(f'<circle cx="{f(x + math.cos(i * math.tau / 12) * r * 0.9)}" cy="{f(y + math.sin(i * math.tau / 12) * r * 0.9)}" '
+                     f'r="{f(r * 0.32)}"/>' for i in range(12))
+    s.add(f'<g fill="{dark(color, 0.1)}">{petals}</g>'
+          f'<circle cx="{f(x)}" cy="{f(y)}" r="{f(r * 0.85)}" fill="{s.radial(x - r * 0.3, y - r * 0.3, r, [(0, light(color, 0.5)), (1, dark(color, 0.3))])}"/>'
+          f'<circle cx="{f(x)}" cy="{f(y)}" r="{f(r * 0.55)}" fill="none" stroke="{light(color, 0.4)}" stroke-width="1"/>')
+
+
+def name(monument, tier):
+    return f'einrichtung/denkmal_{monument}_{tier}.svg'
+
+
 # ---------------------------------------------------------------------------------------------
 
-def statue():
+def statue(tier):
     s = Svg(240, 340, 'Kaninchenstatue: ein steinernes Kaninchen macht Männchen auf einem hohen Sockel, mit Moos und Gras am Fuß', 201)
     shadow(s, 124, 330, 104, 9)
+    if tier >= 3:
+        halo(s, 122, 140, 110, 130)
     plinth(s, 46, 236, 194, 330)
     # Eine Tafel vorn auf dem Sockel, mit eingeritzter Pfote.
     s.add(f'<path d="{block(84, 266, 156, 306, 3)}" fill="{s.linear(0, 266, 0, 306, [(0, "#8e897c"), (1, "#a8a396")])}" opacity="0.8"/>')
     for dx, dy, r in ((-10, -6, 4), (-3, -11, 4), (5, -11, 4), (12, -6, 4)):
         s.add(f'<ellipse cx="{120 + dx}" cy="{290 + dy}" rx="{r * 0.8}" ry="{r}" fill="#6e6a5e" opacity="0.8"/>')
     s.add('<ellipse cx="120" cy="294" rx="10" ry="8" fill="#6e6a5e" opacity="0.8"/>')
-    moss(s, 64, 322, 16, 7)
-    moss(s, 182, 326, 12, 5)
-    moss(s, 96, 240, 14, 4)
+    if tier >= 3:
+        # Ein goldener Rahmen um die Tafel.
+        s.add(f'<path d="{block(84, 266, 156, 306, 3)}" fill="none" stroke="{GOLD}" stroke-width="3"/>')
+    if tier == 1:
+        moss(s, 64, 322, 16, 7)
+        moss(s, 182, 326, 12, 5)
+        moss(s, 96, 240, 14, 4)
 
-    # Das Kaninchen: eine einzige Steinform aus Teilen, die alle dasselbe Licht bekommen.
+    # Das Kaninchen: eine einzige Form aus Teilen, die alle dasselbe Licht bekommen; ganz oben aus Gold.
     box = (58, 20, 186, 240)
-    g = lit(s, box, STONE, (0.3, 0.3), 0.8, 0.5)
+    body = '#d8a838' if tier >= 3 else STONE
+    g = lit(s, box, body, (0.3, 0.3), 0.8, 0.5, 0.5 if tier >= 3 else 0.35)
     parts = [
         '<ellipse cx="122" cy="206" rx="54" ry="34"/>',               # Keulen
         '<ellipse cx="124" cy="160" rx="38" ry="56"/>',               # Rumpf, aufgerichtet
@@ -127,11 +220,12 @@ def statue():
     ]
     s.add(f'<g {s.rough(1.2, 0.2)} fill="{g}">' + ''.join(parts) + '</g>')
     # Vorderpfoten vor der Brust, die Innenseite der Ohren und die Wangen etwas tiefer gemeißelt.
-    s.add(f'<g fill="{lit(s, (130, 130, 170, 170), STONE, (0.3, 0.2), 1.0, 0.4)}">'
+    s.add(f'<g fill="{lit(s, (130, 130, 170, 170), body, (0.3, 0.2), 1.0, 0.4)}">'
           '<ellipse cx="146" cy="146" rx="11" ry="16" transform="rotate(-20 146 146)"/>'
           '<ellipse cx="160" cy="150" rx="10" ry="15" transform="rotate(-25 160 150)"/></g>')
-    s.add('<ellipse cx="143" cy="46" rx="5" ry="30" transform="rotate(10 143 46)" fill="#8a8578" opacity="0.6"/>'
-          '<ellipse cx="119" cy="48" rx="4" ry="26" transform="rotate(-12 119 48)" fill="#8a8578" opacity="0.45"/>')
+    inner = '#a07418' if tier >= 3 else '#8a8578'
+    s.add(f'<ellipse cx="143" cy="46" rx="5" ry="30" transform="rotate(10 143 46)" fill="{inner}" opacity="0.6"/>'
+          f'<ellipse cx="119" cy="48" rx="4" ry="26" transform="rotate(-12 119 48)" fill="{inner}" opacity="0.45"/>')
     # Schatten unter Kopf und Brust, Licht an der linken Kante.
     s.add(f'<ellipse cx="128" cy="124" rx="28" ry="8" fill="#2a261c" opacity="0.3" {s.blur(4)}/>'
           f'<ellipse cx="122" cy="186" rx="40" ry="8" fill="#2a261c" opacity="0.25" {s.blur(5)}/>'
@@ -140,17 +234,27 @@ def statue():
     s.add('<ellipse cx="146" cy="90" rx="5" ry="6" fill="#5a564c"/><ellipse cx="144.5" cy="88" rx="1.6" ry="2" fill="#d8d4c8"/>'
           '<path d="M160 104 q3 2 1 5" stroke="#5a564c" stroke-width="2" fill="none"/>'
           '<circle cx="154" cy="110" r="0.9" fill="#6e6a5e"/><circle cx="150" cy="112" r="0.9" fill="#6e6a5e"/>')
-    # Ein feiner Riss und Flechten, damit der Stein alt wirkt.
-    s.add('<path d="M102 176 l6 10 l-3 9 l7 12" stroke="#6e6a5e" stroke-width="1.2" fill="none" opacity="0.7"/>')
-    for x, y in ((100, 214), (150, 214), (112, 140), (128, 74)):
-        s.add(f'<circle cx="{x}" cy="{y}" r="{f(s.rng.uniform(3, 5))}" fill="#c8c48a" opacity="0.45" {s.blur(1)}/>')
+    if tier == 1:
+        # Ein feiner Riss und Flechten: Der Stein ist alt und noch nicht gepflegt.
+        s.add('<path d="M102 176 l6 10 l-3 9 l7 12" stroke="#6e6a5e" stroke-width="1.2" fill="none" opacity="0.7"/>')
+        for x, y in ((100, 214), (150, 214), (112, 140), (128, 74)):
+            s.add(f'<circle cx="{x}" cy="{y}" r="{f(s.rng.uniform(3, 5))}" fill="#c8c48a" opacity="0.45" {s.blur(1)}/>')
     tufts(s, 40, 200, 330, 22)
-    s.save('einrichtung/denkmal_statue.svg')
+    if tier >= 2:
+        garland(s, 50, 190, 244, 10, 10)
+        flower_row(s, 40, 200, 326, 9)
+    if tier >= 3:
+        # Ein Lorbeerkranz zwischen den Ohren und Funkeln auf dem Gold.
+        laurel(s, 130, 84, 34, 200, 340, 7, '#f0c850', 5.5)
+        glitter(s, [(96, 150, 7), (150, 60, 6), (168, 196, 5), (110, 100, 4), (186, 120, 5), (60, 90, 4)])
+    s.save(name('statue', tier))
 
 
-def shovel():
+def shovel(tier):
     s = Svg(128, 184, 'Schaufelmonument: eine große Schaufel steckt in einem Erdhaufen, mit roter Ehrenschleife am Stiel', 202)
     shadow(s, 66, 178, 58, 6)
+    if tier >= 3:
+        halo(s, 66, 90, 60, 80)
     # Der Stiel ragt schräg aus dem Haufen; die Klinge steckt halb in der Erde.
     handle = 'M58 112 L72 24 L80 25 L67 113 Z'
     s.add(f'<path d="{handle}" fill="{s.linear(58, 0, 80, 0, [(0, "#d8b07a"), (0.45, "#b08350"), (1, "#6e4c2c")])}"/>')
@@ -160,24 +264,30 @@ def shovel():
           '<path d="M66 22 L86 22" stroke="#5a3c22" stroke-width="1" opacity="0.5"/>')
     # Die Klinge, Metall mit Glanzkante und etwas Rost.
     blade = 'M40 150 C38 128 46 110 64 108 C80 108 90 124 88 148 L82 156 L46 156 Z'
-    s.add(f'<path d="{blade}" fill="{lit(s, (38, 104, 92, 156), "#9aa2a6", (0.25, 0.2), 0.9, 0.5, 0.5)}"/>')
+    metal = GOLD if tier >= 3 else '#9aa2a6'
+    s.add(f'<path d="{blade}" fill="{lit(s, (38, 104, 92, 156), metal, (0.25, 0.2), 0.9, 0.5, 0.5)}"/>')
+    rust = f'<g {s.clip_d(blade)}><ellipse cx="80" cy="140" rx="10" ry="16" fill="#8a5a2c" opacity="0.35" {s.blur(4)}/></g>' if tier == 1 else ''
     s.add(f'<path d="M46 132 C48 118 56 112 64 112" stroke="#f4f8fa" stroke-width="3" fill="none" opacity="0.7" {s.blur(1)}/>'
-          f'<g {s.clip_d(blade)}><ellipse cx="80" cy="140" rx="10" ry="16" fill="#8a5a2c" opacity="0.35" {s.blur(4)}/></g>'
-          '<path d="M60 110 L64 108 L68 110 L66 124 L62 124 Z" fill="#6e767a"/>')
+          f'{rust}<path d="M60 110 L64 108 L68 110 L66 124 L62 124 Z" fill="{dark(metal, 0.3)}"/>')
     # Der Erdhaufen davor verdeckt die Spitze der Klinge.
     mound = 'M6 178 C10 156 28 140 52 142 C60 146 70 146 80 142 C102 140 120 158 124 178 Z'
     earth_mound(s, mound, (6, 140, 124, 178))
     s.add(f'<path d="M40 148 C50 152 76 152 88 146" stroke="#2e1e10" stroke-width="3" fill="none" opacity="0.45" {s.blur(1.5)}/>')
-    ribbon_bow(s, 70, 64, '#d0402e', 1.0)
     tufts(s, 8, 122, 177, 14, 8)
-    for x in (22, 104):
-        s.add(flower(s, x, 168, 4, '#ffffff'))
-    s.save('einrichtung/denkmal_schaufel.svg')
+    if tier >= 2:
+        ribbon_bow(s, 70, 64, '#d0402e', 1.0)
+        flower_row(s, 14, 116, 170, 6)
+    if tier >= 3:
+        medal(s, 74, 84, 8)
+        glitter(s, [(52, 128, 6), (84, 30, 5), (30, 100, 4), (100, 70, 4)])
+    s.save(name('schaufel', tier))
 
 
-def fox_stone():
+def fox_stone(tier):
     s = Svg(260, 210, 'Fuchsschreck: ein mächtiger Findling mit tiefen Kratzspuren, Moos obenauf und ein Büschel rotes Fuchsfell', 203)
     shadow(s, 134, 198, 120, 10, 0.45)
+    if tier >= 3:
+        halo(s, 132, 110, 130, 90)
     d = ('M18 198 C10 160 22 104 58 74 C90 46 140 34 182 50 C222 66 248 112 246 158 C246 178 240 192 232 198 Z')
     stone(s, d, '#a39e90', (10, 34, 248, 198), 2.6, True, (0.28, 0.18))
     # Kanten und Flächen: eine hellere Oberseite, dunklere rechte Flanke.
@@ -185,10 +295,12 @@ def fox_stone():
           f'<ellipse cx="226" cy="150" rx="40" ry="70" fill="#2a261c" opacity="0.3" {s.blur(12)}/>'
           f'<ellipse cx="130" cy="200" rx="120" ry="20" fill="#2a261c" opacity="0.35" {s.blur(8)}/></g>')
     # Drei Kratzspuren schräg über den Stein: tiefe Rillen mit heller Kante.
+    # Ganz oben sind die Rillen mit Gold ausgelegt.
+    groove, edge = (GOLD, '#fff4c0') if tier >= 3 else ('#4a463c', '#e8e4d6')
     for i in range(3):
         x = 104 + i * 22
-        s.add(f'<path d="M{x} 92 C{x + 8} 112 {x + 14} 134 {x + 16} 160" stroke="#4a463c" stroke-width="5" fill="none" stroke-linecap="round"/>'
-              f'<path d="M{x - 2} 93 C{x + 6} 113 {x + 12} 135 {x + 14} 160" stroke="#e8e4d6" stroke-width="1.5" fill="none" opacity="0.7" stroke-linecap="round"/>')
+        s.add(f'<path d="M{x} 92 C{x + 8} 112 {x + 14} 134 {x + 16} 160" stroke="{groove}" stroke-width="5" fill="none" stroke-linecap="round"/>'
+              f'<path d="M{x - 2} 93 C{x + 6} 113 {x + 12} 135 {x + 14} 160" stroke="{edge}" stroke-width="1.5" fill="none" opacity="0.7" stroke-linecap="round"/>')
     # Ein Riss und Flechten.
     s.add('<path d="M60 120 l10 14 l-4 12 l9 16" stroke="#5e5a4e" stroke-width="1.4" fill="none" opacity="0.7"/>')
     for x, y in ((70, 150), (190, 110), (160, 170), (52, 100)):
@@ -202,18 +314,33 @@ def fox_stone():
     for x, y, r in ((26, 196, 9), (238, 196, 7), (204, 200, 5)):
         s.add(f'<ellipse cx="{x}" cy="{y}" rx="{r}" ry="{r * 0.7}" fill="{s.radial(x - 3, y - 3, r * 1.3, [(0, "#d8d4c8"), (1, "#6e6a5e")])}"/>')
     tufts(s, 14, 246, 198, 30, 11)
-    s.save('einrichtung/denkmal_fuchsschreck.svg')
+    if tier >= 2:
+        # Ein Laubkranz auf dem Moos und Blumen rundherum.
+        foliage(s, [(104 + i * 14, 46 - math.sin(i / 4 * math.pi) * 6, 8) for i in range(5)], '#4a8a34', 4, box=(90, 32, 172, 56))
+        for i, x in enumerate((112, 130, 148)):
+            s.add(flower(s, x, 42 - (i == 1) * 6, 5, FLOWERS[i + 1]))
+        flower_row(s, 30, 230, 196, 12)
+    if tier >= 3:
+        glitter(s, [(126, 110, 7), (170, 140, 6), (104, 150, 5), (60, 90, 5), (210, 120, 4)])
+    s.save(name('fuchsschreck', tier))
 
 
-def feather_mast():
+def feather_mast(tier):
     s = Svg(104, 260, 'Federmast: ein Holzpfahl mit einem Fächer gestreifter Bussardfedern und bunten Bändern, unten von Steinen gehalten', 204)
     shadow(s, 54, 252, 40, 6)
+    if tier >= 3:
+        halo(s, 53, 70, 46, 60)
     pole = 'M47 250 L49 36 L57 36 L59 250 Z'
     s.add(f'<path d="{pole}" fill="{s.linear(47, 0, 59, 0, [(0, "#c49a64"), (0.4, "#8a643c"), (1, "#4a321c")])}"/>')
     s.add(f'<g {s.clip_d(pole)}>' + s.strokes(s.scatter(40, 47, 36, 59, 250), 90, 12, 0.8, ['#3e2814', '#d8b07a'], 0.5, 0.05) + '</g>')
+    if tier >= 3:
+        # Goldene Ringe um den Pfahl.
+        for y in (110, 150, 190):
+            s.add(f'<path d="M47 {y} L59 {y - 2} L59 {y + 4} L47 {y + 6} Z" fill="{s.linear(47, 0, 59, 0, [(0, "#fff0b0"), (0.5, GOLD), (1, "#8a6414")])}"/>')
     s.add(f'<ellipse cx="53" cy="34" rx="7" ry="4" fill="{s.radial(51, 33, 7, [(0, "#e8c890"), (1, "#8a643c")])}"/>')
-    # Die Federn: ein Fächer, unten zusammengebunden, mit hellen und dunklen Querbändern.
-    for i, a in enumerate((-48, -30, -12, 6, 24, 42)):
+    # Die Federn: ein Fächer, unten zusammengebunden, mit hellen und dunklen Querbändern. Erst drei, dann sechs.
+    fan = (-30, 6, 42) if tier == 1 else (-48, -30, -12, 6, 24, 42)
+    for i, a in enumerate(fan):
         ang = math.radians(a - 90)
         L = 58 - abs(a) * 0.25
         bx, by = 53, 70
@@ -230,22 +357,31 @@ def feather_mast():
         s.add(f'<path d="M{f(bx)} {f(by)} L{f(tx)} {f(ty)}" stroke="#f4ead4" stroke-width="0.8" opacity="0.7"/>')
     # Gebunden mit Bast und Bändern, die im Wind wehen.
     s.add('<path d="M45 70 C50 66 58 66 62 70 L60 78 C55 75 50 75 46 78 Z" fill="#d8c08a"/>')
-    for color, dx, sway in (('#d0402e', -4, -14), ('#4a7ad0', 2, 10), ('#f0c040', 6, 18)):
-        s.add(f'<path d="M{53 + dx} 76 C{48 + dx + sway} 96 {58 + dx - sway} 112 {50 + dx + sway} 132" stroke="{color}" '
-              f'stroke-width="3.5" fill="none" stroke-linecap="round"/>')
+    if tier >= 2:
+        for color, dx, sway in (('#d0402e', -4, -14), ('#4a7ad0', 2, 10), ('#f0c040', 6, 18)):
+            s.add(f'<path d="M{53 + dx} 76 C{48 + dx + sway} 96 {58 + dx - sway} 112 {50 + dx + sway} 132" stroke="{color}" '
+                  f'stroke-width="3.5" fill="none" stroke-linecap="round"/>')
     # Steine halten den Pfahl.
     for x, y, r in ((36, 246, 11), (70, 246, 12), (53, 240, 10), (46, 252, 9), (64, 252, 9)):
         s.add(f'<ellipse cx="{x}" cy="{y}" rx="{r}" ry="{r * 0.72}" fill="{s.radial(x - 3, y - 3, r * 1.3, [(0, "#d8d4c8"), (0.6, "#a8a496"), (1, "#6a665a")])}"/>')
     tufts(s, 16, 90, 254, 12, 9)
-    s.save('einrichtung/denkmal_federmast.svg')
+    if tier >= 2:
+        flower_row(s, 12, 94, 250, 5)
+    if tier >= 3:
+        # Eine goldene Kugel auf der Spitze.
+        s.add(f'<circle cx="53" cy="28" r="7" fill="{s.radial(51, 26, 8, [(0, "#fff4c0"), (0.5, GOLD), (1, "#8a6414")])}"/>')
+        glitter(s, [(50, 26, 5), (30, 44, 4), (78, 50, 5), (60, 160, 4)])
+    s.save(name('federmast', tier))
 
 
-def snow_rabbit():
+def snow_rabbit(tier):
     s = Svg(132, 168, 'Winterkaninchen: ein Kaninchen aus Schnee und Eis auf einem flachen Stein, mit Eiszapfen und Glitzern', 205)
     shadow(s, 68, 160, 56, 6)
+    if tier >= 3:
+        halo(s, 68, 80, 66, 70, '#d8ecff')
     stone(s, block(16, 132, 116, 162, 8), '#9a9688', (16, 132, 116, 162), 1.6)
     s.add('<path d="M22 136 C40 130 92 130 110 136" stroke="#f4f8ff" stroke-width="6" fill="none" stroke-linecap="round"/>')
-    for x in (30, 48, 86, 102):
+    for x in ((30, 102) if tier == 1 else (30, 48, 86, 102)):
         L = s.rng.uniform(6, 12)
         s.add(f'<path d="M{x - 3} 138 L{x} {138 + L} L{x + 3} 138 Z" fill="{s.linear(0, 138, 0, 138 + L, [(0, "#e8f4ff"), (1, "#9ac8f0", 0.6)])}"/>')
     # Ein hockendes Kaninchen aus Schnee: kugelig, bläulich im Schatten.
@@ -265,9 +401,24 @@ def snow_rabbit():
     # Auge aus einem Kieselstein, Nase aus einer Beere.
     s.add('<circle cx="90" cy="70" r="3.4" fill="#2a2a30"/><circle cx="89" cy="69" r="1" fill="#ffffff"/>'
           '<circle cx="102" cy="80" r="2.4" fill="#c8302a"/>')
-    for x, y, r in ((44, 92, 6), (96, 56, 5), (60, 118, 4), (108, 100, 3.5), (30, 60, 4)):
-        sparkle(s, x, y, r, '#ffffff')
-    s.save('einrichtung/denkmal_winterkaninchen.svg')
+    if tier >= 2:
+        # Ein gestrickter roter Schal mit weißen Streifen und einem flatternden Ende.
+        scarf = 'M58 90 C66 98 92 98 102 88 L104 96 C94 106 64 106 56 98 Z'
+        s.add(f'<path d="{scarf}" fill="{s.linear(56, 0, 104, 0, [(0, "#e05040"), (1, "#a82a20")])}"/>'
+              '<path d="M66 96 L70 112 L80 110 L76 98 Z" fill="#c8382c"/>'
+              '<path d="M68 101 L77 100 M69 106 L78 105" stroke="#ffffff" stroke-width="1.6" opacity="0.8"/>')
+        for x in (64, 74, 84, 94):
+            s.add(f'<path d="M{x} 95 L{x + 2} 101" stroke="#ffffff" stroke-width="1.4" opacity="0.6"/>')
+    if tier >= 3:
+        # Eine Krone aus Eiskristallen zwischen den Ohren.
+        for x, h in ((70, 12), (79, 18), (88, 12)):
+            s.add(f'<path d="M{x - 4} 58 L{x} {58 - h} L{x + 4} 58 Z" fill="{s.linear(0, 58 - h, 0, 58, [(0, "#ffffff"), (1, "#7ab4f0")])}"/>')
+        s.add('<path d="M64 58 L94 58 L92 62 L66 62 Z" fill="#a8d0f8"/>')
+    stars = ((44, 92, 6), (96, 56, 5), (60, 118, 4), (108, 100, 3.5), (30, 60, 4))
+    if tier >= 3:
+        stars += ((20, 30, 5), (114, 30, 4), (14, 90, 4), (120, 130, 4))
+    glitter(s, stars[:2] if tier == 1 else stars, '#ffffff')
+    s.save(name('winterkaninchen', tier))
 
 
 def frond(s, x, y, angle, length, base):
@@ -296,9 +447,11 @@ def frond(s, x, y, angle, length, base):
     return f'<g {s.rough(1.6, 0.5)}>{out}</g>'
 
 
-def giant_carrot():
+def giant_carrot(tier):
     s = Svg(220, 320, 'Riesenmöhre: eine aus Holz geschnitzte, bemalte Möhre steckt mit der Spitze in der Erde, oben ein Schopf gefiederter Blätter', 206)
     shadow(s, 112, 310, 92, 8)
+    if tier >= 3:
+        halo(s, 110, 150, 110, 140)
     # Das Laub zuerst: Es wächst hinter der Schnittkante aus der Möhre.
     for angle, length, base in ((-62, 58, '#5aa83a'), (60, 60, '#5aa83a'), (-48, 76, '#3e8a2c'), (46, 78, '#3e8a2c'),
                                 (-34, 92, '#4e9a32'), (32, 94, '#4e9a32'), (-18, 104, '#3e8a2c'), (16, 102, '#3e8a2c'),
@@ -326,42 +479,59 @@ def giant_carrot():
     mound = 'M40 312 C48 292 78 282 108 282 C140 282 170 292 178 312 Z'
     earth_mound(s, mound, (40, 280, 178, 312))
     tufts(s, 30, 190, 312, 22, 10)
-    ribbon_bow(s, 64, 138, '#f0c040', 1.1)
-    s.save('einrichtung/denkmal_riesenmoehre.svg')
+    if tier >= 2:
+        ribbon_bow(s, 64, 138, '#f0c040', 1.1)
+        flower_row(s, 34, 186, 306, 9)
+    if tier >= 3:
+        medal(s, 132, 156, 13)
+        glitter(s, [(84, 190, 7), (150, 120, 5), (40, 60, 5), (184, 70, 5), (120, 240, 4)])
+    s.save(name('riesenmoehre', tier))
 
 
-def ancestor_stone():
+def ancestor_stone(tier):
     s = Svg(128, 168, 'Ahnenstein: ein aufrechter Stein mit eingeritzten Pfotenabdrücken, einer Reihe pro Generation, Moos und Blumen am Fuß', 207)
     shadow(s, 66, 162, 52, 6)
+    if tier >= 3:
+        halo(s, 66, 80, 64, 76)
     d = 'M26 162 C22 120 22 62 32 36 C42 14 86 12 98 34 C108 58 108 120 104 162 Z'
     stone(s, d, '#a8a496', (22, 12, 108, 162), 2.0)
     s.add(f'<g {s.clip_d(d)}><ellipse cx="102" cy="100" rx="16" ry="70" fill="#2a261c" opacity="0.3" {s.blur(8)}/>'
           f'<path d="M34 50 C40 26 70 18 88 30" stroke="#ece8da" stroke-width="6" fill="none" opacity="0.4" {s.blur(3)}/></g>')
 
+    # Ganz oben sind die Pfoten mit Gold ausgelegt.
+    ink = '#c8962c' if tier >= 3 else '#5e5a4e'
+
     def paw(x, y, r):
-        out = f'<ellipse cx="{f(x)}" cy="{f(y + r * 0.4)}" rx="{f(r)}" ry="{f(r * 0.8)}" fill="#5e5a4e"/>'
+        out = f'<ellipse cx="{f(x)}" cy="{f(y + r * 0.4)}" rx="{f(r)}" ry="{f(r * 0.8)}" fill="{ink}"/>'
         for dx, dy in ((-1.0, -0.9), (-0.35, -1.35), (0.35, -1.35), (1.0, -0.9)):
-            out += f'<ellipse cx="{f(x + dx * r)}" cy="{f(y + dy * r)}" rx="{f(r * 0.34)}" ry="{f(r * 0.42)}" fill="#5e5a4e"/>'
-        return f'<g opacity="0.85">{out}</g><g opacity="0.4" transform="translate(-0.8 -0.8)">{out.replace("#5e5a4e", "#e8e4d6")}</g>'
-    # Ganz oben die Gründer, darunter immer mehr Nachkommen.
-    rows = [(1, 46), (2, 70), (3, 94), (4, 118), (5, 140)]
+            out += f'<ellipse cx="{f(x + dx * r)}" cy="{f(y + dy * r)}" rx="{f(r * 0.34)}" ry="{f(r * 0.42)}" fill="{ink}"/>'
+        return f'<g opacity="0.9">{out}</g><g opacity="0.45" transform="translate(-0.8 -0.8)">{out.replace(ink, "#fff4d0" if tier >= 3 else "#e8e4d6")}</g>'
+    # Ganz oben die Gründer, darunter immer mehr Nachkommen; erst drei Generationen, dann fünf.
+    rows = [(1, 46), (2, 70), (3, 94), (4, 118), (5, 140)][:3 if tier == 1 else 5]
     for n, y in rows:
         r = 4.2 - n * 0.35
         for i in range(n):
             x = 65 + (i - (n - 1) / 2) * (r * 4.2)
             s.add(paw(x, y, r))
     moss(s, 36, 156, 14, 6)
-    moss(s, 96, 52, 8, 5)
+    if tier == 1:
+        moss(s, 96, 52, 8, 5)
     tufts(s, 18, 112, 162, 14, 9)
-    for x, c in ((20, '#f2b8b0'), (108, '#ffffff'), (98, '#b98ad9')):
-        s.add(flower(s, x, 156, 4.5, c))
-    s.save('einrichtung/denkmal_ahnenstein.svg')
+    if tier >= 2:
+        flower_row(s, 16, 112, 158, 6)
+        # Ein Blütenkranz oben auf dem Stein.
+        garland(s, 34, 96, 30, -6, 6)
+    if tier >= 3:
+        glitter(s, [(48, 60, 5), (88, 90, 4), (40, 120, 4), (96, 136, 4)])
+    s.save(name('ahnenstein', tier))
 
 
-def obelisk():
+def obelisk(tier):
     s = Svg(200, 360, 'Kristallobelisk: ein hoher, dunkler Steinpfeiler aus der Tiefe, mit leuchtenden Kristallen am Fuß und einem eingelassenen Kristall', 208)
     shadow(s, 104, 350, 86, 8)
-    s.add(f'<ellipse cx="100" cy="320" rx="80" ry="30" fill="#b48cf0" opacity="0.25" {s.blur(16)}/>')
+    s.add(f'<ellipse cx="100" cy="320" rx="80" ry="30" fill="#b48cf0" opacity="{0.15 + 0.1 * tier}" {s.blur(16)}/>')
+    if tier >= 3:
+        halo(s, 100, 120, 90, 120, '#e8d8ff')
     # Der Pfeiler: links im Licht, rechts im Schatten, oben eine kleine Pyramide.
     left = 'M64 330 L78 70 L100 46 L100 330 Z'
     right = 'M100 330 L100 46 L122 70 L136 330 Z'
@@ -373,12 +543,16 @@ def obelisk():
                   for x, y in s.scatter(260, 64, 46, 136, 330))
     s.add(f'<g {s.clip_d("M64 330 L78 70 L100 46 L122 70 L136 330 Z")}>{tex}'
           '<path d="M86 140 l6 12 l-4 10 l6 14" stroke="#2a2632" stroke-width="1.2" fill="none" opacity="0.7"/></g>')
-    # Ein eingelassener, leuchtender Kristall in halber Höhe.
-    s.add(glow(s, 100, 160, 26, 30, '#c8a8ff', 0.55, 10))
-    s.add('<path d="M100 136 L112 156 L100 186 L88 156 Z" fill="#b890f8"/>'
-          '<path d="M100 136 L112 156 L100 162 Z" fill="#e8d8ff"/><path d="M100 136 L88 156 L100 162 Z" fill="#cbb0ff"/>'
-          '<path d="M88 156 L100 162 L100 186 Z" fill="#8a60d8"/>')
-    sparkle(s, 96, 146, 6)
+    # Ein eingelassener, leuchtender Kristall in halber Höhe; ganz oben auch einer auf der Spitze.
+    gems = [(100, 160, 1.0)] if tier == 2 else [(100, 160, 1.0), (100, 30, 1.2)] if tier >= 3 else []
+    for gx, gy, k in gems:
+        s.add(glow(s, gx, gy, 26 * k, 30 * k, '#c8a8ff', 0.55, 10))
+        top, mid, bot, half = gy - 24 * k, gy - 4 * k, gy + 26 * k, 12 * k
+        s.add(f'<path d="M{gx} {f(top)} L{f(gx + half)} {f(mid)} L{gx} {f(bot)} L{f(gx - half)} {f(mid)} Z" fill="#b890f8"/>'
+              f'<path d="M{gx} {f(top)} L{f(gx + half)} {f(mid)} L{gx} {f(mid + 6 * k)} Z" fill="#e8d8ff"/>'
+              f'<path d="M{gx} {f(top)} L{f(gx - half)} {f(mid)} L{gx} {f(mid + 6 * k)} Z" fill="#cbb0ff"/>'
+              f'<path d="M{f(gx - half)} {f(mid)} L{gx} {f(mid + 6 * k)} L{gx} {f(bot)} Z" fill="#8a60d8"/>')
+        sparkle(s, gx - 4, top + 10 * k, 6 * k)
 
     def crystal(x, y, h, w, tilt, color):
         a = math.radians(tilt)
@@ -395,23 +569,40 @@ def obelisk():
     # Fels am Fuß und eine Gruppe Kristalle davor.
     stone(s, 'M30 352 C30 330 52 318 80 320 L124 320 C150 318 172 330 172 352 Z', '#6a6478', (30, 316, 172, 352), 2.4)
     s.add(glow(s, 100, 334, 70, 16, '#d8c0ff', 0.4, 8))
-    for x, y, h, w, t, c in ((58, 348, 34, 7, -24, '#9a70e8'), (78, 350, 52, 9, -8, '#b890f8'), (96, 352, 40, 8, 6, '#8a60d8'),
-                             (122, 350, 58, 10, 14, '#a880f0'), (142, 348, 30, 7, 30, '#9a70e8'), (110, 352, 24, 6, -16, '#c8a8ff')):
+    crystals = [(58, 348, 34, 7, -24, '#9a70e8'), (78, 350, 52, 9, -8, '#b890f8'), (96, 352, 40, 8, 6, '#8a60d8'),
+                (122, 350, 58, 10, 14, '#a880f0'), (142, 348, 30, 7, 30, '#9a70e8'), (110, 352, 24, 6, -16, '#c8a8ff')]
+    if tier == 1:
+        crystals = crystals[1:4]
+    if tier >= 3:
+        crystals += [(40, 350, 26, 6, -36, '#c8a8ff'), (160, 350, 28, 6, 38, '#b890f8'), (66, 338, 70, 11, -14, '#a880f0'),
+                     (134, 338, 72, 11, 12, '#9a70e8')]
+        crystals.sort(key=lambda c: c[1])
+    for x, y, h, w, t, c in crystals:
         s.add(crystal(x, y, h, w, t, c))
-    for x, y, r in ((74, 306, 5), (128, 300, 6), (148, 330, 4), (60, 326, 3.5)):
-        sparkle(s, x, y, r, '#f4ecff')
-    s.save('einrichtung/denkmal_obelisk.svg')
+    stars = [(74, 306, 5), (128, 300, 6), (148, 330, 4), (60, 326, 3.5)]
+    if tier >= 3:
+        stars += [(40, 260, 5), (166, 230, 5), (72, 90, 4), (132, 110, 4)]
+    glitter(s, stars[:1] if tier == 1 else stars, '#f4ecff')
+    s.save(name('obelisk', tier))
 
 
-def cat_basket():
+def cat_basket(tier):
     s = Svg(152, 112, 'Katzenkorb: ein runder, geflochtener Weidenkorb mit rot-weiß kariertem Kissen und einem Wollknäuel davor', 209)
     shadow(s, 78, 104, 66, 7)
+    if tier >= 3:
+        halo(s, 76, 56, 76, 50)
     # Rückwand innen, dann das Kissen, dann die Vorderwand.
     s.add(f'<ellipse cx="76" cy="50" rx="62" ry="20" fill="{s.linear(0, 30, 0, 70, [(0, "#6e4a24"), (1, "#a87a40")])}"/>')
     cushion = 'M24 56 C24 40 128 40 128 56 C128 66 24 66 24 56 Z'
-    s.add(f'<path d="{cushion}" fill="#e8e0d4"/>')
-    checks = ''.join(f'<rect x="{x}" y="38" width="8" height="30" fill="#c8302a" opacity="0.75"/>' for x in range(24, 130, 16))
-    checks += ''.join(f'<rect x="20" y="{y}" width="112" height="4" fill="#c8302a" opacity="0.45"/>' for y in (46, 54, 62))
+    s.add(f'<path d="{cushion}" fill="{"#c8b8a0" if tier == 1 else "#e8e0d4"}"/>')
+    # Erst ein schlichtes Kissen, dann rot-weiß kariert, zuletzt königsblau mit Gold.
+    check = {1: '#a89878', 2: '#c8302a', 3: '#3a5ab0'}[tier]
+    checks = ''.join(f'<rect x="{x}" y="38" width="8" height="30" fill="{check}" opacity="0.75"/>' for x in range(24, 130, 16))
+    checks += ''.join(f'<rect x="20" y="{y}" width="112" height="4" fill="{check}" opacity="0.45"/>' for y in (46, 54, 62))
+    if tier == 1:
+        checks = ''.join(f'<path d="M{x} 44 l4 3 M{x + 6} 56 l-3 4" stroke="{check}" stroke-width="1" opacity="0.5"/>' for x in range(30, 124, 14))
+    if tier >= 3:
+        checks += ''.join(f'<rect x="{x + 7}" y="38" width="1.5" height="30" fill="{GOLD}" opacity="0.9"/>' for x in range(24, 130, 16))
     s.add(f'<g {s.clip_d(cushion)}>{checks}<ellipse cx="60" cy="48" rx="40" ry="8" fill="#ffffff" opacity="0.35" {s.blur(4)}/>'
           f'<ellipse cx="76" cy="62" rx="56" ry="6" fill="#3a1a10" opacity="0.3" {s.blur(3)}/></g>')
     front = 'M14 52 C14 96 138 96 138 52 C138 72 14 72 14 52 Z'
@@ -425,19 +616,33 @@ def cat_basket():
         weave += f'<path d="M{x} 58 L{x + (x - 76) * 0.08} 92" stroke="#e0b880" stroke-width="2.2" opacity="0.5"/>'
     s.add(f'<g {s.clip_d(front)}>{weave}</g>')
     s.add(f'<path d="M14 52 C14 72 138 72 138 52" stroke="{s.linear(14, 0, 138, 0, [(0, "#e8c890"), (1, "#8a5a2c")])}" stroke-width="7" fill="none" stroke-linecap="round"/>')
-    # Ein Wollknäuel mit losem Faden.
-    s.add(f'<circle cx="134" cy="96" r="10" fill="{s.radial(130, 92, 12, [(0, "#9ac8f0"), (1, "#3a6ab0")])}"/>'
-          '<path d="M126 92 C132 88 140 92 142 98 M128 100 C132 94 140 96 140 102" stroke="#2a5090" stroke-width="1" fill="none" opacity="0.7"/>'
-          '<path d="M124 100 C114 108 100 100 92 106" stroke="#5a8ad0" stroke-width="1.4" fill="none"/>')
-    s.save('einrichtung/denkmal_katzenkorb.svg')
+    if tier >= 2:
+        # Ein Wollknäuel mit losem Faden.
+        s.add(f'<circle cx="134" cy="96" r="10" fill="{s.radial(130, 92, 12, [(0, "#9ac8f0"), (1, "#3a6ab0")])}"/>'
+              '<path d="M126 92 C132 88 140 92 142 98 M128 100 C132 94 140 96 140 102" stroke="#2a5090" stroke-width="1" fill="none" opacity="0.7"/>'
+              '<path d="M124 100 C114 108 100 100 92 106" stroke="#5a8ad0" stroke-width="1.4" fill="none"/>')
+        for x in (10, 22):
+            s.add(flower(s, x, 100, 4.5, FLOWERS[x % 4]))
+    if tier >= 3:
+        # Ein goldenes Glöckchen an rotem Band vorn am Rand und ein Fisch zum Spielen.
+        s.add('<path d="M60 72 C68 78 84 78 92 72" stroke="#c8302a" stroke-width="3" fill="none"/>')
+        s.add(f'<path d="M70 76 C70 68 82 68 82 76 L84 82 L68 82 Z" fill="{s.radial(73, 72, 10, [(0, "#fff4c0"), (0.5, GOLD), (1, "#8a6414")])}"/>'
+              '<circle cx="76" cy="83" r="1.8" fill="#6e4a14"/>')
+        s.add(f'<path d="M30 96 C36 88 50 88 56 96 C50 104 36 104 30 96 Z M30 96 L22 90 L22 102 Z" fill="{s.linear(22, 0, 56, 0, [(0, "#9ab0c0"), (1, "#e8f0f8")])}"/>'
+              '<circle cx="50" cy="95" r="1.4" fill="#2a3440"/>')
+        glitter(s, [(76, 74, 5), (40, 30, 4), (120, 26, 5), (146, 60, 3.5)])
+    s.save(name('katzenkorb', tier))
 
 
-def maypole():
+def maypole(tier):
     s = Svg(250, 420, 'Maibaum: ein hoher, geschälter Stamm mit Laubkranz und Krone, bunte Bänder laufen von oben zum Boden, Blumen am Fuß', 210)
     shadow(s, 128, 410, 110, 9)
+    if tier >= 3:
+        halo(s, 125, 70, 90, 70)
     top = (125, 72)
     colors = ['#d8503a', '#f0c040', '#5a9a48', '#5a8ad0', '#d86a90', '#f08a3a']
-    feet = [22, 52, 84, 166, 198, 228]
+    # Erst zwei Bänder, dann sechs.
+    feet = [52, 198] if tier == 1 else [22, 52, 84, 166, 198, 228]
     # Hintere Bänder zuerst, dann der Stamm, dann die vorderen.
     def band(i, x):
         c = colors[i % len(colors)]
@@ -448,31 +653,51 @@ def maypole():
     pole = 'M119 408 L121 64 L129 64 L131 408 Z'
     s.add(f'<path d="{pole}" fill="{s.linear(119, 0, 131, 0, [(0, "#f4ecd8"), (0.4, "#d8c8a4"), (1, "#8a7a5a")])}"/>')
     # Ein Band windet sich spiralig um den Stamm.
-    spiral = ''.join(f'<path d="M119 {y} L131 {y - 10}" stroke="{colors[(y // 20) % 6]}" stroke-width="4"/>' for y in range(100, 400, 20))
-    s.add(f'<g {s.clip_d(pole)}>{spiral}</g>')
+    if tier >= 2:
+        spiral = ''.join(f'<path d="M119 {y} L131 {y - 10}" stroke="{GOLD if tier >= 3 else colors[(y // 20) % 6]}" stroke-width="4"/>'
+                         for y in range(100, 400, 20))
+        s.add(f'<g {s.clip_d(pole)}>{spiral}</g>')
     s.add(''.join(band(i, x) for i, x in enumerate(feet) if i % 2 == 0))
     # Der Kranz am Ring, darüber eine kleine Krone aus Zweigen mit einem Wimpel.
     wreath = [(125 + math.cos(a) * 30, 74 + math.sin(a) * 10, 9) for a in [i * math.tau / 16 for i in range(16)]]
     foliage(s, wreath, '#4a8a34', 4, box=(90, 56, 160, 92))
-    for i, a in enumerate([i * math.tau / 8 + 0.2 for i in range(8)]):
-        x, y = 125 + math.cos(a) * 30, 76 + math.sin(a) * 10
-        if math.sin(a) > -0.3:
-            s.add(flower(s, x, y, 5, ['#ffffff', '#f2b8b0', '#f4e7a0', '#b98ad9'][i % 4]))
-    foliage(s, [(125, 34, 14), (112, 44, 11), (138, 44, 11), (125, 50, 12)], '#3e7a2a', 4, box=(100, 18, 150, 62))
-    s.add('<path d="M125 22 L125 6" stroke="#8a7a5a" stroke-width="2"/><path d="M125 6 L146 12 L125 18 Z" fill="#d8503a"/>')
+    if tier >= 2:
+        for i, a in enumerate([i * math.tau / 8 + 0.2 for i in range(8)]):
+            x, y = 125 + math.cos(a) * 30, 76 + math.sin(a) * 10
+            if math.sin(a) > -0.3:
+                s.add(flower(s, x, y, 5, ['#ffffff', '#f2b8b0', '#f4e7a0', '#b98ad9'][i % 4]))
+    if tier < 3:
+        foliage(s, [(125, 34, 14), (112, 44, 11), (138, 44, 11), (125, 50, 12)], '#3e7a2a', 4, box=(100, 18, 150, 62))
+    else:
+        # Eine goldene Krone mit fünf Zacken und Kugeln darauf.
+        crown = 'M100 62 L104 30 L114 46 L125 22 L136 46 L146 30 L150 62 Z'
+        s.add(f'<path d="{crown}" fill="{lit(s, (100, 22, 150, 62), GOLD, (0.3, 0.3), 0.9, 0.45, 0.5)}"/>'
+              f'<path d="M100 56 L150 56 L150 62 L100 62 Z" fill="{dark(GOLD, 0.25)}"/>')
+        for x, y in ((104, 30), (125, 22), (146, 30)):
+            s.add(f'<circle cx="{x}" cy="{y}" r="4" fill="{s.radial(x - 1, y - 1, 5, [(0, "#fff4c0"), (1, "#a87a1c")])}"/>')
+        for x, c in ((114, '#d8503a'), (125, '#5a8ad0'), (136, '#5a9a48')):
+            s.add(f'<circle cx="{x}" cy="51" r="3" fill="{c}"/>')
+    if tier >= 2:
+        s.add('<path d="M125 22 L125 6" stroke="#8a7a5a" stroke-width="2"/><path d="M125 6 L146 12 L125 18 Z" fill="#d8503a"/>')
     # Blumen und Gras am Fuß, wo die Bänder an Pflöcken festgemacht sind.
     for x in feet:
         s.add(f'<path d="M{x} 400 L{x} 412" stroke="#6e4c2c" stroke-width="3"/>')
-    for _ in range(18):
+    for _ in range(4 if tier == 1 else 18):
         x = s.rng.uniform(16, 234)
         s.add(flower(s, x, s.rng.uniform(400, 414), s.rng.uniform(3.5, 5), s.rng.choice(['#ffffff', '#ffffff', '#f2b8b0', '#b98ad9', '#f4e7a0'])))
     tufts(s, 10, 240, 412, 30, 11)
-    s.save('einrichtung/denkmal_maibaum.svg')
+    if tier >= 3:
+        bunting(s, 20, 150, 125, 110, 14, 7)
+        bunting(s, 125, 110, 230, 150, 14, 7)
+        glitter(s, [(104, 30, 6), (146, 34, 5), (125, 10, 5), (70, 100, 4), (190, 96, 4)])
+    s.save(name('maibaum', tier))
 
 
-def mole():
+def mole(tier):
     s = Svg(128, 152, 'Maulwurfsdenkmal: ein Maulwurf aus dunklem Holz schaut aus seinem Hügel, mit rosa Nase und großen rosa Grabhänden auf dem Rand', 211)
     shadow(s, 66, 146, 56, 6)
+    if tier >= 3:
+        halo(s, 64, 60, 62, 56)
     # Hinter dem Hügelrand: der samtschwarze Körper, nach oben gereckt, die spitze Schnauze schräg nach vorn.
     fur = '#3e3a40'
     g = lit(s, (30, 20, 100, 110), fur, (0.3, 0.25), 0.8, 0.5, 0.35)
@@ -498,13 +723,25 @@ def mole():
             cx = x - 12 * flip + i * 6 * flip
             s.add(f'<path d="M{cx} 108 l{flip * 1.5} 6" stroke="#f8f0e0" stroke-width="2.2" stroke-linecap="round"/>')
     tufts(s, 8, 120, 147, 12, 8)
-    ribbon_bow(s, 62, 120, '#d0402e', 0.8)
-    s.save('einrichtung/denkmal_maulwurf.svg')
+    if tier >= 2:
+        ribbon_bow(s, 62, 120, '#d0402e', 0.8)
+        flower_row(s, 10, 118, 142, 5)
+    if tier >= 3:
+        # Ein goldener Grubenhelm mit leuchtender Lampe.
+        helmet = 'M46 34 C46 14 92 12 94 32 L98 36 L42 38 Z'
+        s.add(f'<path d="{helmet}" fill="{lit(s, (42, 12, 98, 38), GOLD, (0.3, 0.25), 0.9, 0.45, 0.5)}"/>'
+              f'<path d="M42 36 L98 34 L98 39 L42 41 Z" fill="{dark(GOLD, 0.3)}"/>')
+        s.add(glow(s, 70, 20, 16, 12, '#fff8c0', 0.7, 5))
+        s.add('<circle cx="70" cy="22" r="6" fill="#8a6414"/><circle cx="70" cy="22" r="4.2" fill="#fffbe0"/>')
+        glitter(s, [(56, 22, 4), (104, 76, 4), (20, 70, 4), (90, 14, 3.5)])
+    s.save(name('maulwurf', tier))
 
 
-def builder_arch():
+def builder_arch(tier):
     s = Svg(288, 248, 'Baumeister-Bogen: ein Torbogen aus Stampferde und Steinen, über den sich dicke Wurzeln winden, darin ein dunkler Gang', 212)
     shadow(s, 148, 238, 132, 9)
+    if tier >= 3:
+        halo(s, 144, 110, 150, 110)
     # Der Bogen aus festgestampfter Erde mit eingesetzten Steinen.
     outer = 'M24 240 L24 120 C24 52 80 18 144 18 C208 18 264 52 264 120 L264 240 Z'
     inner = 'M84 240 L84 132 C84 98 110 76 144 76 C178 76 204 98 204 132 L204 240 Z'
@@ -532,22 +769,43 @@ def builder_arch():
               f'<path d="{d}" stroke="{c}" stroke-width="{w}" fill="none" stroke-linecap="round"/>'
               f'<path d="{d}" stroke="{light(c, 0.35)}" stroke-width="{w * 0.3}" fill="none" stroke-linecap="round" opacity="0.6" transform="translate(-1.5 -1.5)"/>')
     s.add(s.strokes([(144 + s.rng.uniform(-60, 60), 80 + s.rng.uniform(-4, 6)) for _ in range(12)], 92, 14, 1.2, ['#c4a074', '#8a6a48'], 0.8, 0.3, 0.4))
-    foliage(s, [(60, 50, 12), (76, 38, 10), (214, 42, 11), (230, 56, 12), (144, 20, 10)], '#4a8a34', 4, box=(40, 8, 250, 70))
+    if tier >= 2:
+        foliage(s, [(60, 50, 12), (76, 38, 10), (214, 42, 11), (230, 56, 12), (144, 20, 10)], '#4a8a34', 4, box=(40, 8, 250, 70))
+        for x, y in ((64, 44), (220, 48), (150, 16), (80, 34)):
+            s.add(flower(s, x, y, 4.5, FLOWERS[x % 5]))
+        bunting(s, 92, 112, 196, 112, 12, 7)
     tufts(s, 16, 272, 240, 26, 11)
-    s.save('einrichtung/denkmal_bogen.svg')
+    if tier >= 2:
+        flower_row(s, 20, 80, 236, 4)
+        flower_row(s, 208, 270, 236, 4)
+    if tier >= 3:
+        # Ein goldener Schlussstein oben im Bogen und zwei Laternen an den Seiten.
+        key = 'M132 14 L156 14 L152 46 L136 46 Z'
+        s.add(f'<path d="{key}" fill="{lit(s, (132, 14, 156, 46), GOLD, (0.3, 0.25), 0.9, 0.45, 0.5)}"/>'
+              '<path d="M140 24 l8 0 l-1 14 l-6 0 Z" fill="#a87a1c" opacity="0.6"/>')
+        for x in (70, 218):
+            s.add(f'<path d="M{x} 132 L{x} 146" stroke="#3e2814" stroke-width="2"/>')
+            s.add(glow(s, x, 160, 16, 18, '#ffe08a', 0.7, 6))
+            s.add(f'<path d="M{x - 8} 148 L{x + 8} 148 L{x + 6} 172 L{x - 6} 172 Z" fill="#fff0b0" stroke="{dark(GOLD, 0.3)}" stroke-width="2"/>'
+                  f'<path d="M{x - 10} 146 L{x + 10} 146 L{x} 140 Z" fill="{GOLD}"/>')
+        glitter(s, [(144, 10, 6), (40, 100, 5), (250, 96, 5), (100, 60, 4), (190, 60, 4)])
+    s.save(name('bogen', tier))
 
 
-def golden_clover():
+def golden_clover(tier):
     s = Svg(220, 320, 'Goldenes Kleeblatt: ein glänzendes, vierblättriges Kleeblatt aus Gold auf einem Steinsockel, mit Lichtschein und Funkeln', 213)
     shadow(s, 114, 310, 94, 8)
     plinth(s, 50, 212, 170, 310)
     s.add(f'<path d="{block(80, 244, 140, 282, 3)}" fill="#968f80" opacity="0.6"/>')
     s.add('<path d="M110 276 C104 268 96 262 96 256 C96 250 104 248 110 254 C116 248 124 250 124 256 C124 262 116 268 110 276 Z" fill="#c8a040" opacity="0.8"/>')
     moss(s, 66, 304, 14, 5)
-    s.add(glow(s, 110, 110, 90, 90, '#fff0a0', 0.4, 26))
+    # Erst aus Bronze, dann aus Silber, ganz oben aus Gold mit Schein.
+    gold = {1: '#b8743a', 2: '#c8ccd4', 3: GOLD}[tier]
+    vein = {1: '#6a3a14', 2: '#6a707a', 3: '#8a6414'}[tier]
+    if tier >= 2:
+        halo(s, 110, 110, 100, 100, light(gold, 0.4) if tier == 2 else '#fff0a0')
     # Der Stiel steckt im Sockel.
-    s.add(f'<path d="M106 214 C104 180 108 160 110 140 L116 140 C114 162 112 184 114 214 Z" fill="{s.linear(104, 0, 116, 0, [(0, "#f8e08a"), (0.5, "#c89a2c"), (1, "#7a5a14")])}"/>')
-    gold = '#e0b440'
+    s.add(f'<path d="M106 214 C104 180 108 160 110 140 L116 140 C114 162 112 184 114 214 Z" fill="{s.linear(104, 0, 116, 0, [(0, light(gold, 0.4)), (0.5, gold), (1, dark(gold, 0.45))])}"/>')
 
     # Vier Herzblätter: je zwei Rundungen außen, die Spitze zur Mitte.
     for angle in (-135, -45, 45, 135):
@@ -561,14 +819,65 @@ def golden_clover():
                  f'<path d="M{f(tip[0])} {f(tip[1])} L{f(wing[0][0])} {f(wing[0][1])} L{f(wing[1][0])} {f(wing[1][1])} Z"/>')
         s.add(f'<g fill="{lit(s, (50, 40, 176, 170), gold, (0.3, 0.25), 0.7, 0.5, 0.6)}">{shape}</g>')
         clip = s.clip(shape)
-        s.add(f'<g {clip}><path d="M{f(tip[0])} {f(tip[1])} L{f(112 + px * 40)} {f(104 + py * 40)}" stroke="#8a6414" stroke-width="1.6" opacity="0.6"/>'
-              f'<ellipse cx="{f(lobes[0][0] - 3)}" cy="{f(lobes[0][1] - 5)}" rx="8" ry="5" fill="#fff8d0" opacity="0.55" {s.blur(3)}/>'
-              f'<ellipse cx="{f(112 + px * 36)}" cy="{f(104 + py * 36)}" rx="22" ry="22" fill="none" stroke="#a87a1c" stroke-width="4" opacity="0.35" {s.blur(2)}/></g>')
-    s.add(f'<circle cx="112" cy="104" r="7" fill="{s.radial(110, 102, 8, [(0, "#fff4c0"), (1, "#a87a1c")])}"/>')
-    for x, y, r in ((62, 70, 7), (164, 82, 6), (150, 154, 5), (74, 150, 5), (112, 46, 8), (178, 130, 4)):
-        sparkle(s, x, y, r, '#fffbe0')
+        s.add(f'<g {clip}><path d="M{f(tip[0])} {f(tip[1])} L{f(112 + px * 40)} {f(104 + py * 40)}" stroke="{vein}" stroke-width="1.6" opacity="0.6"/>'
+              f'<ellipse cx="{f(lobes[0][0] - 3)}" cy="{f(lobes[0][1] - 5)}" rx="8" ry="5" fill="{light(gold, 0.7)}" opacity="0.55" {s.blur(3)}/>'
+              f'<ellipse cx="{f(112 + px * 36)}" cy="{f(104 + py * 36)}" rx="22" ry="22" fill="none" stroke="{dark(gold, 0.25)}" stroke-width="4" opacity="0.35" {s.blur(2)}/></g>')
+    s.add(f'<circle cx="112" cy="104" r="7" fill="{s.radial(110, 102, 8, [(0, light(gold, 0.6)), (1, dark(gold, 0.3))])}"/>')
+    stars = [(62, 70, 7), (164, 82, 6), (150, 154, 5), (74, 150, 5), (112, 46, 8), (178, 130, 4)]
+    glitter(s, stars[:2 * tier], light(gold, 0.8))
     tufts(s, 40, 190, 310, 22, 10)
-    s.save('einrichtung/denkmal_kleeblatt.svg')
+    if tier >= 2:
+        flower_row(s, 44, 186, 306, 8)
+    if tier >= 3:
+        laurel(s, 110, 262, 52, 160, 380, 12, '#f0c850', 5)
+    s.save(name('kleeblatt', tier))
+
+
+def alarm_bell(tier):
+    s = Svg(128, 216, 'Alarmglocke: eine Glocke hängt in einem Holzgerüst mit kleinem Dach, ein Seil hängt herab; '
+            'oben geschmückt, ganz oben aus Gold', 214)
+    shadow(s, 66, 208, 56, 6)
+    if tier >= 3:
+        halo(s, 64, 100, 62, 80)
+    wood = lambda x0, x1: s.linear(x0, 0, x1, 0, [(0, '#c49a64'), (0.45, '#8a643c'), (1, '#4a321c')])
+    # Zwei Pfosten, schräg gegeneinander, mit Querbalken.
+    for d in ('M20 206 L32 46 L42 46 L32 206 Z', 'M96 206 L86 46 L96 46 L108 206 Z'):
+        s.add(f'<path d="{d}" fill="{wood(20, 108)}"/>')
+        s.add(f'<g {s.clip_d(d)}>' + s.strokes(s.scatter(30, 20, 46, 108, 206), 90, 12, 0.8, ['#3e2814', '#d8b07a'], 0.5, 0.05) + '</g>')
+    s.add(f'<path d="{block(22, 48, 106, 60, 3)}" fill="{s.linear(0, 48, 0, 60, [(0, "#d8b07a"), (1, "#6e4c2c")])}"/>'
+          f'<path d="{block(30, 150, 98, 158, 2)}" fill="{s.linear(0, 150, 0, 158, [(0, "#c49a64"), (1, "#5a3c22")])}"/>')
+    # Das Dach: Schindeln, ab Stufe 2 rot gestrichen.
+    roof_color = '#8a6a48' if tier == 1 else '#c8402e'
+    roof = 'M8 52 L64 12 L120 52 L112 56 L64 22 L16 56 Z'
+    s.add(f'<path d="M8 52 L64 12 L120 52 Z" fill="{lit(s, (8, 12, 120, 52), roof_color, (0.3, 0.2), 0.9, 0.45, 0.3)}"/>'
+          f'<path d="{roof}" fill="{dark(roof_color, 0.35)}"/>')
+    for y in (26, 36, 46):
+        half = (y - 12) * 56 / 40
+        s.add(f'<path d="M{f(64 - half)} {y} L{f(64 + half)} {y}" stroke="{dark(roof_color, 0.3)}" stroke-width="1.4" opacity="0.6"/>')
+    # Die Glocke: dunkle Bronze, ganz oben aus Gold.
+    metal = {1: '#8a6a3a', 2: '#b0844a', 3: GOLD}[tier]
+    bell = 'M64 64 C50 64 46 76 46 92 C46 106 40 114 36 118 L92 118 C88 114 82 106 82 92 C82 76 78 64 64 64 Z'
+    s.add(f'<path d="M60 60 L68 60 L68 66 L60 66 Z" fill="#3e2814"/>'
+          f'<path d="{bell}" fill="{lit(s, (36, 64, 92, 118), metal, (0.3, 0.25), 0.9, 0.5, 0.5)}"/>'
+          f'<path d="M34 116 L94 116 L94 122 C80 126 48 126 34 122 Z" fill="{dark(metal, 0.25)}"/>'
+          f'<path d="M52 80 C50 92 50 104 46 112" stroke="{light(metal, 0.6)}" stroke-width="3" fill="none" opacity="0.7" {s.blur(1)}/>')
+    s.add(f'<circle cx="64" cy="126" r="5" fill="{dark(metal, 0.4)}"/>')
+    # Das Seil zum Läuten.
+    s.add('<path d="M64 128 C62 150 66 170 63 190" stroke="#d8c08a" stroke-width="3" fill="none"/>'
+          '<path d="M64 128 C62 150 66 170 63 190" stroke="#8a7040" stroke-width="3" fill="none" stroke-dasharray="2 3"/>'
+          '<ellipse cx="63" cy="192" rx="3.5" ry="5" fill="#c8a870"/>')
+    for x, y, r in ((22, 204, 9), (106, 204, 9), (34, 208, 6), (94, 208, 6)):
+        s.add(f'<ellipse cx="{x}" cy="{y}" rx="{r}" ry="{r * 0.7}" fill="{s.radial(x - 3, y - 3, r * 1.3, [(0, "#d8d4c8"), (0.6, "#a8a496"), (1, "#6a665a")])}"/>')
+    tufts(s, 10, 118, 208, 14, 9)
+    if tier >= 2:
+        ribbon_bow(s, 64, 54, '#f0c040', 0.8)
+        bunting(s, 30, 140, 98, 140, 6, 5)
+        flower_row(s, 14, 114, 202, 6)
+    if tier >= 3:
+        # Eine goldene Kugel auf dem First.
+        s.add(f'<circle cx="64" cy="9" r="5" fill="{s.radial(62, 7, 6, [(0, "#fff4c0"), (0.5, GOLD), (1, "#8a6414")])}"/>')
+        glitter(s, [(54, 84, 6), (80, 100, 4), (24, 40, 4), (104, 40, 4), (64, 8, 4)])
+    s.save(name('glocke', tier))
 
 
 def icons():
@@ -594,18 +903,9 @@ def icons():
 
 
 if __name__ == '__main__':
-    statue()
-    shovel()
-    fox_stone()
-    feather_mast()
-    snow_rabbit()
-    giant_carrot()
-    ancestor_stone()
-    obelisk()
-    cat_basket()
-    maypole()
-    mole()
-    builder_arch()
-    golden_clover()
+    for tier in (1, 2, 3):
+        for draw in (statue, shovel, fox_stone, feather_mast, snow_rabbit, giant_carrot, ancestor_stone, obelisk,
+                     cat_basket, maypole, mole, builder_arch, golden_clover, alarm_bell):
+            draw(tier)
     icons()
     print('ok')

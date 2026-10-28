@@ -10,7 +10,7 @@ use crate::audio::{Sound, Sounds};
 use crate::colony::{Colony, Rng, SLEEP_PER_TILE, cost};
 use crate::daynight::{DayClock, Season};
 use crate::map::{Chamber, Depth, Feature, Grid, Layer, TILE_SIZE, TilePos};
-use crate::monument::{ARCH_SPEED, CRYSTAL_EARTH, Monument, SHOVEL_DIG_FACTOR, SNOW_HUNGER, Standing};
+use crate::monument::{ARCH_SPEED, BELL_FLEE, CRYSTAL_EARTH, Monument, SHOVEL_DIG_FACTOR, SNOW_HUNGER, Standing};
 use crate::progress::{Progress, Tech};
 use crate::pathfinding::{Node, find_path, find_path_where};
 use crate::rabbit::{Hunger, Mood, Offset, OnLayer, Rabbit, z_for};
@@ -646,10 +646,11 @@ fn walk(
     let dig_factor = if progress.has(Tech::Claws) { CLAWS_DIG_FACTOR } else { 1.0 };
     let dig_factor = if standing.has(Monument::Shovel) { dig_factor * SHOVEL_DIG_FACTOR } else { dig_factor };
     let arch = if standing.has(Monument::BuilderArch) { ARCH_SPEED } else { 1.0 };
+    let bell = if standing.has(Monument::AlarmBell) { BELL_FLEE } else { 1.0 };
     for (mut transform, mut layer, mut path, mut activity, mut hunger, mut carrying, offset, rabbit) in &mut rabbits
     {
         let speed = match *activity {
-            Activity::Fleeing => FLEE_SPEED,
+            Activity::Fleeing => FLEE_SPEED * bell,
             // Sehr hungrige Kaninchen werden langsam.
             Activity::Walking(_) if hunger.0 > 0.95 => WALK_SPEED * 0.6,
             Activity::Walking(_) => WALK_SPEED,

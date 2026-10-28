@@ -20,6 +20,7 @@ use crate::colony::{Colony, Messages, Rng};
 use crate::daynight::{DayClock, figure_light};
 use crate::map::{Feature, Grid, Layer, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, TilePos, ViewLayer};
 use crate::monument::{Monument, Standing};
+use crate::progress::Progress;
 use crate::rabbit::{Mood, OnLayer, Rabbit};
 use crate::rig::{Avatar, AvatarLink, Part, RigRoot, RigSource, pose_part};
 
@@ -340,6 +341,7 @@ fn voles(
     clock: Res<DayClock>,
     bond: Res<CatBond>,
     mut colony: ResMut<Colony>,
+    mut progress: ResMut<Progress>,
     mut rng: ResMut<Rng>,
     mut messages: ResMut<Messages>,
     mut was_night: Local<bool>,
@@ -355,6 +357,7 @@ fn voles(
     }
     if bond.friend {
         messages.push(format!("{CAT_NAME} hat in der Nacht Wühlmäuse vom Vorrat verjagt."));
+        progress.feats.voles_chased += 1;
         return;
     }
     let loss = vole_loss(colony.food);

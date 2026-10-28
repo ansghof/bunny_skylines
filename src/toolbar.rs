@@ -10,8 +10,7 @@ use bevy::prelude::*;
 
 use crate::behavior::Priorities;
 use crate::cat::CatBond;
-use crate::furnishing::monument_image_size;
-use crate::monument::{Monument, Standing, Tally, score};
+use crate::monument::{Monument, Standing, TIERS, Tally, number, score, stars};
 use crate::rabbit::Rabbit;
 use crate::colony::Messages;
 use crate::danger::{ALARM_COOLDOWN_SECONDS, AlarmButton};
@@ -57,6 +56,7 @@ impl Plugin for ToolbarPlugin {
                     show_research_panel,
                     update_research_panel,
                     update_feats_panel,
+                    show_monument_tiers,
                 ),
             );
     }
@@ -191,7 +191,17 @@ impl Action {
                 let reward = match kind {
                     ToolKind::Feature(Feature::Monument(m)) if progress.feats.has(m) => {
                         let size = if m.size() > 1 { "2 × 2 Felder" } else { "1 Feld" };
-                        format!("\nVerdient: {}. Kostenlos, {size}, einmal aufstellbar.", m.condition())
+                        let tier = progress.feats.tier(m);
+                        let next = if tier < TIERS {
+                            format!("\nNächste Stufe: {}.", m.condition(tier + 1))
+                        } else {
+                            String::new()
+                        };
+                        format!(
+                            "\nVerdient: {}. Stufe {tier} {}. Kostenlos, {size}, einmal aufstellbar.{next}",
+                            m.condition(tier),
+                            stars(tier)
+                        )
                     }
                     _ => String::new(),
                 };
@@ -236,9 +246,9 @@ impl Action {
             ),
             Action::Feats => format!(
                 "Errungenschaften  [9]\nWas die Familie schon geschafft hat und welche Denkmäler noch warten. \
-                 Verdient: {} von {}",
-                progress.feats.earned.len(),
-                Monument::ALL.len()
+                 Stufen verdient: {} von {}",
+                progress.feats.tiers_earned(),
+                Monument::ALL.len() * usize::from(TIERS)
             ),
             Action::Research => format!(
                 "Forschungsbaum  [T]\nWeisheit aus der Erzählkammer in Neues stecken. Weisheit: {:.0}",
@@ -248,7 +258,7 @@ impl Action {
         match self.locked_by(progress) {
             Some(Lock::Tech(tech)) => format!("{text}\nGesperrt: erst „{}“ erforschen.", tech.label()),
             Some(Lock::Stage(stage)) => format!("{text}\nGesperrt: erst ab der Stufe „{}“.", stage.label()),
-            Some(Lock::Feat(monument)) => format!("{text}\nBelohnung für: {}.", monument.condition()),
+            Some(Lock::Feat(monument)) => format!("{text}\nBelohnung für: {}.", monument.condition(1)),
             None => text,
         }
     }
@@ -412,10 +422,11 @@ fn spawn_button(commands: &mut Commands, asset_server: &AssetServer, parent: Ent
     };
     match (monument, action.icon()) {
         (Some(monument), _) => {
-            let size = monument_image_size(monument.image());
+            let size = monument.picture_size();
             let scale = (ICON_SIZE + 4.0) / size.x.max(size.y);
             commands.spawn((
-                ImageNode::new(asset_server.load(format!("einrichtung/{}", monument.image()))),
+                MonumentPicture(monument),
+                ImageNode::new(asset_server.load(format!("einrichtung/{}", monument.image(1)))),
                 Node {
                     width: Val::Px(size.x * scale),
                     height: Val::Px(size.y * scale),
@@ -845,6 +856,10 @@ struct FeatCard(Monument);
 #[derive(Component)]
 struct FeatText(Monument);
 
+/// Ein Bild des Denkmals in der Werkzeugleiste oder der Übersicht; zeigt die erreichte Stufe.
+#[derive(Component)]
+struct MonumentPicture(Monument);
+
 /// Breite einer Karte; fünf passen nebeneinander.
 const FEAT_CARD: f32 = 228.0;
 
@@ -905,10 +920,11 @@ fn spawn_feats_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ChildOf(cards),
             ))
             .id();
-        let size = monument_image_size(monument.image());
+        let size = monument.picture_size();
         let scale = 56.0 / size.x.max(size.y);
         commands.spawn((
-            ImageNode::new(asset_server.load(format!("einrichtung/{}", monument.image()))),
+            MonumentPicture(monument),
+            ImageNode::new(asset_server.load(format!("einrichtung/{}", monument.image(1)))),
             Node {
                 width: Val::Px(size.x * scale),
                 height: Val::Px(size.y * scale),
@@ -941,11 +957,12 @@ fn update_feats_panel(
     if !open.0 {
         return;
     }
-    let earned = progress.feats.earned.len();
+    let earned = progress.feats.tiers_earned();
     let content = format!(
-        "Errungenschaften  [9, Esc: schließen]    Verdient: {earned} von {}\n\
-         Jede Errungenschaft schenkt ein Denkmal. Aufstellen unter „Denkmäler“: kostenlos, jedes einmal.",
-        Monument::ALL.len()
+        "Errungenschaften  [9, Esc: schließen]    Stufen verdient: {earned} von {}\n\
+         Jede Errungenschaft schenkt ein Denkmal, jede weitere Stufe macht es prächtiger. \
+         Aufstellen unter „Denkmäler“: kostenlos, jedes einmal.",
+        Monument::ALL.len() * usize::from(TIERS)
     );
     if header.0 != content {
         header.0 = content;
@@ -953,16 +970,24 @@ fn update_feats_panel(
     let tally = Tally::of(&grid, rabbits.iter().count(), &cat);
     for (feat, mut text, mut color) in &mut texts {
         let monument = feat.0;
-        let state = if !progress.feats.has(monument) {
-            let goal = monument.goal();
-            let now = score(monument, &progress, &tally).min(goal);
-            if goal <= 1.0 { "Noch nicht geschafft".to_string() } else { format!("Geschafft: {now:.0} von {goal:.0}") }
-        } else if standing.has(monument) {
-            "Verdient – steht schon".into()
+        let tier = progress.feats.tier(monument);
+        // Was als Nächstes kommt; nach der letzten Stufe bleibt die letzte stehen.
+        let next = (tier + 1).min(TIERS);
+        let goal = monument.goal(next);
+        let now = score(monument, &progress, &tally).min(goal);
+        let state = if tier >= TIERS {
+            "Alle Stufen geschafft!".to_string()
+        } else if goal <= 1.0 {
+            "Noch nicht geschafft".to_string()
         } else {
-            "Verdient – jetzt aufstellen!".into()
+            format!("Geschafft: {} von {}", number(now), number(goal))
         };
-        let content = format!("{}\n{}\n{state}", monument.label(), monument.condition());
+        let state = match (tier, standing.has(monument)) {
+            (0, _) => state,
+            (_, true) => format!("{state}\nSteht schon"),
+            (_, false) => format!("{state}\nJetzt aufstellen!"),
+        };
+        let content = format!("{}  {}\n{}\n{state}", monument.label(), stars(tier), monument.condition(next));
         if text.0 != content {
             text.0 = content;
         }
@@ -985,5 +1010,22 @@ fn update_feats_panel(
         if border.top != edge {
             *border = BorderColor::all(edge);
         }
+    }
+}
+
+/// Ist eine neue Stufe erreicht, zeigen Werkzeugleiste und Übersicht das prächtigere Bild.
+fn show_monument_tiers(
+    progress: Res<Progress>,
+    asset_server: Res<AssetServer>,
+    mut pictures: Query<(&MonumentPicture, &mut ImageNode)>,
+    mut shown: Local<Option<usize>>,
+) {
+    let tiers = progress.feats.tiers_earned();
+    if *shown == Some(tiers) {
+        return;
+    }
+    *shown = Some(tiers);
+    for (picture, mut image) in &mut pictures {
+        image.image = asset_server.load(format!("einrichtung/{}", picture.0.image(progress.feats.tier(picture.0))));
     }
 }

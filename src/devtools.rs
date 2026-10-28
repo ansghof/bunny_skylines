@@ -37,7 +37,8 @@
 //! - `posten_wahl`, `sonne_wahl`, `wache_wahl`: dieses Werkzeug wählen (mit `zeiger` für den Wirkungskreis)
 //! - `katze`: Minka kommt gleich zu Besuch; `katzenfreundin`: Minka ist schon Freundin
 //! - `denkmaeler`: alle Denkmäler verdient; `denkmaeler_stehen`: alle stehen rund um den Startbau
-//! - `errungenschaft`: gleich eine Errungenschaft mit Fanfare (Schaufelmonument)
+//! - `stufe2`, `stufe3` (mit `denkmaeler`): alle Denkmäler gleich in dieser Stufe; `stufen`: gemischt
+//! - `errungenschaft`: gleich Stufe 1 und 2 des Schaufelmonuments mit Fanfare (mit `denkmaeler_stehen`: Stufe 2 am Denkmal)
 //! - `errungenschaften`: die Übersicht der Errungenschaften ist offen
 //! - `denkmal_wahl`: die Kaninchenstatue zum Aufstellen gewählt (mit `zeiger` für den Wirkungskreis)
 //! - `aufstellen` (mit `zeiger` und `denkmaeler`): die Kaninchenstatue neben dem Startbau aufstellen
@@ -243,6 +244,7 @@ fn prepare(
             (Monument::AncestorStone, 22, 17),
             (Monument::CatBasket, 23, 14),
             (Monument::MoleMonument, 17, 17),
+            (Monument::AlarmBell, 19, 13),
         ];
         for (monument, x, y) in spots {
             let center = TilePos::new(x, y);
@@ -692,10 +694,17 @@ fn skip_intro(
         world_cat.friendship = 1.0;
     }
     if script.has("denkmaeler") || script.has("denkmaeler_stehen") {
-        progress.feats.earned = crate::monument::Monument::ALL.to_vec();
+        use crate::monument::Monument;
+        let tier = |i: usize| match () {
+            _ if script.has("stufe3") => 3,
+            _ if script.has("stufe2") => 2,
+            _ if script.has("stufen") => 1 + i % 3,
+            _ => 1,
+        };
+        progress.feats.earned = Monument::ALL.iter().enumerate().flat_map(|(i, m)| vec![*m; tier(i)]).collect();
     }
     if script.has("errungenschaft") {
-        progress.feats.earth_dug = 100.0;
+        progress.feats.earth_dug = 500.0;
     }
     if script.has("errungenschaften") {
         feats.0 = true;
